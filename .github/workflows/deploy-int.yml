@@ -90,26 +90,31 @@ jobs:
         run: |
           echo "Checking if images exist in registry..."
 
-          SERVER_IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server:${{ github.event.inputs.image_tag }}"
-          UI_IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:${{ github.event.inputs.image_tag }}"
+          IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+          SERVER_REPO="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server"
+          UI_REPO="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui"
 
-          echo "Checking: ${SERVER_IMAGE}"
-          if ! gcloud artifacts docker images describe "${SERVER_IMAGE}" > /dev/null 2>&1; then
-            echo "::error::Image not found: ${SERVER_IMAGE}"
+          echo "Looking for tag: ${IMAGE_TAG}"
+
+          # Check server image using tags list (more reliable than describe)
+          echo "Checking server image..."
+          if ! gcloud artifacts docker tags list "${SERVER_REPO}" --format="value(tag)" | grep -q "^${IMAGE_TAG}$"; then
+            echo "::error::Tag '${IMAGE_TAG}' not found for cvat-server"
             echo "Available tags:"
-            gcloud artifacts docker tags list "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server" --limit=10 || true
+            gcloud artifacts docker tags list "${SERVER_REPO}" --format="table(tag)" --limit=10 || true
             exit 1
           fi
-          echo "✓ Server image found"
+          echo "✓ Server image found: ${SERVER_REPO}:${IMAGE_TAG}"
 
-          echo "Checking: ${UI_IMAGE}"
-          if ! gcloud artifacts docker images describe "${UI_IMAGE}" > /dev/null 2>&1; then
-            echo "::error::Image not found: ${UI_IMAGE}"
+          # Check UI image
+          echo "Checking UI image..."
+          if ! gcloud artifacts docker tags list "${UI_REPO}" --format="value(tag)" | grep -q "^${IMAGE_TAG}$"; then
+            echo "::error::Tag '${IMAGE_TAG}' not found for cvat-ui"
             echo "Available tags:"
-            gcloud artifacts docker tags list "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui" --limit=10 || true
+            gcloud artifacts docker tags list "${UI_REPO}" --format="table(tag)" --limit=10 || true
             exit 1
           fi
-          echo "✓ UI image found"
+          echo "✓ UI image found: ${UI_REPO}:${IMAGE_TAG}"
 
           echo "All images verified!"
 
