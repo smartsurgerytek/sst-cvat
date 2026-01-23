@@ -43,7 +43,7 @@ env:
   REPO_NAME: cvat-repo
 
   # Deployment Configuration
-  DEPLOY_PATH: ~/sst-cvat  # Path on VM where CVAT is deployed
+  DEPLOY_PATH: sst-cvat  # Directory name under $HOME on VM
   GIT_REPO_URL: https://github.com/smartsurgerytek/sst-cvat.git
   GIT_BRANCH: sst-main
 
@@ -153,16 +153,18 @@ jobs:
 
               # Check if repo exists, clone or pull
               echo 'Checking repository...'
-              if [ -d '${DEPLOY_PATH}' ]; then
+              DEPLOY_DIR=\"\${HOME}/${DEPLOY_PATH}\"
+              echo \"Deploy directory: \${DEPLOY_DIR}\"
+              if [ -d \"\${DEPLOY_DIR}\" ]; then
                 echo 'Repository exists, pulling latest changes...'
-                cd ${DEPLOY_PATH}
+                cd \"\${DEPLOY_DIR}\"
                 git fetch origin
                 git checkout ${GIT_BRANCH}
                 git pull origin ${GIT_BRANCH}
               else
                 echo 'Repository does not exist, cloning...'
-                git clone -b ${GIT_BRANCH} ${GIT_REPO_URL} ${DEPLOY_PATH}
-                cd ${DEPLOY_PATH}
+                git clone -b ${GIT_BRANCH} ${GIT_REPO_URL} \"\${DEPLOY_DIR}\"
+                cd \"\${DEPLOY_DIR}\"
               fi
 
               echo 'Current directory: '\$(pwd)
@@ -232,7 +234,7 @@ jobs:
             --zone=${{ secrets.GCP_ZONE }} \
             --tunnel-through-iap \
             --command="
-              cd ${{ env.DEPLOY_PATH }}
+              cd \"\${HOME}/${{ env.DEPLOY_PATH }}\"
 
               echo 'Container Status:'
               docker compose -f docker-compose.yml -f docker-compose.int.yml ps
