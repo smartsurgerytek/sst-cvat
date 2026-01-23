@@ -134,6 +134,7 @@ jobs:
           # SSH to VM and run deployment
           gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
             --zone=${{ secrets.GCP_ZONE }} \
+            --tunnel-through-iap \
             --command="
               set -e
               echo '============================================'
@@ -197,6 +198,7 @@ jobs:
           # Check if containers are running via SSH
           gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
             --zone=${{ secrets.GCP_ZONE }} \
+            --tunnel-through-iap \
             --command="
               cd ${{ env.DEPLOY_PATH }}
 
