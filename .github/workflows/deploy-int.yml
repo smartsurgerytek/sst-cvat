@@ -152,7 +152,7 @@ jobs:
               if [ '${SKIP_BACKUP}' != 'true' ]; then
                 echo 'Creating backup of current state...'
                 BACKUP_TAG=\$(date +%Y%m%d_%H%M%S)
-                docker compose --env-file .env.deploy -f docker-compose.yml -f docker-compose.int.yml ps > /tmp/cvat_backup_\${BACKUP_TAG}.txt 2>/dev/null || true
+                docker compose --env-file /tmp/cvat.env -f docker-compose.yml -f docker-compose.int.yml ps > /tmp/cvat_backup_\${BACKUP_TAG}.txt 2>/dev/null || true
                 echo \"Backup saved to /tmp/cvat_backup_\${BACKUP_TAG}.txt\"
               fi
 
@@ -161,9 +161,9 @@ jobs:
               CVAT_UI_IMAGE='${REGISTRY}/${PROJECT_ID}/${REPO_NAME}/cvat-ui:${IMAGE_TAG}'
 
               echo 'Writing image configuration to .env file...'
-              echo \"CVAT_SERVER_IMAGE=\${CVAT_SERVER_IMAGE}\" > .env.deploy
-              echo \"CVAT_UI_IMAGE=\${CVAT_UI_IMAGE}\" >> .env.deploy
-              cat .env.deploy
+              echo \"CVAT_SERVER_IMAGE=\${CVAT_SERVER_IMAGE}\" > /tmp/cvat.env
+              echo \"CVAT_UI_IMAGE=\${CVAT_UI_IMAGE}\" >> /tmp/cvat.env
+              cat /tmp/cvat.env
 
               echo 'Pulling new images...'
               echo \"  Server: \${CVAT_SERVER_IMAGE}\"
@@ -173,16 +173,16 @@ jobs:
               docker pull \${CVAT_UI_IMAGE}
 
               echo 'Stopping current containers...'
-              docker compose --env-file .env.deploy -f docker-compose.yml -f docker-compose.int.yml down --remove-orphans || true
+              docker compose --env-file /tmp/cvat.env -f docker-compose.yml -f docker-compose.int.yml down --remove-orphans || true
 
               echo 'Starting containers with new images...'
-              docker compose --env-file .env.deploy -f docker-compose.yml -f docker-compose.int.yml up -d
+              docker compose --env-file /tmp/cvat.env -f docker-compose.yml -f docker-compose.int.yml up -d
 
               echo 'Waiting for services to start...'
               sleep 10
 
               echo 'Checking container status...'
-              docker compose --env-file .env.deploy -f docker-compose.yml -f docker-compose.int.yml ps
+              docker compose --env-file /tmp/cvat.env -f docker-compose.yml -f docker-compose.int.yml ps
 
               echo '============================================'
               echo 'Deployment complete!'
@@ -208,13 +208,13 @@ jobs:
               cd ${{ env.DEPLOY_PATH }}
 
               echo 'Container Status:'
-              docker compose --env-file .env.deploy -f docker-compose.yml -f docker-compose.int.yml ps
+              docker compose --env-file /tmp/cvat.env -f docker-compose.yml -f docker-compose.int.yml ps
 
               # Check critical services
               FAILED=0
 
               for SERVICE in cvat_server cvat_ui cvat_db; do
-                STATUS=\$(docker compose --env-file .env.deploy -f docker-compose.yml -f docker-compose.int.yml ps \${SERVICE} --format '{{.Status}}' 2>/dev/null || echo 'not found')
+                STATUS=\$(docker compose --env-file /tmp/cvat.env -f docker-compose.yml -f docker-compose.int.yml ps \${SERVICE} --format '{{.Status}}' 2>/dev/null || echo 'not found')
                 if [[ \"\${STATUS}\" == *'Up'* ]]; then
                   echo \"✓ \${SERVICE}: Running\"
                 else
