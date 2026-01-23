@@ -42,7 +42,7 @@ env:
   REPO_NAME: cvat-repo
 
   # Deployment Configuration
-  DEPLOY_PATH: ~/cvat  # Path on VM where CVAT is deployed
+  DEPLOY_PATH: ~/sst-cvat  # Path on VM where CVAT is deployed
 
 jobs:
   deploy:
@@ -146,7 +146,7 @@ jobs:
               if [ '${SKIP_BACKUP}' != 'true' ]; then
                 echo 'Creating backup of current state...'
                 BACKUP_TAG=\$(date +%Y%m%d_%H%M%S)
-                docker compose ps > backup_\${BACKUP_TAG}.txt 2>/dev/null || true
+                docker compose -f docker-compose.yml -f docker-compose.int.yml ps > backup_\${BACKUP_TAG}.txt 2>/dev/null || true
                 echo \"Backup saved to backup_\${BACKUP_TAG}.txt\"
               fi
 
@@ -162,16 +162,16 @@ jobs:
               docker pull \${CVAT_UI_IMAGE}
 
               echo 'Stopping current containers...'
-              docker compose down --remove-orphans || true
+              docker compose -f docker-compose.yml -f docker-compose.int.yml down --remove-orphans || true
 
               echo 'Starting containers with new images...'
-              docker compose up -d
+              docker compose -f docker-compose.yml -f docker-compose.int.yml up -d
 
               echo 'Waiting for services to start...'
               sleep 10
 
               echo 'Checking container status...'
-              docker compose ps
+              docker compose -f docker-compose.yml -f docker-compose.int.yml ps
 
               echo '============================================'
               echo 'Deployment complete!'
@@ -196,13 +196,13 @@ jobs:
               cd ${{ env.DEPLOY_PATH }}
 
               echo 'Container Status:'
-              docker compose ps
+              docker compose -f docker-compose.yml -f docker-compose.int.yml ps
 
               # Check critical services
               FAILED=0
 
               for SERVICE in cvat_server cvat_ui cvat_db; do
-                STATUS=\$(docker compose ps \${SERVICE} --format '{{.Status}}' 2>/dev/null || echo 'not found')
+                STATUS=\$(docker compose -f docker-compose.yml -f docker-compose.int.yml ps \${SERVICE} --format '{{.Status}}' 2>/dev/null || echo 'not found')
                 if [[ \"\${STATUS}\" == *'Up'* ]]; then
                   echo \"✓ \${SERVICE}: Running\"
                 else
