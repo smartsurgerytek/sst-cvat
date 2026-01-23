@@ -141,8 +141,19 @@ jobs:
               echo 'Starting deployment on INT VM'
               echo '============================================'
 
-              # Navigate to deployment directory
-              cd ${DEPLOY_PATH}
+              # Define repo URL
+              export REPO_URL="https://github.com/${{ github.repository }}.git"
+
+              # Navigate to deployment directory, cloning if it does not exist
+              if [ -d "${DEPLOY_PATH}" ]; then
+                echo "Deployment directory '${DEPLOY_PATH}' found. Pulling latest changes..."
+                cd "${DEPLOY_PATH}"
+                git pull
+              else
+                echo "Deployment directory '${DEPLOY_PATH}' not found. Cloning repository..."
+                git clone ${REPO_URL} "${DEPLOY_PATH}"
+                cd "${DEPLOY_PATH}"
+              fi
 
               # Configure Docker for Artifact Registry
               echo 'Configuring Docker for Artifact Registry...'
