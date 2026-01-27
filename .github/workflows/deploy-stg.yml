@@ -156,35 +156,10 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       # ============================================
-      # Step 4: Verify images exist in Artifact Registry
+      # Step 4: Deploy to STG VM
       # ============================================
-      - name: Verify images exist
-        run: |
-          IMAGE_TAG="${{ steps.params.outputs.image_tag }}"
-
-          echo "Verifying images exist in Artifact Registry..."
-          echo "Looking for tag: ${IMAGE_TAG}"
-
-          # Check if images exist
-          gcloud artifacts docker images describe \
-            ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server:${IMAGE_TAG} \
-            --format="value(image)" || {
-              echo "::error::cvat-server:${IMAGE_TAG} not found in Artifact Registry"
-              exit 1
-            }
-
-          gcloud artifacts docker images describe \
-            ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:${IMAGE_TAG} \
-            --format="value(image)" || {
-              echo "::error::cvat-ui:${IMAGE_TAG} not found in Artifact Registry"
-              exit 1
-            }
-
-          echo "Images verified successfully!"
-
-      # ============================================
-      # Step 5: Deploy to STG VM
-      # ============================================
+      # Note: Image verification happens during docker pull on the VM.
+      # If images don't exist, the pull will fail with a clear error.
       - name: Deploy to STG VM
         run: |
           # Set variables for the deployment script
@@ -321,7 +296,7 @@ jobs:
             "
 
       # ============================================
-      # Step 6: Health Check (skip for dry run)
+      # Step 5: Health Check (skip for dry run)
       # ============================================
       - name: Health Check
         if: ${{ steps.params.outputs.dry_run == 'false' }}
@@ -362,7 +337,7 @@ jobs:
             "
 
       # ============================================
-      # Step 7: Deployment Summary
+      # Step 6: Deployment Summary
       # ============================================
       - name: Deployment Summary
         if: always()
