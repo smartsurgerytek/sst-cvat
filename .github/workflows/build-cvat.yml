@@ -1,23 +1,22 @@
 # =============================================================================
-# CI Workflow: Build CVAT Images and Push to GCP Artifact Registry
+# CI Workflow: Build CVAT Images for PR Checks and STG
 # =============================================================================
 #
-# Triggers:
-#   - Manual (workflow_dispatch): Run on ANY branch via GitHub UI
-#   - Auto (push to sst-main): For STG deployments
-#   - PR to sst-main: For code review builds
+# This workflow builds CVAT images for PR validation and STG deployment.
 #
-# How to use:
-#   1. Go to Actions tab → "Build CVAT Images"
-#   2. Click "Run workflow"
-#   3. Select your branch from dropdown
-#   4. Click "Run workflow" button
+# Triggers:
+#   - PR to sst-main: CI checks before merge
+#   - Push to sst-main: Build for STG deployment (after PR merged)
+#
+# Flow:
+#   1. Developer tests on INT (using build-deploy-int.yml)
+#   2. Create PR to sst-main -> This workflow runs (CI checks)
+#   3. PR merged -> This workflow runs again (builds for STG)
+#   4. deploy-stg.yml deploys to STG (future)
 #
 # Tagging Strategy:
-#   - sst-main branch:  "latest" + "sst-main-{short_sha}"
-#   - Other branches:   "{branch_name}-{short_sha}"
-#   - STG uses "latest" tag (only built from sst-main)
-#   - INT can use any specific tag
+#   - sst-main branch (push): "latest" + "sst-main-{short_sha}"
+#   - PR builds:              "{branch_name}-{short_sha}"
 #
 # Prerequisites (GitHub Secrets):
 #   - GCP_SA_KEY:      Service Account JSON key
@@ -28,16 +27,13 @@
 name: Build CVAT Images
 
 on:
-  # Manual trigger - allows running on ANY branch via GitHub UI
-  workflow_dispatch:
-
-  # Auto trigger - only on sst-main (for STG deployments)
-  push:
+  # PR trigger - CI checks before merge
+  pull_request:
     branches:
       - 'sst-main'
 
-  # PR trigger - for code review builds
-  pull_request:
+  # Push trigger - build for STG after PR merged
+  push:
     branches:
       - 'sst-main'
 
@@ -77,8 +73,14 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
-          # Get branch name and make it tag-friendly (replace / with -)
-          BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+          # Determine branch name based on event type
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BRANCH_NAME="${{ github.head_ref }}"
+          else
+            BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+          fi
+
+          # Make branch name tag-friendly (replace / with -)
           BRANCH_TAG=$(echo "${BRANCH_NAME}" | sed 's/\//-/g')
           echo "branch_tag=${BRANCH_TAG}" >> $GITHUB_OUTPUT
 
@@ -86,19 +88,19 @@ jobs:
           VERSION_TAG="${BRANCH_TAG}-${SHORT_SHA}"
           echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
 
-          # Determine if we should also push "latest" tag (only for sst-main)
-          if [ "$BRANCH_NAME" = "sst-main" ]; then
+          # Push "latest" tag only for push to sst-main (not for PRs)
+          if [ "${{ github.event_name }}" = "push" ] && [ "$BRANCH_NAME" = "sst-main" ]; then
             echo "is_main=true" >> $GITHUB_OUTPUT
-            echo "::notice::Building from sst-main - will tag as 'latest'"
+            echo "::notice::Push to sst-main - will tag as 'latest' for STG"
           else
             echo "is_main=false" >> $GITHUB_OUTPUT
-            echo "::notice::Building from ${BRANCH_NAME} - version tag only"
+            echo "::notice::PR build from ${BRANCH_NAME}"
           fi
 
           echo "============================================"
+          echo "Event:       ${{ github.event_name }}"
           echo "Branch:      ${BRANCH_NAME}"
           echo "Version Tag: ${VERSION_TAG}"
-          echo "Is Main:     $( [ "$BRANCH_NAME" = "sst-main" ] && echo 'yes' || echo 'no' )"
           echo "============================================"
 
       # ============================================
@@ -164,32 +166,25 @@ jobs:
       # ============================================
       - name: Build Summary
         run: |
-          echo "## Build Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Complete!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Branch Info" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch**: \`${{ steps.tags.outputs.branch_tag }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit**: \`${{ steps.tags.outputs.short_sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Event | \`${{ github.event_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ steps.tags.outputs.branch_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ steps.tags.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | \`${{ steps.tags.outputs.version_tag }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Images Pushed" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server:${{ steps.tags.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:${{ steps.tags.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Image | Tags |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|------|" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.tags.outputs.is_main }}" = "true" ]; then
-            echo "| cvat-server | \`${{ steps.tags.outputs.version_tag }}\`, \`latest\` |" >> $GITHUB_STEP_SUMMARY
-            echo "| cvat-ui | \`${{ steps.tags.outputs.version_tag }}\`, \`latest\` |" >> $GITHUB_STEP_SUMMARY
+            echo "### Next: STG Deployment" >> $GITHUB_STEP_SUMMARY
+            echo "Images tagged as \`latest\` - ready for STG deployment" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| cvat-server | \`${{ steps.tags.outputs.version_tag }}\` |" >> $GITHUB_STEP_SUMMARY
-            echo "| cvat-ui | \`${{ steps.tags.outputs.version_tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Registry" >> $GITHUB_STEP_SUMMARY
-          echo "\`${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Deployment" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.tags.outputs.is_main }}" = "true" ]; then
-            echo "- :white_check_mark: **STG**: Ready to auto-deploy (uses \`latest\` tag)" >> $GITHUB_STEP_SUMMARY
-            echo "- :arrow_right: **INT**: Run \`deploy-int.yml\` with tag \`${{ steps.tags.outputs.version_tag }}\`" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- :x: **STG**: Not available (only sst-main builds)" >> $GITHUB_STEP_SUMMARY
-            echo "- :arrow_right: **INT**: Run \`deploy-int.yml\` with tag \`${{ steps.tags.outputs.version_tag }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "### PR Build" >> $GITHUB_STEP_SUMMARY
+            echo "CI check passed. Merge PR to deploy to STG." >> $GITHUB_STEP_SUMMARY
           fi

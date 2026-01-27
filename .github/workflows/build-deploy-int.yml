@@ -1,40 +1,47 @@
 # =============================================================================
-# CD Workflow: Deploy to INT Environment
+# INT Workflow: Build and Deploy to INT Environment
 # =============================================================================
 #
-# This workflow deploys CVAT to the INT (Integration) environment.
-# It is triggered MANUALLY via workflow_dispatch.
+# This workflow builds CVAT images and deploys them to INT for testing.
+# Use this BEFORE creating a PR - for PM/annotation team to do pre-check.
+#
+# Flow:
+#   1. Developer works on feature branch
+#   2. Manually trigger this workflow → Build + Deploy to INT
+#   3. PM/annotation team tests on INT
+#   4. If tests pass → Create PR to sst-main
 #
 # Usage:
 #   1. Go to Actions tab in GitHub
-#   2. Select "Deploy to INT" workflow
+#   2. Select "Build and Deploy to INT" workflow
 #   3. Click "Run workflow"
-#   4. Enter the image tag to deploy (e.g., "sst-main-abc1234" or "feature-auth-xyz999")
+#   4. Select your branch from dropdown
 #   5. Click "Run workflow" button
 #
 # Prerequisites (GitHub Secrets):
 #   - GCP_SA_KEY:      Service Account JSON key
-#   - GCP_PROJECT_ID:  GCP Project ID (sandbox-446907)
+#   - GCP_PROJECT_ID:  GCP Project ID
 #   - GCP_ZONE:        VM zone (us-central1-a)
 #   - INT_VM_NAME:     INT VM instance name
-#   - INT_CVAT_HOST:   CVAT hostname for INT (e.g., cvat-ci-1.smartsurgerytek.net)
+#   - INT_CVAT_HOST:   CVAT hostname for INT
 #
 # =============================================================================
 
-name: Deploy to INT
+name: Build and Deploy to INT
 
 on:
   workflow_dispatch:
     inputs:
-      image_tag:
-        description: 'Image tag to deploy (e.g., sst-main-abc1234)'
-        required: true
-        type: string
       skip_backup:
         description: 'Skip backup before deployment'
         required: false
         type: boolean
         default: false
+
+# Prevent duplicate runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   # GCP Configuration
@@ -43,98 +50,140 @@ env:
   REPO_NAME: cvat-repo
 
   # Deployment Configuration
-  DEPLOY_PATH: sst-cvat  # Directory name under $HOME on VM
+  DEPLOY_PATH: sst-cvat
   GIT_REPO_URL: https://github.com/smartsurgerytek/sst-cvat.git
-  GIT_BRANCH: sst-main
 
 jobs:
-  deploy:
-    name: Deploy to INT Environment
+  # ============================================
+  # Job 1: Build and Push Images
+  # ============================================
+  build:
+    name: Build and Push Images
     runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tags.outputs.version_tag }}
+      branch_name: ${{ steps.tags.outputs.branch_name }}
+      short_sha: ${{ steps.tags.outputs.short_sha }}
 
     steps:
-      # ============================================
-      # Step 1: Print deployment info
-      # ============================================
-      - name: Deployment Info
-        run: |
-          echo "============================================"
-          echo "Deploying to INT Environment"
-          echo "============================================"
-          echo "Image Tag:    ${{ github.event.inputs.image_tag }}"
-          echo "Skip Backup:  ${{ github.event.inputs.skip_backup }}"
-          echo "Triggered by: ${{ github.actor }}"
-          echo "============================================"
-
-      # ============================================
-      # Step 2: Checkout code (for reference)
-      # ============================================
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ============================================
-      # Step 3: Authenticate to Google Cloud
-      # ============================================
+      - name: Generate image tags
+        id: tags
+        run: |
+          # Get short SHA (7 characters)
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+          # Get branch name and make it tag-friendly (replace / with -)
+          BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+          BRANCH_TAG=$(echo "${BRANCH_NAME}" | sed 's/\//-/g')
+          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+          echo "branch_tag=${BRANCH_TAG}" >> $GITHUB_OUTPUT
+
+          # Create the version tag: {branch}-{short_sha}
+          VERSION_TAG="${BRANCH_TAG}-${SHORT_SHA}"
+          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
+
+          echo "============================================"
+          echo "Branch:      ${BRANCH_NAME}"
+          echo "Version Tag: ${VERSION_TAG}"
+          echo "============================================"
+
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      # ============================================
-      # Step 4: Set up gcloud CLI
-      # ============================================
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
 
-      # ============================================
-      # Step 5: Verify image exists in registry
-      # ============================================
-      - name: Verify image exists
+      - name: Configure Docker for Artifact Registry
         run: |
-          echo "Checking if images exist in registry..."
+          gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
-          IMAGE_TAG="${{ github.event.inputs.image_tag }}"
-          SERVER_REPO="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server"
-          UI_REPO="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-          echo "Looking for tag: ${IMAGE_TAG}"
+      - name: Build and Push CVAT Server
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server:${{ steps.tags.outputs.version_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-          # Check server image using tags list (more reliable than describe)
-          echo "Checking server image..."
-          if ! gcloud artifacts docker tags list "${SERVER_REPO}" --format="value(tag)" | grep -q "^${IMAGE_TAG}$"; then
-            echo "::error::Tag '${IMAGE_TAG}' not found for cvat-server"
-            echo "Available tags:"
-            gcloud artifacts docker tags list "${SERVER_REPO}" --format="table(tag)" --limit=10 || true
-            exit 1
-          fi
-          echo "✓ Server image found: ${SERVER_REPO}:${IMAGE_TAG}"
+      - name: Build and Push CVAT UI
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.ui
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:${{ steps.tags.outputs.version_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-          # Check UI image
-          echo "Checking UI image..."
-          if ! gcloud artifacts docker tags list "${UI_REPO}" --format="value(tag)" | grep -q "^${IMAGE_TAG}$"; then
-            echo "::error::Tag '${IMAGE_TAG}' not found for cvat-ui"
-            echo "Available tags:"
-            gcloud artifacts docker tags list "${UI_REPO}" --format="table(tag)" --limit=10 || true
-            exit 1
-          fi
-          echo "✓ UI image found: ${UI_REPO}:${IMAGE_TAG}"
+      - name: Build Summary
+        run: |
+          echo "## Build Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ steps.tags.outputs.branch_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ steps.tags.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | \`${{ steps.tags.outputs.version_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Images" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server:${{ steps.tags.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:${{ steps.tags.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
-          echo "All images verified!"
+  # ============================================
+  # Job 2: Deploy to INT
+  # ============================================
+  deploy:
+    name: Deploy to INT Environment
+    runs-on: ubuntu-latest
+    needs: build
 
-      # ============================================
-      # Step 6: Deploy to INT VM
-      # ============================================
+    steps:
+      - name: Deployment Info
+        run: |
+          echo "============================================"
+          echo "Deploying to INT Environment"
+          echo "============================================"
+          echo "Branch:       ${{ needs.build.outputs.branch_name }}"
+          echo "Image Tag:    ${{ needs.build.outputs.image_tag }}"
+          echo "Skip Backup:  ${{ github.event.inputs.skip_backup }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "============================================"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
       - name: Deploy to INT VM
         run: |
           # Set variables for the deployment script
-          IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          BRANCH_NAME="${{ needs.build.outputs.branch_name }}"
           REGISTRY="${{ env.REGISTRY }}"
           PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
           REPO_NAME="${{ env.REPO_NAME }}"
           DEPLOY_PATH="${{ env.DEPLOY_PATH }}"
           SKIP_BACKUP="${{ github.event.inputs.skip_backup }}"
           GIT_REPO_URL="${{ env.GIT_REPO_URL }}"
-          GIT_BRANCH="${{ env.GIT_BRANCH }}"
           CVAT_HOST="${{ secrets.INT_CVAT_HOST }}"
 
           # SSH to VM and run deployment
@@ -159,11 +208,11 @@ jobs:
                 echo 'Repository exists, pulling latest changes...'
                 cd \"\${DEPLOY_DIR}\"
                 git fetch origin
-                git checkout ${GIT_BRANCH}
-                git pull origin ${GIT_BRANCH}
+                git checkout ${BRANCH_NAME} || git checkout -b ${BRANCH_NAME} origin/${BRANCH_NAME}
+                git pull origin ${BRANCH_NAME}
               else
                 echo 'Repository does not exist, cloning...'
-                git clone -b ${GIT_BRANCH} ${GIT_REPO_URL} \"\${DEPLOY_DIR}\"
+                git clone -b ${BRANCH_NAME} ${GIT_REPO_URL} \"\${DEPLOY_DIR}\"
                 cd \"\${DEPLOY_DIR}\"
               fi
 
@@ -214,22 +263,17 @@ jobs:
 
               echo '============================================'
               echo 'Deployment complete!'
+              echo 'Branch:    ${BRANCH_NAME}'
               echo 'Image tag: ${IMAGE_TAG}'
               echo 'CVAT Host: ${CVAT_HOST}'
               echo '============================================'
             "
 
-      # ============================================
-      # Step 7: Health check
-      # ============================================
       - name: Health Check
         run: |
           echo "Running health check..."
-
-          # Give services more time to fully start
           sleep 20
 
-          # Check if containers are running via SSH
           gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
             --zone=${{ secrets.GCP_ZONE }} \
             --tunnel-through-iap \
@@ -239,7 +283,6 @@ jobs:
               echo 'Container Status:'
               docker compose -f docker-compose.yml -f docker-compose.int.yml ps
 
-              # Check critical services
               FAILED=0
 
               for SERVICE in cvat_server cvat_ui cvat_db; do
@@ -263,9 +306,6 @@ jobs:
               echo 'All critical services are running!'
             "
 
-      # ============================================
-      # Step 8: Deployment summary
-      # ============================================
       - name: Deployment Summary
         if: always()
         run: |
@@ -273,15 +313,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | INT |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image Tag | \`${{ github.event.inputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | **INT** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ needs.build.outputs.branch_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | \`${{ needs.build.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| VM | \`${{ secrets.INT_VM_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| CVAT Host | \`${{ secrets.INT_CVAT_HOST }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered By | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Images Deployed" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server:${{ github.event.inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:${{ github.event.inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Test on INT environment" >> $GITHUB_STEP_SUMMARY
+          echo "2. If tests pass, create PR to \`sst-main\`" >> $GITHUB_STEP_SUMMARY
