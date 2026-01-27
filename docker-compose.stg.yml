@@ -1,0 +1,53 @@
+# =============================================================================
+# Docker Compose Override for STG Environment (Staging/Production)
+# =============================================================================
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.stg.yml up -d
+#
+# Features:
+#   - Uses images from Artifact Registry (set via environment variables)
+#   - Production-ready configuration (no debug features)
+#
+# Environment variables (set before running or via .env file):
+#   CVAT_SERVER_IMAGE  - Server image from Artifact Registry
+#   CVAT_UI_IMAGE      - UI image from Artifact Registry
+#   CVAT_HOST          - Hostname for CVAT
+#
+# Example:
+#   export CVAT_SERVER_IMAGE=us-central1-docker.pkg.dev/sandbox-446907/cvat-repo/cvat-server:latest
+#   export CVAT_UI_IMAGE=us-central1-docker.pkg.dev/sandbox-446907/cvat-repo/cvat-ui:latest
+#   docker compose -f docker-compose.yml -f docker-compose.stg.yml up -d
+#
+# =============================================================================
+
+services:
+  # Override server to use Artifact Registry image
+  cvat_server:
+    image: ${CVAT_SERVER_IMAGE:-cvat/server:dev}
+
+  # Override UI to use Artifact Registry image
+  cvat_ui:
+    image: ${CVAT_UI_IMAGE:-cvat/ui:dev}
+
+  # Override workers to use Artifact Registry image (they all use server image)
+  cvat_worker_import:
+    image: ${CVAT_SERVER_IMAGE:-cvat/server:dev}
+
+  cvat_worker_export:
+    image: ${CVAT_SERVER_IMAGE:-cvat/server:dev}
+
+  cvat_worker_annotation:
+    image: ${CVAT_SERVER_IMAGE:-cvat/server:dev}
+
+  cvat_worker_webhooks:
+    image: ${CVAT_SERVER_IMAGE:-cvat/server:dev}
+
+  cvat_worker_quality_reports:
+    image: ${CVAT_SERVER_IMAGE:-cvat/server:dev}
+
+  cvat_worker_analytics_reports:
+    image: ${CVAT_SERVER_IMAGE:-cvat/server:dev}
+
+  cvat_worker_chunks:
+    image: ${CVAT_SERVER_IMAGE:-cvat/server:dev}
