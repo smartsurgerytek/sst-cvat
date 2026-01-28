@@ -139,11 +139,11 @@ jobs:
               echo \"Deploy directory: \${DEPLOY_DIR}\"
 
               if [ -d \"\${DEPLOY_DIR}\" ]; then
-                echo 'Repository exists, pulling latest changes...'
+                echo 'Repository exists, syncing with remote...'
                 cd \"\${DEPLOY_DIR}\"
                 git fetch origin
                 git checkout sst-main || git checkout -b sst-main origin/sst-main
-                git pull origin sst-main
+                git reset --hard origin/sst-main
               else
                 echo 'Repository does not exist, cloning...'
                 git clone -b sst-main ${GIT_REPO_URL} \"\${DEPLOY_DIR}\"
