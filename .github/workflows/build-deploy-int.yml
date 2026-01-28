@@ -207,11 +207,11 @@ jobs:
               DEPLOY_DIR=\"\${HOME}/${DEPLOY_PATH}\"
               echo \"Deploy directory: \${DEPLOY_DIR}\"
               if [ -d \"\${DEPLOY_DIR}\" ]; then
-                echo 'Repository exists, pulling latest changes...'
+                echo 'Repository exists, syncing with remote...'
                 cd \"\${DEPLOY_DIR}\"
                 git fetch origin
                 git checkout ${BRANCH_NAME} || git checkout -b ${BRANCH_NAME} origin/${BRANCH_NAME}
-                git pull origin ${BRANCH_NAME}
+                git reset --hard origin/${BRANCH_NAME}
               else
                 echo 'Repository does not exist, cloning...'
                 git clone -b ${BRANCH_NAME} ${GIT_REPO_URL} \"\${DEPLOY_DIR}\"
