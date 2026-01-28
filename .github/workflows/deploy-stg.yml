@@ -6,27 +6,14 @@
 #
 # Triggers:
 #   - Auto: After build-cvat.yml completes on sst-main push
-#   - Manual: workflow_dispatch (with dry_run option)
-#
-# Dry-Run Mode (IMPORTANT):
-#   - Default: dry_run = true (safe by default)
-#   - Dry-run executes everything EXCEPT the final deployment step
-#   - This allows testing the workflow without affecting running services
-#   - Set dry_run = false for actual deployment
-#
-# What Dry-Run Does:
-#   [x] SSH connection to VM
-#   [x] Git clone/pull repository
-#   [x] Pull Docker images from Artifact Registry
-#   [ ] docker compose down (SKIPPED)
-#   [ ] docker compose up (SKIPPED)
+#   - Manual: workflow_dispatch
 #
 # Prerequisites (GitHub Secrets):
 #   - GCP_SA_KEY:      Service Account JSON key
 #   - GCP_PROJECT_ID:  GCP Project ID
-#   - GCP_ZONE:        VM zone (us-central1-a)
+#   - STG_GCP_ZONE:    STG VM zone (e.g., us-central1-b)
 #   - STG_VM_NAME:     STG VM instance name
-#   - STG_CVAT_HOST:   CVAT hostname for STG
+#   - STG_CVAT_HOST:   CVAT hostname for STG (IP or domain)
 #
 # =============================================================================
 
@@ -41,17 +28,9 @@ on:
     branches:
       - sst-main
 
-  # Manual trigger with dry_run option
+  # Manual trigger
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: 'Dry run - test workflow without deploying (safe mode)'
-        type: boolean
-        default: true
-      skip_backup:
-        description: 'Skip backup before deployment'
-        type: boolean
-        default: false
       image_tag:
         description: 'Image tag to deploy (default: latest)'
         type: string
@@ -88,51 +67,24 @@ jobs:
 
     steps:
       # ============================================
-      # Step 1: Determine run parameters
+      # Step 1: Determine parameters
       # ============================================
       - name: Determine parameters
         id: params
         run: |
-          # Determine if this is a dry run
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            DRY_RUN="${{ github.event.inputs.dry_run }}"
-            SKIP_BACKUP="${{ github.event.inputs.skip_backup }}"
             IMAGE_TAG="${{ github.event.inputs.image_tag }}"
           else
-            # Auto-triggered: dry_run defaults to true for safety
-            # Change to 'false' once workflow is validated
-            DRY_RUN="true"
-            SKIP_BACKUP="false"
             IMAGE_TAG="latest"
           fi
 
-          echo "dry_run=${DRY_RUN}" >> $GITHUB_OUTPUT
-          echo "skip_backup=${SKIP_BACKUP}" >> $GITHUB_OUTPUT
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
 
           echo "============================================"
           echo "Deployment Parameters"
           echo "============================================"
           echo "Event:        ${{ github.event_name }}"
-          echo "Dry Run:      ${DRY_RUN}"
-          echo "Skip Backup:  ${SKIP_BACKUP}"
           echo "Image Tag:    ${IMAGE_TAG}"
-          echo "============================================"
-
-          if [ "${DRY_RUN}" = "true" ]; then
-            echo "::warning::DRY RUN MODE - Will NOT deploy to STG"
-          fi
-
-      - name: Deployment Info
-        run: |
-          echo "============================================"
-          if [ "${{ steps.params.outputs.dry_run }}" = "true" ]; then
-            echo "DRY RUN - Testing workflow without deployment"
-          else
-            echo "LIVE DEPLOYMENT - Deploying to STG"
-          fi
-          echo "============================================"
-          echo "Image Tag:    ${{ steps.params.outputs.image_tag }}"
           echo "Triggered by: ${{ github.actor }}"
           echo "============================================"
 
@@ -158,14 +110,9 @@ jobs:
       # ============================================
       # Step 4: Deploy to STG VM
       # ============================================
-      # Note: Image verification happens during docker pull on the VM.
-      # If images don't exist, the pull will fail with a clear error.
       - name: Deploy to STG VM
         run: |
-          # Set variables for the deployment script
           IMAGE_TAG="${{ steps.params.outputs.image_tag }}"
-          DRY_RUN="${{ steps.params.outputs.dry_run }}"
-          SKIP_BACKUP="${{ steps.params.outputs.skip_backup }}"
           REGISTRY="${{ env.REGISTRY }}"
           PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
           REPO_NAME="${{ env.REPO_NAME }}"
@@ -173,18 +120,13 @@ jobs:
           GIT_REPO_URL="${{ env.GIT_REPO_URL }}"
           CVAT_HOST="${{ secrets.STG_CVAT_HOST }}"
 
-          # SSH to VM and run deployment
           gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
-            --zone=${{ secrets.GCP_ZONE }} \
+            --zone=${{ secrets.STG_GCP_ZONE }} \
             --tunnel-through-iap \
             --command="
               set -e
               echo '============================================'
-              if [ '${DRY_RUN}' = 'true' ]; then
-                echo 'DRY RUN MODE - Testing without deployment'
-              else
-                echo 'LIVE MODE - Deploying to STG'
-              fi
+              echo 'Deploying to STG Environment'
               echo '============================================'
 
               # Configure Docker for Artifact Registry
@@ -211,21 +153,13 @@ jobs:
               echo 'Current directory: '\$(pwd)
               echo 'Git branch: '\$(git branch --show-current)
 
-              # Show current running containers (for reference)
+              # Show current running containers
               echo ''
               echo 'Current running containers:'
               docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' 2>/dev/null || echo 'No containers running'
               echo ''
 
-              # Create backup (unless skipped or dry run)
-              if [ '${SKIP_BACKUP}' != 'true' ]; then
-                echo 'Creating backup of current state...'
-                BACKUP_TAG=\$(date +%Y%m%d_%H%M%S)
-                docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' > /tmp/cvat_backup_\${BACKUP_TAG}.txt 2>/dev/null || true
-                echo \"Backup saved to /tmp/cvat_backup_\${BACKUP_TAG}.txt\"
-              fi
-
-              # Create .env file with all required variables
+              # Create .env file
               echo 'Creating .env file...'
               echo '# CVAT Environment Configuration' > .env
               echo '# Generated by GitHub Actions deployment' >> .env
@@ -236,7 +170,7 @@ jobs:
               echo '.env file contents:'
               cat .env
 
-              # Set image variables for pulling
+              # Pull images
               CVAT_SERVER_IMAGE='${REGISTRY}/${PROJECT_ID}/${REPO_NAME}/cvat-server:${IMAGE_TAG}'
               CVAT_UI_IMAGE='${REGISTRY}/${PROJECT_ID}/${REPO_NAME}/cvat-ui:${IMAGE_TAG}'
 
@@ -251,30 +185,7 @@ jobs:
               echo ''
               echo 'Images pulled successfully!'
 
-              # ============================================
-              # DRY RUN CHECK - Stop here if dry run
-              # ============================================
-              if [ '${DRY_RUN}' = 'true' ]; then
-                echo ''
-                echo '============================================'
-                echo 'DRY RUN COMPLETE'
-                echo '============================================'
-                echo 'The following steps were SKIPPED:'
-                echo '  - docker compose down'
-                echo '  - docker compose up'
-                echo ''
-                echo 'Current containers are UNCHANGED.'
-                echo 'Running containers:'
-                docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' 2>/dev/null || echo 'No containers'
-                echo ''
-                echo 'To perform actual deployment, run with dry_run=false'
-                echo '============================================'
-                exit 0
-              fi
-
-              # ============================================
-              # ACTUAL DEPLOYMENT (only if not dry run)
-              # ============================================
+              # Deploy
               echo ''
               echo 'Stopping current containers...'
               docker compose -f docker-compose.yml -f docker-compose.stg.yml down --remove-orphans || true
@@ -296,16 +207,15 @@ jobs:
             "
 
       # ============================================
-      # Step 5: Health Check (skip for dry run)
+      # Step 5: Health Check
       # ============================================
       - name: Health Check
-        if: ${{ steps.params.outputs.dry_run == 'false' }}
         run: |
           echo "Running health check..."
           sleep 20
 
           gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
-            --zone=${{ secrets.GCP_ZONE }} \
+            --zone=${{ secrets.STG_GCP_ZONE }} \
             --tunnel-through-iap \
             --command="
               cd \"\${HOME}/${{ env.DEPLOY_PATH }}\"
@@ -342,42 +252,13 @@ jobs:
       - name: Deployment Summary
         if: always()
         run: |
-          DRY_RUN="${{ steps.params.outputs.dry_run }}"
-
           echo "## STG Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "${DRY_RUN}" = "true" ]; then
-            echo "> **DRY RUN** - No changes made to STG environment" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Environment | **STG** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Mode | \`${{ steps.params.outputs.dry_run == 'true' && 'DRY RUN' || 'LIVE' }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Image Tag | \`${{ steps.params.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| VM | \`${{ secrets.STG_VM_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| CVAT Host | \`${{ secrets.STG_CVAT_HOST }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered By | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "${DRY_RUN}" = "true" ]; then
-            echo "### Dry Run Results" >> $GITHUB_STEP_SUMMARY
-            echo "The following was validated:" >> $GITHUB_STEP_SUMMARY
-            echo "- [x] GCP authentication" >> $GITHUB_STEP_SUMMARY
-            echo "- [x] SSH connection to VM" >> $GITHUB_STEP_SUMMARY
-            echo "- [x] Git repository clone/pull" >> $GITHUB_STEP_SUMMARY
-            echo "- [x] Docker image pull from Artifact Registry" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-            echo "To perform actual deployment:" >> $GITHUB_STEP_SUMMARY
-            echo "1. Go to Actions → Deploy to STG" >> $GITHUB_STEP_SUMMARY
-            echo "2. Click 'Run workflow'" >> $GITHUB_STEP_SUMMARY
-            echo "3. Set \`dry_run\` to **false**" >> $GITHUB_STEP_SUMMARY
-            echo "4. Click 'Run workflow'" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### Deployment Complete" >> $GITHUB_STEP_SUMMARY
-            echo "STG environment has been updated with new images." >> $GITHUB_STEP_SUMMARY
-          fi

@@ -21,7 +21,7 @@
 # Prerequisites (GitHub Secrets):
 #   - GCP_SA_KEY:      Service Account JSON key
 #   - GCP_PROJECT_ID:  GCP Project ID
-#   - GCP_ZONE:        VM zone (us-central1-a)
+#   - INT_GCP_ZONE:    INT VM zone (e.g., us-central1-a)
 #   - INT_VM_NAME:     INT VM instance name
 #   - INT_CVAT_HOST:   CVAT hostname for INT
 #
@@ -188,7 +188,7 @@ jobs:
 
           # SSH to VM and run deployment
           gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
-            --zone=${{ secrets.GCP_ZONE }} \
+            --zone=${{ secrets.INT_GCP_ZONE }} \
             --tunnel-through-iap \
             --command="
               set -e
@@ -275,7 +275,7 @@ jobs:
           sleep 20
 
           gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
-            --zone=${{ secrets.GCP_ZONE }} \
+            --zone=${{ secrets.INT_GCP_ZONE }} \
             --tunnel-through-iap \
             --command="
               cd \"\${HOME}/${{ env.DEPLOY_PATH }}\"
