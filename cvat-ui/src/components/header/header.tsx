@@ -27,6 +27,7 @@ import Layout from 'antd/lib/layout';
 import Button from 'antd/lib/button';
 import Dropdown from 'antd/lib/dropdown';
 import Modal from 'antd/lib/modal';
+import Tag from 'antd/lib/tag';
 import Text from 'antd/lib/typography/Text';
 
 import config from 'config';
@@ -404,6 +405,16 @@ function HeaderComponent(props: Props): JSX.Element {
             <GlobalHotKeys keyMap={subKeyMap(componentShortcuts, keyMap)} handlers={handlers} />
             <div className='cvat-left-header'>
                 <CVATLogo />
+                {process.env.CVAT_ENV_LABEL ? (
+                    <Tag
+                        className='cvat-env-badge'
+                        color={
+                            { INT: 'orange', STG: 'blue' }[process.env.CVAT_ENV_LABEL.toUpperCase()] || 'default'
+                        }
+                    >
+                        {process.env.CVAT_ENV_LABEL.toUpperCase()}
+                    </Tag>
+                ) : null}
                 <Button
                     className={getButtonClassName('projects')}
                     type='link'

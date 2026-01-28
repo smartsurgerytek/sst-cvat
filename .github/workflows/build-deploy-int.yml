@@ -123,6 +123,8 @@ jobs:
           file: Dockerfile.ui
           push: true
           tags: ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:${{ steps.tags.outputs.version_tag }}
+          build-args: |
+            CVAT_ENV_LABEL=INT
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

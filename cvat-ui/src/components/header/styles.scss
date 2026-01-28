@@ -40,6 +40,13 @@
     }
 }
 
+.cvat-env-badge {
+    font-weight: bold;
+    font-size: 11px;
+    margin-right: $grid-unit-size;
+    line-height: normal;
+}
+
 .cvat-left-header {
     .ant-btn.cvat-header-button {
         opacity: 0.7;
