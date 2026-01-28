@@ -5,14 +5,14 @@
 # This workflow builds CVAT images for PR validation and STG deployment.
 #
 # Triggers:
-#   - PR to sst-main: CI checks before merge
-#   - Push to sst-main: Build for STG deployment (after PR merged)
+#   - PR to sst-main: Build only (validates Dockerfiles, no push)
+#   - Push to sst-main: Build and push for STG deployment (after PR merged)
 #
 # Flow:
 #   1. Developer tests on INT (using build-deploy-int.yml)
-#   2. Create PR to sst-main -> This workflow runs (CI checks)
-#   3. PR merged -> This workflow runs again (builds for STG)
-#   4. deploy-stg.yml deploys to STG (future)
+#   2. Create PR to sst-main -> This workflow runs (build only, no push)
+#   3. PR merged -> This workflow runs (builds and pushes for STG)
+#   4. deploy-stg.yml deploys to STG
 #
 # Tagging Strategy:
 #   - sst-main branch (push): "latest" + "sst-main-{short_sha}"
@@ -134,12 +134,14 @@ jobs:
       # ============================================
       # Step 7: Build and Push CVAT Server Image
       # ============================================
+      # PR builds: Build only (validates Dockerfile works)
+      # Push to sst-main: Build and push with "latest" tag
       - name: Build and Push CVAT Server
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
-          push: true
+          push: ${{ github.event_name == 'push' }}
           tags: |
             ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server:${{ steps.tags.outputs.version_tag }}
             ${{ steps.tags.outputs.is_main == 'true' && format('{0}/{1}/{2}/cvat-server:latest', env.REGISTRY, secrets.GCP_PROJECT_ID, env.REPO_NAME) || '' }}
@@ -149,12 +151,14 @@ jobs:
       # ============================================
       # Step 8: Build and Push CVAT UI Image
       # ============================================
+      # PR builds: Build only (validates Dockerfile works)
+      # Push to sst-main: Build and push with "latest" tag
       - name: Build and Push CVAT UI
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.ui
-          push: true
+          push: ${{ github.event_name == 'push' }}
           tags: |
             ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:${{ steps.tags.outputs.version_tag }}
             ${{ steps.tags.outputs.is_main == 'true' && format('{0}/{1}/{2}/cvat-ui:latest', env.REGISTRY, secrets.GCP_PROJECT_ID, env.REPO_NAME) || '' }}
@@ -175,18 +179,21 @@ jobs:
           echo "| Event | \`${{ github.event_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Branch | \`${{ steps.tags.outputs.branch_tag }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | \`${{ steps.tags.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image Tag | \`${{ steps.tags.outputs.version_tag }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Images Pushed" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server:${{ steps.tags.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:${{ steps.tags.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.tags.outputs.is_main }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "### Images Pushed" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server:${{ steps.tags.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
+            echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:${{ steps.tags.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
+            echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server:latest" >> $GITHUB_STEP_SUMMARY
+            echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:latest" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Next: STG Deployment" >> $GITHUB_STEP_SUMMARY
             echo "Images tagged as \`latest\` - ready for STG deployment" >> $GITHUB_STEP_SUMMARY
           else
-            echo "### PR Build" >> $GITHUB_STEP_SUMMARY
-            echo "CI check passed. Merge PR to deploy to STG." >> $GITHUB_STEP_SUMMARY
+            echo "### PR Build (No Push)" >> $GITHUB_STEP_SUMMARY
+            echo "Build validated successfully. Images were **not pushed** to registry." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Merge PR to build and push images for STG deployment." >> $GITHUB_STEP_SUMMARY
           fi
