@@ -33,6 +33,7 @@ import CanvasWrapper3DComponent, {
     FrontViewComponent,
 } from 'components/annotation-page/canvas/views/canvas3d/canvas-wrapper3D';
 import ContextImage from 'components/annotation-page/canvas/views/context-image/context-image';
+import RawFrameView from 'components/annotation-page/canvas/views/raw-frame/raw-frame-view';
 import CVATTooltip from 'components/common/cvat-tooltip';
 import { useUpdateEffect } from 'utils/hooks';
 import defaultLayout, { ItemLayout, ViewType } from './canvas-layout.conf';
@@ -62,6 +63,9 @@ const ViewFabric = (itemLayout: ItemLayout): JSX.Element => {
         case ViewType.CANVAS_3D_TOP:
             component = <TopViewComponent />;
             break;
+        case ViewType.RAW_FRAME:
+            component = <RawFrameView />;
+            break;
         default:
             component = <div> Undefined view </div>;
     }
@@ -74,6 +78,8 @@ const fitLayout = (type: DimensionType, layoutConfig: ItemLayout[]): ItemLayout[
 
     const relatedViews = layoutConfig
         .filter((item: ItemLayout) => item.viewType === ViewType.RELATED_IMAGE);
+    const rawFrameView = layoutConfig
+        .find((item: ItemLayout) => item.viewType === ViewType.RAW_FRAME);
     const relatedViewsCols = relatedViews.length > 6 ? 2 : 1;
     let height = Math.floor(config.CANVAS_WORKSPACE_ROWS / (relatedViews.length / relatedViewsCols));
     height = Math.min(height, config.CANVAS_WORKSPACE_DEFAULT_CONTEXT_HEIGHT);
@@ -95,6 +101,25 @@ const fitLayout = (type: DimensionType, layoutConfig: ItemLayout[]): ItemLayout[
     if (type === DimensionType.DIMENSION_2D) {
         const canvas = layoutConfig
             .find((item: ItemLayout) => item.viewType === ViewType.CANVAS) as ItemLayout;
+
+        if (rawFrameView) {
+            const leftWidth = Math.floor(widthAvail / 2);
+            updatedLayout.push({
+                ...canvas,
+                x: 0,
+                y: 0,
+                w: leftWidth,
+                h: config.CANVAS_WORKSPACE_ROWS,
+            }, {
+                ...rawFrameView,
+                x: leftWidth,
+                y: 0,
+                w: widthAvail - leftWidth,
+                h: config.CANVAS_WORKSPACE_ROWS,
+            });
+            return updatedLayout;
+        }
+
         updatedLayout.push({
             ...canvas,
             x: 0,
@@ -147,11 +172,18 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
         relatedFiles,
         canvasInstance,
         canvasBackgroundColor,
+        dimension,
     } = useSelector((state: CombinedState) => ({
         relatedFiles: state.annotation.player.frame.relatedFiles,
         canvasInstance: state.annotation.canvas.instance,
         canvasBackgroundColor: state.settings.player.canvasBackgroundColor,
+        dimension: state.annotation.job.instance?.dimension,
     }), shallowEqual);
+
+    const resolvedType = type ?? dimension;
+    const hasKnownDimension = Boolean(resolvedType);
+    const layoutType = resolvedType ?? DimensionType.DIMENSION_2D;
+    const [showRawCompare, setShowRawCompare] = useState(false);
 
     const computeRowHeight = (): number => {
         const container = window.document.getElementsByClassName('cvat-annotation-header')[0];
@@ -168,13 +200,45 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
         return 0;
     };
 
-    const getLayout = useCallback(() => (
-        defaultLayout[(type as DimensionType).toUpperCase() as '2D' | '3D'][Math.min(relatedFiles, 3)]
-    ), [type, relatedFiles]);
+    const getLayout = useCallback(() => {
+        if (showRawCompare && layoutType === DimensionType.DIMENSION_2D) {
+            const totalWidth = config.CANVAS_WORKSPACE_COLS;
+            const leftWidth = Math.floor(totalWidth / 2);
+            return [{
+                viewType: ViewType.CANVAS,
+                offset: [0],
+                x: 0,
+                y: 0,
+                w: leftWidth,
+                h: config.CANVAS_WORKSPACE_ROWS,
+            }, {
+                viewType: ViewType.RAW_FRAME,
+                offset: [0],
+                x: leftWidth,
+                y: 0,
+                w: totalWidth - leftWidth,
+                h: config.CANVAS_WORKSPACE_ROWS,
+            }];
+        }
+
+        return defaultLayout[(layoutType as DimensionType).toUpperCase() as '2D' | '3D'][Math.min(relatedFiles, 3)];
+    }, [layoutType, relatedFiles, showRawCompare]);
 
     const [layoutConfig, setLayoutConfig] = useState<ItemLayout[]>(getLayout());
     const [rowHeight, setRowHeight] = useState<number>(Math.floor(computeRowHeight()));
     const [fullscreenKey, setFullscreenKey] = useState<string>('');
+
+    useEffect(() => {
+        if (!hasKnownDimension && showRawCompare) {
+            setShowRawCompare(false);
+            return;
+        }
+
+        if (resolvedType !== DimensionType.DIMENSION_2D && showRawCompare) {
+            setShowRawCompare(false);
+            window.dispatchEvent(new CustomEvent('cvat.rawCompareToggle', { detail: { active: false } }));
+        }
+    }, [hasKnownDimension, showRawCompare, resolvedType]);
 
     const fitCanvas = useCallback(() => {
         if (canvasInstance instanceof Canvas) {
@@ -205,6 +269,48 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
     useEffect(() => {
         setRowHeight(computeRowHeight());
     }, []);
+
+    useEffect(() => {
+        const handler = (event: Event): void => {
+            if (!hasKnownDimension) {
+                setShowRawCompare(false);
+                return;
+            }
+
+            if (resolvedType !== DimensionType.DIMENSION_2D) {
+                setShowRawCompare(false);
+                return;
+            }
+
+            const detail = (event as CustomEvent).detail || {};
+            setShowRawCompare(Boolean(detail.active));
+        };
+        window.addEventListener('cvat.rawCompareToggle', handler as EventListener);
+        return () => window.removeEventListener('cvat.rawCompareToggle', handler as EventListener);
+    }, [hasKnownDimension, resolvedType]);
+
+    useEffect(() => {
+        const handler = (event: Event): void => {
+            const detail = (event as CustomEvent).detail || {};
+            const action = detail.action as string | undefined;
+            if (!action) return;
+
+            if (action === 'fit') {
+                setLayoutConfig(fitLayout(layoutType as DimensionType, layoutConfig));
+                window.dispatchEvent(new Event('resize'));
+            } else if (action === 'reload') {
+                setLayoutConfig([...getLayout()]);
+                window.dispatchEvent(new Event('resize'));
+            }
+        };
+
+        window.addEventListener('cvat.canvasLayoutAction', handler as EventListener);
+        return () => window.removeEventListener('cvat.canvasLayoutAction', handler as EventListener);
+    }, [getLayout, layoutConfig, showRawCompare, layoutType, resolvedType]);
+
+    useEffect(() => {
+        setLayoutConfig(getLayout());
+    }, [getLayout]);
 
     useUpdateEffect(() => {
         window.dispatchEvent(new Event('resize'));
@@ -268,8 +374,12 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
                                 <CloseOutlined
                                     className='cvat-grid-item-close-button'
                                     style={{
-                                        pointerEvents: viewType !== ViewType.RELATED_IMAGE ? 'none' : undefined,
-                                        opacity: viewType !== ViewType.RELATED_IMAGE ? 0.2 : undefined,
+                                        pointerEvents:
+                                            viewType !== ViewType.RELATED_IMAGE && viewType !== ViewType.RAW_FRAME ?
+                                                'none' : undefined,
+                                        opacity:
+                                            viewType !== ViewType.RELATED_IMAGE && viewType !== ViewType.RAW_FRAME ?
+                                                0.2 : undefined,
                                     }}
                                     onClick={() => {
                                         if (viewType === ViewType.RELATED_IMAGE) {
@@ -279,6 +389,11 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
                                                         item.viewType === viewType && item.viewIndex === viewIndex
                                                     )),
                                             );
+                                        } else if (viewType === ViewType.RAW_FRAME) {
+                                            setShowRawCompare(false);
+                                            window.dispatchEvent(new CustomEvent('cvat.rawCompareToggle', {
+                                                detail: { active: false },
+                                            }));
                                         }
                                     }}
                                 />
@@ -306,12 +421,17 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
                     }) }
                 </ReactGridLayout>
             )}
-            { type === DimensionType.DIMENSION_3D && <CanvasWrapper3DComponent /> }
+            { resolvedType === DimensionType.DIMENSION_3D && <CanvasWrapper3DComponent /> }
+            {!showRawCompare && (
             <div className='cvat-grid-layout-common-setups'>
                 <CVATTooltip title='Fit views'>
                     <PicCenterOutlined
                         onClick={() => {
-                            setLayoutConfig(fitLayout(type as DimensionType, layoutConfig));
+                            if (showRawCompare) {
+                                setShowRawCompare(false);
+                                window.dispatchEvent(new CustomEvent('cvat.rawCompareToggle', { detail: { active: false } }));
+                            }
+                            setLayoutConfig(fitLayout(layoutType as DimensionType, layoutConfig));
                             window.dispatchEvent(new Event('resize'));
                         }}
                     />
@@ -363,6 +483,7 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
                     />
                 </CVATTooltip>
             </div>
+            )}
         </Layout.Content>
     );
 }

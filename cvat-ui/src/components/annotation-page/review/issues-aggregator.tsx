@@ -299,7 +299,8 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
 
     return (
         <>
-            {newIssueSource === NewIssueSource.ISSUE_TOOL && createLeft !== null && createTop !== null ? (
+            {[NewIssueSource.ISSUE_TOOL, NewIssueSource.ISSUE_MASK].includes(newIssueSource as NewIssueSource) &&
+            createLeft !== null && createTop !== null ? (
                 <CreateIssueDialog
                     top={createTop}
                     left={createLeft}

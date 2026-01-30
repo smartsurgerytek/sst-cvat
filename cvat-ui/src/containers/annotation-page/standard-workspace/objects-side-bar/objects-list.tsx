@@ -29,7 +29,9 @@ import {
     CombinedState, StatesOrdering, ColorBy, Workspace,
     ActiveControl,
 } from 'reducers';
-import { ObjectState, ObjectType, ShapeType } from 'cvat-core-wrapper';
+import {
+    JobStage, Label, ObjectState, ObjectType, ShapeType,
+} from 'cvat-core-wrapper';
 import { filterAnnotations } from 'utils/filter-annotations';
 import { registerComponentShortcuts } from 'actions/shortcuts-actions';
 import { ShortcutScope } from 'utils/enums';
@@ -51,6 +53,7 @@ interface StateToProps {
     annotationsFilters: any[];
     colors: string[];
     colorBy: ColorBy;
+    labels: Label[];
     activatedStateID: number | null;
     activatedElementID: number | null;
     minZLayer: number;
@@ -195,7 +198,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
                 activatedElementID,
                 zLayer: { min: minZLayer, max: maxZLayer },
             },
-            job: { instance: jobInstance },
+            job: { instance: jobInstance, labels },
             player: {
                 frame: { number: frameNumber },
             },
@@ -242,6 +245,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         annotationsFilters,
         colors,
         colorBy,
+        labels,
         activatedStateID,
         activatedElementID,
         minZLayer,
@@ -311,6 +315,11 @@ interface State {
     objectStates: ObjectState[];
     filteredStates: ObjectState[];
     sortedStatesID: number[];
+    selectedStateIDs: number[];
+    floatingLabelOpen: boolean;
+    floatingLabelPosition: { x: number; y: number } | null;
+    selectedLabelID: number | null;
+    selectionSource: 'canvas' | 'sidebar' | null;
 }
 
 class ObjectsListContainer extends React.PureComponent<Props, State> {
@@ -322,6 +331,10 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         readonly: false,
     };
 
+    private isValidationMode(): boolean {
+        return this.props.jobInstance?.stage === JobStage.VALIDATION;
+    }
+
     public constructor(props: Props) {
         super(props);
         this.state = {
@@ -329,18 +342,43 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             objectStates: [],
             filteredStates: [],
             sortedStatesID: [],
+            selectedStateIDs: [],
+            floatingLabelOpen: false,
+            floatingLabelPosition: null,
+            selectedLabelID: null,
+            selectionSource: null,
         };
     }
 
     public componentDidMount(): void {
         this.updateObjects();
+        window.document.addEventListener('cvat.objects.sidebar.toggle-selection', this.onExternalToggleSelection as EventListener);
+        window.document.addEventListener('keyup', this.onDocumentKeyUp);
+        window.document.addEventListener('keydown', this.onDocumentKeyDown);
+        window.document.addEventListener('mousedown', this.onDocumentMouseDown);
     }
 
-    public componentDidUpdate(): void {
+    public componentWillUnmount(): void {
+        window.document.removeEventListener('cvat.objects.sidebar.toggle-selection', this.onExternalToggleSelection as EventListener);
+        window.document.removeEventListener('keyup', this.onDocumentKeyUp);
+        window.document.removeEventListener('keydown', this.onDocumentKeyDown);
+        window.document.removeEventListener('mousedown', this.onDocumentMouseDown);
+    }
+
+    public componentDidUpdate(prevProps: Props): void {
         const { objectStates } = this.props;
         const { objectStates: prevObjectStates } = this.state;
         if (objectStates !== prevObjectStates) {
             this.updateObjects();
+        }
+        if (this.isValidationMode() && this.state.selectedStateIDs.length) {
+            this.setState({
+                selectedStateIDs: [],
+                floatingLabelOpen: false,
+                floatingLabelPosition: null,
+                selectedLabelID: null,
+                selectionSource: null,
+            });
         }
     }
 
@@ -348,15 +386,27 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         const {
             objectStates, frameNumber, workspace,
         } = this.props;
-        const { statesOrdering } = this.state;
+        const {
+            statesOrdering, selectedStateIDs, floatingLabelOpen, selectionSource,
+        } = this.state;
         const filteredStates = filterAnnotations(objectStates, {
             frame: frameNumber,
             workspace,
         });
+        const filteredStateIDs = new Set(filteredStates.map((state: ObjectState) => state.clientID));
+        const nextSelectedStateIDs = selectedStateIDs.filter((id: number) => filteredStateIDs.has(id));
+        const nextSelectedLabelID = nextSelectedStateIDs.length ?
+            filteredStates.find((state: ObjectState) => state.clientID === nextSelectedStateIDs[0])?.label?.id ?? null :
+            null;
+        const hasSelection = nextSelectedStateIDs.length > 0;
         this.setState({
             objectStates,
             filteredStates,
             sortedStatesID: sortAndMap(filteredStates, statesOrdering),
+            selectedStateIDs: nextSelectedStateIDs,
+            selectedLabelID: nextSelectedLabelID,
+            floatingLabelOpen: hasSelection ? floatingLabelOpen : false,
+            selectionSource: hasSelection ? selectionSource : null,
         });
     };
 
@@ -432,6 +482,173 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         collapseStates(filteredStates, collapsed);
     }
 
+    private onDocumentKeyUp = (event: KeyboardEvent): void => {
+        const { selectionSource, selectedStateIDs } = this.state;
+        if (this.isValidationMode()) {
+            return;
+        }
+        if (event.key !== 'Shift') {
+            return;
+        }
+
+        const target = event.target as HTMLElement | null;
+        const role = target?.getAttribute?.('role');
+        const ariaMultiline = target?.getAttribute?.('aria-multiline');
+        if (
+            target?.isContentEditable ||
+            ['INPUT', 'TEXTAREA'].includes(target?.tagName || '') ||
+            role === 'textbox' ||
+            ariaMultiline === 'true'
+        ) {
+            return;
+        }
+
+        if (selectionSource === 'canvas' && selectedStateIDs.length) {
+            this.setState({ floatingLabelOpen: true });
+        }
+    };
+
+    private onDocumentKeyDown = (event: KeyboardEvent): void => {
+        const { selectionSource, selectedStateIDs, floatingLabelOpen } = this.state;
+        if (this.isValidationMode()) {
+            return;
+        }
+        if (event.key !== 'Shift') {
+            return;
+        }
+
+        const target = event.target as HTMLElement | null;
+        const role = target?.getAttribute?.('role');
+        const ariaMultiline = target?.getAttribute?.('aria-multiline');
+        if (
+            target?.isContentEditable ||
+            ['INPUT', 'TEXTAREA'].includes(target?.tagName || '') ||
+            role === 'textbox' ||
+            ariaMultiline === 'true'
+        ) {
+            return;
+        }
+
+        if (selectionSource === 'canvas' && selectedStateIDs.length && floatingLabelOpen) {
+            this.setState({ floatingLabelOpen: false });
+        }
+    };
+
+    private onDocumentMouseDown = (event: MouseEvent): void => {
+        const { floatingLabelOpen } = this.state;
+        if (!floatingLabelOpen) {
+            return;
+        }
+
+        const target = event.target as HTMLElement | null;
+        if (!target) {
+            return;
+        }
+
+        if (target.closest('.cvat-objects-sidebar-floating-label')) {
+            return;
+        }
+
+        if (target.closest('.ant-select-dropdown')) {
+            return;
+        }
+
+        this.setState({ floatingLabelOpen: false });
+    };
+
+    private onExternalToggleSelection = (event: Event): void => {
+        if (this.isValidationMode()) {
+            return;
+        }
+        const customEvent = event as CustomEvent<{ clientID: number; position: { x: number; y: number } }>;
+        const { clientID, position } = customEvent.detail;
+        const { filteredStates, selectedStateIDs } = this.state;
+        const nextSelectedStateIDs = selectedStateIDs.includes(clientID) ?
+            selectedStateIDs.filter((id: number) => id !== clientID) :
+            [...selectedStateIDs, clientID];
+        if (!nextSelectedStateIDs.length) {
+            this.setState({
+                selectedStateIDs: [],
+                floatingLabelOpen: false,
+                floatingLabelPosition: null,
+                selectedLabelID: null,
+                selectionSource: null,
+            });
+            return;
+        }
+
+        const selectedLabelID = filteredStates
+            .find((state: ObjectState) => state.clientID === nextSelectedStateIDs[0])?.label?.id ?? null;
+        this.setState({
+            selectedStateIDs: nextSelectedStateIDs,
+            floatingLabelOpen: false,
+            floatingLabelPosition: position,
+            selectedLabelID,
+            selectionSource: 'canvas',
+        });
+    };
+
+    private onSidebarToggleSelection = (clientID: number): void => {
+        if (this.isValidationMode()) {
+            return;
+        }
+        const { filteredStates, selectedStateIDs } = this.state;
+        const nextSelectedStateIDs = selectedStateIDs.includes(clientID) ?
+            selectedStateIDs.filter((id: number) => id !== clientID) :
+            [...selectedStateIDs, clientID];
+        if (!nextSelectedStateIDs.length) {
+            this.setState({
+                selectedStateIDs: [],
+                floatingLabelOpen: false,
+                floatingLabelPosition: null,
+                selectedLabelID: null,
+                selectionSource: null,
+            });
+            return;
+        }
+
+        const selectedLabelID = filteredStates
+            .find((state: ObjectState) => state.clientID === nextSelectedStateIDs[0])?.label?.id ?? null;
+        this.setState({
+            selectedStateIDs: nextSelectedStateIDs,
+            floatingLabelOpen: false,
+            floatingLabelPosition: null,
+            selectedLabelID,
+            selectionSource: 'sidebar',
+        });
+    };
+
+    private applyLabelToSelection = (label: Label): void => {
+        const { readonly, updateAnnotations } = this.props;
+        const isReadonly = readonly || this.isValidationMode();
+        const { selectedStateIDs, filteredStates } = this.state;
+        if (isReadonly || !selectedStateIDs.length) {
+            return;
+        }
+
+        const selectedStates = filteredStates
+            .filter((state: ObjectState) => selectedStateIDs.includes(state.clientID))
+            .filter((state: ObjectState) => state.shapeType !== ShapeType.SKELETON);
+        if (selectedStates.length) {
+            selectedStates.forEach((state: ObjectState) => {
+                state.label = label;
+            });
+            updateAnnotations(selectedStates);
+        }
+
+        this.setState({
+            selectedStateIDs: [],
+            floatingLabelOpen: false,
+            floatingLabelPosition: null,
+            selectedLabelID: null,
+            selectionSource: null,
+        });
+    };
+
+    private closeFloatingLabel = (): void => {
+        this.setState({ floatingLabelOpen: false });
+    };
+
     public render(): JSX.Element {
         const {
             statesHidden,
@@ -444,7 +661,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             normalizedKeyMap,
             colors,
             colorBy,
-            readonly,
+            readonly: readonlyProp,
             statesCollapsedAll,
             showGroundTruth,
             updateAnnotations,
@@ -455,8 +672,10 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             changeFrame,
             workspace,
         } = this.props;
+        const readonly = readonlyProp || this.isValidationMode();
         const {
             objectStates, sortedStatesID, statesOrdering, filteredStates,
+            selectedStateIDs, floatingLabelOpen, floatingLabelPosition, selectedLabelID, selectionSource,
         } = this.state;
 
         const preventDefault = (event: KeyboardEvent | undefined): void => {
@@ -590,6 +809,9 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 }
             },
             COPY_SHAPE: () => {
+                if (selectedStateIDs.length) {
+                    return;
+                }
                 const state = activatedState(true);
                 if (state && !readonly) {
                     copyShape(state);
@@ -647,6 +869,16 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     sortedStatesID={sortedStatesID}
                     showGroundTruth={showGroundTruth}
                     objectStates={filteredStates}
+                    labels={this.props.labels}
+                    selectedStateIDs={selectedStateIDs}
+                    selectedCount={readonly ? 0 : selectedStateIDs.length}
+                    selectedLabelID={selectedLabelID}
+                    floatingLabelOpen={selectionSource === 'canvas' && floatingLabelOpen}
+                    floatingLabelPosition={floatingLabelPosition}
+                    selectionSource={selectionSource}
+                    onToggleSelection={this.onSidebarToggleSelection}
+                    onApplyLabel={this.applyLabelToSelection}
+                    onCloseFloating={this.closeFloatingLabel}
                     switchHiddenAllShortcut={normalizedKeyMap.SWITCH_ALL_HIDDEN}
                     switchLockAllShortcut={normalizedKeyMap.SWITCH_ALL_LOCK}
                     changeStatesOrdering={this.onChangeStatesOrdering}

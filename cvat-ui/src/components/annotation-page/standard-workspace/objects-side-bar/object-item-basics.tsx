@@ -8,6 +8,7 @@ import { Row, Col } from 'antd/lib/grid';
 import { MoreOutlined } from '@ant-design/icons';
 import Dropdown from 'antd/lib/dropdown';
 import Text from 'antd/lib/typography/Text';
+import Checkbox from 'antd/lib/checkbox';
 
 import { ColorBy } from 'reducers';
 import CVATTooltip from 'components/common/cvat-tooltip';
@@ -21,6 +22,7 @@ interface Props {
     readonly: boolean;
     clientID: number;
     serverID: number | null;
+    selected: boolean;
     labelID: number;
     labels: any[];
     shapeType: ShapeType;
@@ -30,6 +32,7 @@ interface Props {
     colorBy: ColorBy;
     type: string;
     locked: boolean;
+    onSelect?: () => void;
     changeColorShortcut: string;
     copyShortcut: string;
     pasteShortcut: string;
@@ -59,6 +62,7 @@ function ItemTopComponent(props: Props): JSX.Element {
         readonly,
         clientID,
         serverID,
+        selected,
         labelID,
         labels,
         shapeType,
@@ -91,13 +95,24 @@ function ItemTopComponent(props: Props): JSX.Element {
         edit,
         slice,
         jobInstance,
+        onSelect,
     } = props;
 
     const [colorPickerVisible, setColorPickerVisible] = useState(false);
 
     return (
         <Row align='middle'>
-            <Col span={10}>
+            {onSelect ? (
+                <Col span={2}>
+                    <Checkbox
+                        checked={selected}
+                        disabled={readonly}
+                        onChange={() => onSelect()}
+                        onClick={(event) => event.stopPropagation()}
+                    />
+                </Col>
+            ) : null}
+            <Col span={onSelect ? 8 : 10}>
                 <Text style={{ fontSize: 12 }}>{clientID}</Text>
                 {isGroundTruth ? <Text style={{ fontSize: 12 }}>&nbsp;GT</Text> : null}
                 <br />
