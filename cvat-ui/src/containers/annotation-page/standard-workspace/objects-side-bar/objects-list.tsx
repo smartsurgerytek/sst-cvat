@@ -33,7 +33,7 @@ import {
     ActiveControl,
 } from 'reducers';
 import {
-    Label, LabelType, ObjectState, ObjectType, ShapeType,
+    JobStage, Label, LabelType, ObjectState, ObjectType, ShapeType,
 } from 'cvat-core-wrapper';
 import { filterAnnotations } from 'utils/filter-annotations';
 import { filterApplicableLabels } from 'utils/filter-applicable-labels';
@@ -58,6 +58,7 @@ interface StateToProps {
     annotationsFilters: any[];
     colors: string[];
     colorBy: ColorBy;
+    labels: Label[];
     activatedStateID: number | null;
     activatedElementID: number | null;
     minZLayer: number;
@@ -250,6 +251,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         annotationsFilters,
         colors,
         colorBy,
+        labels,
         activatedStateID,
         activatedElementID,
         minZLayer,
@@ -334,6 +336,11 @@ interface State {
     sortedStatesID: number[];
     selectedStatesID: number[];
     bulkLabelSelector: BulkLabelSelectorState;
+    selectedStateIDs: number[];
+    floatingLabelOpen: boolean;
+    floatingLabelPosition: { x: number; y: number } | null;
+    selectedLabelID: number | null;
+    selectionSource: 'canvas' | 'sidebar' | null;
 }
 
 class ObjectsListContainer extends React.PureComponent<Props, State> {
@@ -353,6 +360,10 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         readonly: false,
     };
 
+    private isValidationMode(): boolean {
+        return this.props.jobInstance?.stage === JobStage.VALIDATION;
+    }
+
     public constructor(props: Props) {
         super(props);
         this.state = {
@@ -367,6 +378,11 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 left: 0,
                 top: 0,
             },
+            selectedStateIDs: [],
+            floatingLabelOpen: false,
+            floatingLabelPosition: null,
+            selectedLabelID: null,
+            selectionSource: null,
         };
     }
 
@@ -374,45 +390,73 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         window.addEventListener('keyup', this.onModifierKeyUp);
         window.addEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
         this.updateObjects();
-    }
-
-    public componentDidUpdate(): void {
-        const { objectStates } = this.props;
-        const { objectStates: prevObjectStates } = this.state;
-        if (objectStates !== prevObjectStates) {
-            this.updateObjects();
-        }
+        window.document.addEventListener('cvat.objects.sidebar.toggle-selection', this.onExternalToggleSelection as EventListener);
+        window.document.addEventListener('keyup', this.onDocumentKeyUp);
+        window.document.addEventListener('keydown', this.onDocumentKeyDown);
+        window.document.addEventListener('mousedown', this.onDocumentMouseDown);
     }
 
     public componentWillUnmount(): void {
         window.removeEventListener('keyup', this.onModifierKeyUp);
         window.removeEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
+        window.document.removeEventListener('cvat.objects.sidebar.toggle-selection', this.onExternalToggleSelection as EventListener);
+        window.document.removeEventListener('keyup', this.onDocumentKeyUp);
+        window.document.removeEventListener('keydown', this.onDocumentKeyDown);
+        window.document.removeEventListener('mousedown', this.onDocumentMouseDown);
+    }
+
+    public componentDidUpdate(prevProps: Props): void {
+        const { objectStates } = this.props;
+        const { objectStates: prevObjectStates } = this.state;
+        if (objectStates !== prevObjectStates) {
+            this.updateObjects();
+        }
+        if (this.isValidationMode() && (
+            this.state.selectedStateIDs.length ||
+            this.state.selectedStatesID.length ||
+            this.state.bulkLabelSelector.visible
+        )) {
+            this.pendingBulkLabelSelector = null;
+            this.checkboxModifierSelectionActive = false;
+            this.setState({
+                selectedStatesID: [],
+                bulkLabelSelector: {
+                    visible: false,
+                    sourceStateID: null,
+                    left: 0,
+                    top: 0,
+                },
+                selectedStateIDs: [],
+                floatingLabelOpen: false,
+                floatingLabelPosition: null,
+                selectedLabelID: null,
+                selectionSource: null,
+            });
+        }
     }
 
     private updateObjects = (): void => {
         const {
             objectStates, frameNumber, workspace,
         } = this.props;
-        const { statesOrdering } = this.state;
         const filteredStates = filterAnnotations(objectStates, {
             frame: frameNumber,
             workspace,
         });
-        const sortedStatesID = sortAndMap(filteredStates, statesOrdering);
         this.setState((prevState) => {
+            const sortedStatesID = sortAndMap(filteredStates, prevState.statesOrdering);
             const availableStateIDs = new Set(sortedStatesID);
-            const selectedStatesID = prevState.selectedStatesID
-                .filter((id: number) => availableStateIDs.has(id));
-            const {
-                bulkLabelSelector,
-            } = prevState;
+            const mergedSelectedStateIDs = Array.from(new Set([
+                ...prevState.selectedStatesID,
+                ...prevState.selectedStateIDs,
+            ])).filter((id: number) => availableStateIDs.has(id));
 
-            const bulkLabelSourceIsValid = bulkLabelSelector.sourceStateID !== null &&
-                availableStateIDs.has(bulkLabelSelector.sourceStateID) &&
-                selectedStatesID.includes(bulkLabelSelector.sourceStateID);
+            const bulkLabelSourceIsValid = prevState.bulkLabelSelector.sourceStateID !== null &&
+                availableStateIDs.has(prevState.bulkLabelSelector.sourceStateID) &&
+                mergedSelectedStateIDs.includes(prevState.bulkLabelSelector.sourceStateID);
 
             const nextBulkLabelSelector = bulkLabelSourceIsValid ?
-                bulkLabelSelector :
+                prevState.bulkLabelSelector :
                 {
                     visible: false,
                     sourceStateID: null,
@@ -424,12 +468,22 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 this.pendingBulkLabelSelector = null;
             }
 
+            const nextSelectedLabelID = mergedSelectedStateIDs.length ?
+                filteredStates.find((state: ObjectState) => state.clientID === mergedSelectedStateIDs[0])?.label?.id ?? null :
+                null;
+            const hasSelection = mergedSelectedStateIDs.length > 0;
+
             return {
                 objectStates,
                 filteredStates,
                 sortedStatesID,
-                selectedStatesID,
+                selectedStatesID: mergedSelectedStateIDs,
                 bulkLabelSelector: nextBulkLabelSelector,
+                selectedStateIDs: mergedSelectedStateIDs,
+                floatingLabelOpen: hasSelection ? prevState.floatingLabelOpen : false,
+                floatingLabelPosition: hasSelection ? prevState.floatingLabelPosition : null,
+                selectedLabelID: nextSelectedLabelID,
+                selectionSource: hasSelection ? prevState.selectionSource : null,
             };
         });
     };
@@ -449,12 +503,19 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         }
         this.setState((prevState) => ({
             selectedStatesID: clearSelectedStates ? [] : prevState.selectedStatesID,
+            selectedStateIDs: clearSelectedStates ? [] : prevState.selectedStateIDs,
             bulkLabelSelector: {
                 visible: false,
                 sourceStateID: null,
                 left: 0,
                 top: 0,
             },
+            ...(clearSelectedStates ? {
+                floatingLabelOpen: false,
+                floatingLabelPosition: null,
+                selectedLabelID: null,
+                selectionSource: null,
+            } : {}),
         }));
     };
 
@@ -542,12 +603,20 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             const {
                 selectedStatesID,
             } = prevState;
+            const computeNextState = (nextSelectedStateIDs: number[]): Partial<State> => ({
+                selectedStatesID: nextSelectedStateIDs,
+                selectedStateIDs: nextSelectedStateIDs,
+                selectedLabelID: nextSelectedStateIDs.length ?
+                    prevState.filteredStates.find((state: ObjectState) => state.clientID === nextSelectedStateIDs[0])?.label?.id ?? null :
+                    null,
+                floatingLabelOpen: false,
+                floatingLabelPosition: null,
+                selectionSource: nextSelectedStateIDs.length ? 'sidebar' : null,
+            });
 
             if (isCheckboxSelection) {
                 if (!withModifierSelection) {
-                    return {
-                        selectedStatesID: selectedStatesID.includes(stateID) ? [] : [stateID],
-                    };
+                    return computeNextState(selectedStatesID.includes(stateID) ? [] : [stateID]);
                 }
 
                 const baseSelectedStateIDs = this.checkboxModifierSelectionActive ? selectedStatesID : [];
@@ -555,9 +624,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     baseSelectedStateIDs.filter((id: number) => id !== stateID) :
                     [...baseSelectedStateIDs, stateID];
 
-                return {
-                    selectedStatesID: nextSelectedStateIDs,
-                };
+                return computeNextState(nextSelectedStateIDs);
             }
 
             if (withModifierSelection) {
@@ -565,14 +632,10 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     selectedStatesID.filter((id: number) => id !== stateID) :
                     [...selectedStatesID, stateID];
 
-                return {
-                    selectedStatesID: nextSelectedStateIDs,
-                };
+                return computeNextState(nextSelectedStateIDs);
             }
 
-            return {
-                selectedStatesID: [stateID],
-            };
+            return computeNextState([stateID]);
         }, () => {
             const { selectedStatesID } = this.state;
             const selected = selectedStatesID.includes(stateID);
@@ -700,6 +763,212 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         collapseStates(filteredStates, collapsed);
     }
 
+    private onDocumentKeyUp = (event: KeyboardEvent): void => {
+        const { selectionSource, selectedStateIDs } = this.state;
+        if (this.isValidationMode()) {
+            return;
+        }
+        if (event.key !== 'Shift') {
+            return;
+        }
+
+        const target = event.target as HTMLElement | null;
+        const role = target?.getAttribute?.('role');
+        const ariaMultiline = target?.getAttribute?.('aria-multiline');
+        if (
+            target?.isContentEditable ||
+            ['INPUT', 'TEXTAREA'].includes(target?.tagName || '') ||
+            role === 'textbox' ||
+            ariaMultiline === 'true'
+        ) {
+            return;
+        }
+
+        if (selectionSource === 'canvas' && selectedStateIDs.length) {
+            this.setState({ floatingLabelOpen: true });
+        }
+    };
+
+    private onDocumentKeyDown = (event: KeyboardEvent): void => {
+        const { selectionSource, selectedStateIDs, floatingLabelOpen } = this.state;
+        if (this.isValidationMode()) {
+            return;
+        }
+        if (event.key !== 'Shift') {
+            return;
+        }
+
+        const target = event.target as HTMLElement | null;
+        const role = target?.getAttribute?.('role');
+        const ariaMultiline = target?.getAttribute?.('aria-multiline');
+        if (
+            target?.isContentEditable ||
+            ['INPUT', 'TEXTAREA'].includes(target?.tagName || '') ||
+            role === 'textbox' ||
+            ariaMultiline === 'true'
+        ) {
+            return;
+        }
+
+        if (selectionSource === 'canvas' && selectedStateIDs.length && floatingLabelOpen) {
+            this.setState({ floatingLabelOpen: false });
+        }
+    };
+
+    private onDocumentMouseDown = (event: MouseEvent): void => {
+        const { floatingLabelOpen } = this.state;
+        if (!floatingLabelOpen) {
+            return;
+        }
+
+        const target = event.target as HTMLElement | null;
+        if (!target) {
+            return;
+        }
+
+        if (target.closest('.cvat-objects-sidebar-floating-label')) {
+            return;
+        }
+
+        if (target.closest('.ant-select-dropdown')) {
+            return;
+        }
+
+        this.setState({ floatingLabelOpen: false });
+    };
+
+    private onExternalToggleSelection = (event: Event): void => {
+        if (this.isValidationMode()) {
+            return;
+        }
+        this.pendingBulkLabelSelector = null;
+        this.checkboxModifierSelectionActive = false;
+        const customEvent = event as CustomEvent<{ clientID: number; position: { x: number; y: number } }>;
+        const { clientID, position } = customEvent.detail;
+        const { filteredStates, selectedStateIDs } = this.state;
+        const nextSelectedStateIDs = selectedStateIDs.includes(clientID) ?
+            selectedStateIDs.filter((id: number) => id !== clientID) :
+            [...selectedStateIDs, clientID];
+        if (!nextSelectedStateIDs.length) {
+            this.setState({
+                selectedStatesID: [],
+                bulkLabelSelector: {
+                    visible: false,
+                    sourceStateID: null,
+                    left: 0,
+                    top: 0,
+                },
+                selectedStateIDs: [],
+                floatingLabelOpen: false,
+                floatingLabelPosition: null,
+                selectedLabelID: null,
+                selectionSource: null,
+            });
+            return;
+        }
+
+        const selectedLabelID = filteredStates
+            .find((state: ObjectState) => state.clientID === nextSelectedStateIDs[0])?.label?.id ?? null;
+        this.setState({
+            selectedStatesID: nextSelectedStateIDs,
+            bulkLabelSelector: {
+                visible: false,
+                sourceStateID: null,
+                left: 0,
+                top: 0,
+            },
+            selectedStateIDs: nextSelectedStateIDs,
+            floatingLabelOpen: false,
+            floatingLabelPosition: position,
+            selectedLabelID,
+            selectionSource: 'canvas',
+        });
+    };
+
+    private onSidebarToggleSelection = (clientID: number): void => {
+        if (this.isValidationMode()) {
+            return;
+        }
+        this.pendingBulkLabelSelector = null;
+        this.checkboxModifierSelectionActive = false;
+        const { filteredStates, selectedStateIDs } = this.state;
+        const nextSelectedStateIDs = selectedStateIDs.includes(clientID) ?
+            selectedStateIDs.filter((id: number) => id !== clientID) :
+            [...selectedStateIDs, clientID];
+        if (!nextSelectedStateIDs.length) {
+            this.setState({
+                selectedStatesID: [],
+                bulkLabelSelector: {
+                    visible: false,
+                    sourceStateID: null,
+                    left: 0,
+                    top: 0,
+                },
+                selectedStateIDs: [],
+                floatingLabelOpen: false,
+                floatingLabelPosition: null,
+                selectedLabelID: null,
+                selectionSource: null,
+            });
+            return;
+        }
+
+        const selectedLabelID = filteredStates
+            .find((state: ObjectState) => state.clientID === nextSelectedStateIDs[0])?.label?.id ?? null;
+        this.setState({
+            selectedStatesID: nextSelectedStateIDs,
+            bulkLabelSelector: {
+                visible: false,
+                sourceStateID: null,
+                left: 0,
+                top: 0,
+            },
+            selectedStateIDs: nextSelectedStateIDs,
+            floatingLabelOpen: false,
+            floatingLabelPosition: null,
+            selectedLabelID,
+            selectionSource: 'sidebar',
+        });
+    };
+
+    private applyLabelToSelection = (label: Label): void => {
+        const { readonly, updateAnnotations } = this.props;
+        const isReadonly = readonly || this.isValidationMode();
+        const { selectedStateIDs, filteredStates } = this.state;
+        if (isReadonly || !selectedStateIDs.length) {
+            return;
+        }
+
+        const selectedStates = filteredStates
+            .filter((state: ObjectState) => selectedStateIDs.includes(state.clientID))
+            .filter((state: ObjectState) => state.shapeType !== ShapeType.SKELETON);
+        if (selectedStates.length) {
+            selectedStates.forEach((state: ObjectState) => {
+                state.label = label;
+            });
+            updateAnnotations(selectedStates);
+        }
+
+        this.setState({
+            selectedStatesID: [],
+            bulkLabelSelector: {
+                visible: false,
+                sourceStateID: null,
+                left: 0,
+                top: 0,
+            },
+            selectedStateIDs: [],
+            floatingLabelOpen: false,
+            floatingLabelPosition: null,
+            selectedLabelID: null,
+            selectionSource: null,
+        });
+    };
+
+    private closeFloatingLabel = (): void => {
+        this.setState({ floatingLabelOpen: false });
+    };
+
     public render(): JSX.Element {
         const {
             statesHidden,
@@ -713,7 +982,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             colors,
             labels,
             colorBy,
-            readonly,
+            readonly: readonlyProp,
             statesCollapsedAll,
             showGroundTruth,
             updateAnnotations,
@@ -724,8 +993,10 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             changeFrame,
             workspace,
         } = this.props;
+        const readonly = readonlyProp || this.isValidationMode();
         const {
             objectStates, sortedStatesID, statesOrdering, filteredStates, selectedStatesID, bulkLabelSelector,
+            selectedStateIDs,
         } = this.state;
 
         const sourceState = bulkLabelSelector.sourceStateID !== null ?
@@ -868,6 +1139,9 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 }
             },
             COPY_SHAPE: () => {
+                if (selectedStateIDs.length) {
+                    return;
+                }
                 const state = activatedState(true);
                 if (state && !readonly) {
                     copyShape(state);

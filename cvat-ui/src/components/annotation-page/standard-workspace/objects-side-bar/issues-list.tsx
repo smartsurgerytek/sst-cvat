@@ -3,26 +3,36 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useSelector, useDispatch, shallowEqual } from 'react-redux';
 import dayjs from 'dayjs';
 import Icon, {
     LeftOutlined, RightOutlined, EyeInvisibleFilled, EyeOutlined,
     CheckCircleFilled, CheckCircleOutlined,
 } from '@ant-design/icons';
+import Modal from 'antd/lib/modal';
 import { Row, Col } from 'antd/lib/grid';
 import Text from 'antd/lib/typography/Text';
+import Button from 'antd/lib/button';
+import Select from 'antd/lib/select';
+import Checkbox from 'antd/lib/checkbox';
+import notification from 'antd/lib/notification';
 
 import {
-    activateObject, fetchAnnotationsAsync, changeFrameAsync, highlightConflict,
+    activateObject, fetchAnnotationsAsync, changeFrameAsync, highlightConflict, createAnnotationsAsync,
 } from 'actions/annotation-actions';
 import { reviewActions } from 'actions/review-actions';
 import CVATTooltip from 'components/common/cvat-tooltip';
 import { ActiveControl, CombinedState, Workspace } from 'reducers';
 import Paragraph from 'antd/lib/typography/Paragraph';
-import { ConflictSeverity, QualityConflict, Issue } from 'cvat-core-wrapper';
+import {
+    ConflictSeverity, QualityConflict, Issue, getCore, ObjectType, ShapeType, LabelType,
+} from 'cvat-core-wrapper';
 import { changeShowGroundTruth } from 'actions/settings-actions';
 import { ShowGroundTruthIcon } from 'icons';
+import { filterApplicableForType } from 'utils/filter-applicable-labels';
+
+const core = getCore();
 
 export default function LabelsListComponent(): JSX.Element {
     const dispatch = useDispatch();
@@ -39,6 +49,8 @@ export default function LabelsListComponent(): JSX.Element {
         workspace,
         ready,
         activeControl,
+        labels,
+        user,
     } = useSelector((state: CombinedState) => ({
         frame: state.annotation.player.frame.number,
         frameIssues: state.review.frameIssues,
@@ -52,7 +64,137 @@ export default function LabelsListComponent(): JSX.Element {
         workspace: state.annotation.workspace,
         ready: state.annotation.canvas.ready,
         activeControl: state.annotation.canvas.activeControl,
+        labels: state.annotation.job.labels,
+        user: state.auth.user,
     }), shallowEqual);
+
+    const [convertModalVisible, setConvertModalVisible] = useState(false);
+    const [issueToConvert, setIssueToConvert] = useState<Issue | null>(null);
+    const [selectedLabelId, setSelectedLabelId] = useState<number | null>(null);
+    const [resolveAfterConvert, setResolveAfterConvert] = useState(false);
+
+    const maskLabels = filterApplicableForType(LabelType.MASK, labels);
+
+    const openConvertModal = (issue: Issue): void => {
+        if (!maskLabels.length) {
+            notification.warning({
+                message: 'No mask labels available',
+                description: 'Create a mask label first to convert issues into mask annotations.',
+            });
+            return;
+        }
+
+        setIssueToConvert(issue);
+        setSelectedLabelId(maskLabels[0].id as number);
+        setResolveAfterConvert(false);
+        setConvertModalVisible(true);
+    };
+
+    const closeConvertModal = (): void => {
+        setConvertModalVisible(false);
+        setIssueToConvert(null);
+        setSelectedLabelId(null);
+        setResolveAfterConvert(false);
+    };
+
+    const polygonToMaskRle = (points: number[]): number[] | null => {
+        if (!Array.isArray(points) || points.length < 6) {
+            return null;
+        }
+
+        const xs = points.filter((_, idx) => idx % 2 === 0);
+        const ys = points.filter((_, idx) => idx % 2 !== 0);
+        const left = Math.floor(Math.min(...xs));
+        const right = Math.ceil(Math.max(...xs));
+        const top = Math.floor(Math.min(...ys));
+        const bottom = Math.ceil(Math.max(...ys));
+        const width = right - left + 1;
+        const height = bottom - top + 1;
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+
+        const canvas = window.document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(points[0] - left, points[1] - top);
+        for (let i = 2; i < points.length; i += 2) {
+            ctx.lineTo(points[i] - left, points[i + 1] - top);
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        const imageData = ctx.getImageData(0, 0, width, height).data;
+        const mask = new Array(width * height);
+        for (let i = 0; i < width * height; i++) {
+            mask[i] = imageData[i * 4 + 3] > 0 ? 1 : 0;
+        }
+
+        const rle = core.utils.mask2Rle(mask);
+        rle.push(left, top, right, bottom);
+        return rle;
+    };
+
+    const resolveIssueDirect = async (issue: Issue): Promise<void> => {
+        if (typeof issue.id !== 'number') return;
+        if (!user) {
+            notification.error({
+                message: 'Could not resolve the issue',
+                description: 'User information is not available.',
+            });
+            return;
+        }
+        try {
+            dispatch(reviewActions.resolveIssue(issue.id));
+            await issue.resolve(user);
+            dispatch(reviewActions.resolveIssueSuccess());
+        } catch (error) {
+            dispatch(reviewActions.resolveIssueFailed(error));
+            notification.error({
+                message: 'Could not resolve the issue',
+            });
+        }
+    };
+
+    const onConvertToMask = async (): Promise<void> => {
+        if (!issueToConvert || !selectedLabelId) return;
+        const label = labels.find((_label) => _label.id === selectedLabelId);
+        if (!label) return;
+
+        const maskPoints = polygonToMaskRle(issueToConvert.position || []);
+        if (!maskPoints) {
+            notification.error({
+                message: 'Conversion failed',
+                description: 'The issue region cannot be converted into a mask.',
+            });
+            return;
+        }
+
+        const objectState = new core.classes.ObjectState({
+            objectType: ObjectType.SHAPE,
+            shapeType: ShapeType.MASK,
+            label,
+            frame: issueToConvert.frame,
+            points: maskPoints,
+            occluded: false,
+            outside: false,
+            rotation: 0,
+        });
+
+        await dispatch(createAnnotationsAsync([objectState]));
+        if (resolveAfterConvert) {
+            await resolveIssueDirect(issueToConvert);
+        }
+        closeConvertModal();
+    };
+
+    const isLikelyMaskIssue = (issue: Issue): boolean => issue.isMaskIssue === true;
 
     let frames = issues
         .filter((issue: Issue) => !issuesResolvedHidden || !issue.resolved)
@@ -161,6 +303,10 @@ export default function LabelsListComponent(): JSX.Element {
                     (frameIssue: Issue): JSX.Element => {
                         const firstComment = frameIssue.comments[0];
                         const lastComment = frameIssue.comments.slice(-1)[0];
+                        const firstMessage = firstComment?.message || '';
+                        const lastMessage = lastComment?.message || '';
+                        const canConvert = workspace !== Workspace.REVIEW &&
+                            isLikelyMaskIssue(frameIssue);
                         return (
                             <div
                                 key={frameIssue.id}
@@ -203,7 +349,7 @@ export default function LabelsListComponent(): JSX.Element {
                                         {!!firstComment?.owner?.username && (
                                             <Text strong>{`${firstComment.owner.username}: `}</Text>
                                         )}
-                                        <Text>{firstComment?.message || ''}</Text>
+                                        <Text>{firstMessage}</Text>
                                     </Paragraph>
                                 </Row>
                                 { lastComment !== firstComment && (
@@ -218,10 +364,21 @@ export default function LabelsListComponent(): JSX.Element {
                                                 {!!lastComment?.owner?.username && (
                                                     <Text strong>{`${lastComment.owner.username}: `}</Text>
                                                 )}
-                                                <Text>{lastComment?.message || ''}</Text>
+                                                <Text>{lastMessage}</Text>
                                             </Paragraph>
                                         </Row>
                                     </>
+                                )}
+                                {canConvert && (
+                                    <Row justify='start'>
+                                        <Button
+                                            type='link'
+                                            className='cvat-issues-convert-to-mask-button'
+                                            onClick={() => openConvertModal(frameIssue)}
+                                        >
+                                            Convert to mask
+                                        </Button>
+                                    </Row>
                                 )}
                             </div>
                         );
@@ -264,6 +421,40 @@ export default function LabelsListComponent(): JSX.Element {
                     ),
                 )}
             </div>
+            <Modal
+                title='Convert issue to mask'
+                visible={convertModalVisible}
+                onCancel={closeConvertModal}
+                onOk={onConvertToMask}
+                okButtonProps={{ disabled: !selectedLabelId }}
+            >
+                <Row style={{ marginBottom: 12 }}>
+                    <Col span={24}>
+                        <Text strong>Label</Text>
+                    </Col>
+                    <Col span={24}>
+                        <Select
+                            style={{ width: '100%' }}
+                            value={selectedLabelId ?? undefined}
+                            onChange={(value: number) => setSelectedLabelId(value)}
+                        >
+                            {maskLabels.map((label) => (
+                                <Select.Option key={label.id} value={label.id as number}>
+                                    {label.name}
+                                </Select.Option>
+                            ))}
+                        </Select>
+                    </Col>
+                </Row>
+                <Row>
+                    <Checkbox
+                        checked={resolveAfterConvert}
+                        onChange={(event) => setResolveAfterConvert(event.target.checked)}
+                    >
+                        Resolve issue after conversion
+                    </Checkbox>
+                </Row>
+            </Modal>
         </>
     );
 }

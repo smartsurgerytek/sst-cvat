@@ -31,6 +31,7 @@ export default function HiddenIssueLabel(props: Props): ReactPortal {
     } = props;
 
     const { id, comments } = issue;
+    const message = comments[0]?.message || '';
     const ref = useRef<HTMLElement>(null);
     useEffect(() => {
         if (!resolved) {
@@ -63,7 +64,7 @@ export default function HiddenIssueLabel(props: Props): ReactPortal {
 
     const elementID = `cvat-hidden-issue-label-${id}`;
     return ReactDOM.createPortal(
-        <CVATTooltip title={comments[0]?.message || 'No comments found'}>
+        <CVATTooltip title={message || 'No comments found'}>
             <Tag
                 ref={ref}
                 id={elementID}
@@ -78,7 +79,7 @@ export default function HiddenIssueLabel(props: Props): ReactPortal {
                 ) : (
                     <CloseCircleOutlined className='cvat-hidden-issue-unsolved-indicator' />
                 )}
-                {comments[0]?.message || null}
+                {message || null}
             </Tag>
         </CVATTooltip>,
         window.document.getElementById('cvat_canvas_attachment_board') as HTMLElement,

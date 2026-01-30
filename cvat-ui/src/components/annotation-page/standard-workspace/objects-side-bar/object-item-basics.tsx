@@ -22,6 +22,7 @@ interface Props {
     readonly: boolean;
     clientID: number;
     serverID: number | null;
+    selected: boolean;
     labelID: number;
     labels: any[];
     shapeType: ShapeType;
@@ -31,7 +32,7 @@ interface Props {
     colorBy: ColorBy;
     type: string;
     locked: boolean;
-    selected: boolean;
+    onSelect?: () => void;
     changeColorShortcut: string;
     copyShortcut: string;
     pasteShortcut: string;
@@ -62,6 +63,7 @@ function ItemTopComponent(props: Props): JSX.Element {
         readonly,
         clientID,
         serverID,
+        selected,
         labelID,
         labels,
         shapeType,
@@ -70,7 +72,6 @@ function ItemTopComponent(props: Props): JSX.Element {
         colorBy,
         type,
         locked,
-        selected,
         changeColorShortcut,
         copyShortcut,
         pasteShortcut,
@@ -96,12 +97,17 @@ function ItemTopComponent(props: Props): JSX.Element {
         slice,
         jobInstance,
         select,
+        onSelect,
     } = props;
 
     const [colorPickerVisible, setColorPickerVisible] = useState(false);
 
     const onCheckboxChange = (event: CheckboxChangeEvent): void => {
         event.stopPropagation();
+        if (onSelect) {
+            onSelect();
+            return;
+        }
         const nativeEvent = event.nativeEvent as MouseEvent | KeyboardEvent;
         const withSelectionModifier = Boolean(nativeEvent.ctrlKey || nativeEvent.metaKey);
         select(nativeEvent as unknown as React.MouseEvent, withSelectionModifier);
@@ -112,6 +118,7 @@ function ItemTopComponent(props: Props): JSX.Element {
             <Col span={2}>
                 <Checkbox
                     checked={selected}
+                    disabled={readonly}
                     onChange={onCheckboxChange}
                     onClick={(event): void => event.stopPropagation()}
                     onMouseDown={(event): void => event.stopPropagation()}
@@ -140,6 +147,7 @@ function ItemTopComponent(props: Props): JSX.Element {
                         onChange={changeLabel}
                         onClick={(event): void => event.stopPropagation()}
                         onMouseDown={(event): void => event.stopPropagation()}
+                        onMouseUp={(event): void => event.stopPropagation()}
                         popupClassName='cvat-objects-sidebar-state-item-label-selector-dropdown'
                         className='cvat-objects-sidebar-state-item-label-selector'
                     />

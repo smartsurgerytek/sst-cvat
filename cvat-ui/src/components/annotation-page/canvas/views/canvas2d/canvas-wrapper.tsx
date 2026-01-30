@@ -366,6 +366,7 @@ type Props = StateToProps & DispatchToProps;
 class CanvasWrapperComponent extends React.PureComponent<Props> {
     private debouncedUpdate = debounce(this.updateCanvas.bind(this), 250, { leading: true });
     private canvasTipsRef = React.createRef<CanvasTipsComponent>();
+    private lastCanvasMouseDownEvent: MouseEvent | null = null;
 
     public componentDidMount(): void {
         const {
@@ -658,6 +659,12 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             onUpdateEditedObject, activeObjectHidden, workspace,
         } = this.props;
 
+        // Skip creating annotations when using the issue-mask drawing control
+        if (this.props.activeControl === ActiveControl.OPEN_ISSUE_MASK) {
+            updateActiveControl(ActiveControl.CURSOR);
+            return;
+        }
+
         if (!event.detail.continue) {
             updateActiveControl(ActiveControl.CURSOR);
         }
@@ -761,6 +768,8 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     private onCanvasMouseDown = (e: MouseEvent): void => {
         const { workspace, activatedStateID, onActivateObject } = this.props;
 
+        this.lastCanvasMouseDownEvent = e;
+
         if ((e.target as HTMLElement).tagName === 'svg' && e.button !== 2) {
             if (activatedStateID !== null && workspace !== Workspace.ATTRIBUTES) {
                 onActivateObject(null, null);
@@ -806,14 +815,33 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
 
     private onCanvasShapeClicked = (e: any): void => {
         const { clientID, parentID } = e.detail.state;
+        const { activeControl } = this.props;
+        const lastMouseDown = this.lastCanvasMouseDownEvent;
+        const targetID = Number.isInteger(parentID) ? parentID : clientID;
+        const isShiftSelection = activeControl === ActiveControl.CURSOR &&
+            lastMouseDown && lastMouseDown.button === 0 && lastMouseDown.shiftKey;
+        if (isShiftSelection) {
+            window.document.dispatchEvent(new CustomEvent('cvat.objects.sidebar.toggle-selection', {
+                detail: {
+                    clientID: targetID,
+                    position: {
+                        x: lastMouseDown.clientX,
+                        y: lastMouseDown.clientY,
+                    },
+                },
+            }));
+            return;
+        }
+
+        const selectionSidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-${targetID}`);
         const sidebarItem = Number.isInteger(parentID) ?
             window.document.getElementById(`cvat-objects-sidebar-state-item-element-${clientID}`) ||
             window.document.getElementById(`cvat-objects-sidebar-state-item-${parentID}`) :
-            window.document.getElementById(`cvat-objects-sidebar-state-item-${clientID}`);
+            selectionSidebarItem;
         const withSelectionModifier = Boolean(e.detail.ctrlKey || e.detail.metaKey);
 
-        if (sidebarItem) {
-            sidebarItem.dispatchEvent(new MouseEvent('click', {
+        if (selectionSidebarItem) {
+            selectionSidebarItem.dispatchEvent(new MouseEvent('click', {
                 bubbles: true,
                 cancelable: true,
                 ctrlKey: withSelectionModifier ? e.detail.ctrlKey : false,
@@ -821,6 +849,9 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                 clientX: e.detail.clientX || 0,
                 clientY: e.detail.clientY || 0,
             }));
+        }
+
+        if (sidebarItem) {
             sidebarItem.scrollIntoView();
         }
     };

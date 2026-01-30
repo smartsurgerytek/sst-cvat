@@ -41,6 +41,7 @@ interface OwnProps {
     selected?: boolean;
     select?(id: number, event?: React.MouseEvent, forceToggle?: boolean): void;
     bulkChangeLabel?(sourceID: number, label: Label): boolean;
+    onSelect?: () => void;
 }
 
 interface StateToProps {
@@ -414,6 +415,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
             readonly,
             jobInstance,
             workspace,
+            onSelect,
         } = this.props;
 
         return (
@@ -421,7 +423,6 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 jobInstance={jobInstance}
                 readonly={readonly}
                 activated={activated}
-                selected={selected}
                 objectType={objectState.objectType}
                 shapeType={objectState.shapeType}
                 clientID={objectState.clientID as number}
@@ -434,6 +435,8 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 elements={elements}
                 normalizedKeyMap={normalizedKeyMap}
                 labels={labels}
+                selected={selected || false}
+                onSelect={onSelect}
                 colorBy={colorBy}
                 workspace={workspace}
                 activate={this.activate}
