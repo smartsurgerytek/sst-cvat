@@ -1,0 +1,90 @@
+// Copyright (C) CVAT.ai Corporation
+//
+// SPDX-License-Identifier: MIT
+
+/// <reference types="cypress" />
+
+context('Review controls: raw compare', () => {
+    let taskID = null;
+    let jobID = null;
+    const taskName = `Review controls: raw compare ${Date.now()}`;
+
+    const taskSpec = {
+        name: taskName,
+        labels: [{
+            name: 'label 1',
+            attributes: [],
+            type: 'any',
+        }],
+        project_id: null,
+        source_storage: { location: 'local' },
+        target_storage: { location: 'local' },
+    };
+
+    const dataSpec = {
+        server_files: ['archive.zip'],
+        image_quality: 70,
+        use_zip_chunks: true,
+        use_cache: true,
+        sorting_method: 'lexicographical',
+    };
+
+    before(() => {
+        cy.visit('/auth/login');
+        cy.login();
+
+        cy.headlessCreateTask(taskSpec, dataSpec).then((response) => {
+            taskID = response.taskID;
+            [jobID] = response.jobIDs;
+        });
+    });
+
+    after(() => {
+        if (taskID) {
+            cy.headlessDeleteTask(taskID);
+        }
+    });
+
+    beforeEach(() => {
+        cy.visit(`/tasks/${taskID}/jobs/${jobID}`);
+        cy.get('.cvat-canvas-container').should('exist').and('be.visible');
+        cy.changeWorkspace('Review');
+        cy.get('.cvat-workspace-selector').should('contain', 'Review');
+    });
+
+    afterEach(() => {
+        cy.window().then((win) => {
+            if (win.__cvatRawCompareListener) {
+                win.removeEventListener('cvat.rawCompareToggle', win.__cvatRawCompareListener);
+                delete win.__cvatRawCompareListener;
+            }
+        });
+    });
+
+    it('toggles and dispatches events', () => {
+        cy.window().then((win) => {
+            const spy = cy.spy();
+            win.__cvatRawCompareListener = spy;
+            win.addEventListener('cvat.rawCompareToggle', spy);
+            cy.wrap(spy).as('rawCompareToggle');
+        });
+
+        cy.get('.cvat-raw-frame-control')
+            .should('exist')
+            .and('not.have.class', 'cvat-disabled-canvas-control')
+            .click();
+        cy.get('.cvat-raw-frame-control').should('have.class', 'cvat-active-canvas-control');
+        cy.get('@rawCompareToggle').should('have.been.called');
+        cy.get('@rawCompareToggle').then((spy) => {
+            const event = spy.getCall(spy.callCount - 1).args[0];
+            expect(event.detail.active).to.equal(true);
+        });
+
+        cy.get('.cvat-raw-frame-control').click();
+        cy.get('.cvat-raw-frame-control').should('not.have.class', 'cvat-active-canvas-control');
+        cy.get('@rawCompareToggle').then((spy) => {
+            const event = spy.getCall(spy.callCount - 1).args[0];
+            expect(event.detail.active).to.equal(false);
+        });
+    });
+});
