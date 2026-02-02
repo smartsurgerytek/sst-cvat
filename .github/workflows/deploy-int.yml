@@ -114,6 +114,9 @@ jobs:
           GIT_REPO_URL="${{ env.GIT_REPO_URL }}"
           CVAT_HOST="${{ secrets.INT_CVAT_HOST }}"
 
+          # Get access token on GitHub runner (where gcloud works properly)
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+
           gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
             --zone=${{ secrets.INT_GCP_ZONE }} \
             --tunnel-through-iap \
@@ -123,10 +126,9 @@ jobs:
               echo 'Starting deployment on INT VM'
               echo '============================================'
 
-              # Configure Docker for Artifact Registry
+              # Configure Docker for Artifact Registry using token from GitHub runner
               echo 'Logging into Docker via Access Token...'
-              mkdir -p /tmp/gcloud-config
-              HOME=/tmp CLOUDSDK_CONFIG=/tmp/gcloud-config gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://${REGISTRY}
+              echo '${ACCESS_TOKEN}' | docker login -u oauth2accesstoken --password-stdin https://${REGISTRY}
 
               # Check if repo exists, clone or pull
               echo 'Checking repository...'
