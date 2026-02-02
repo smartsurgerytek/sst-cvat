@@ -183,8 +183,9 @@ jobs:
               set -e
 
               # Force Docker to use project-specific config dir (isolated from other deployments)
+              # Use sudo to clean up any leftover from previous runs (different OS Login UIDs)
               export DOCKER_CONFIG=/tmp/sst-cvat/.docker
-              rm -rf \${DOCKER_CONFIG} 2>/dev/null || true
+              sudo rm -rf /tmp/sst-cvat 2>/dev/null || true
               mkdir -p \${DOCKER_CONFIG}
 
               echo '============================================'
@@ -255,6 +256,9 @@ jobs:
             --zone=${{ secrets.INT_GCP_ZONE }} \
             --tunnel-through-iap \
             --command="
+              # Set Docker config to avoid permission issues with default config location
+              export DOCKER_CONFIG=/tmp/sst-cvat/.docker
+
               cd ${{ env.DEPLOY_PATH }}
 
               echo 'Container Status:'
@@ -283,12 +287,19 @@ jobs:
               echo 'All critical services are running!'
             "
 
-      - name: Cleanup OS Login Profile
+      - name: Cleanup
         if: always()
         run: |
           echo "Cleaning up OS Login profile..."
           gcloud compute os-login remove-profile --quiet || true
-          echo "OS Login profile cleaned up."
+
+          echo "Cleaning up Docker config on VM..."
+          gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
+            --zone=${{ secrets.INT_GCP_ZONE }} \
+            --tunnel-through-iap \
+            --command="sudo rm -rf /tmp/sst-cvat" || true
+
+          echo "Cleanup completed."
 
       - name: Deployment Summary
         if: always()
