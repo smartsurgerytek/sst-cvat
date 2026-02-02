@@ -34,6 +34,7 @@ import config from 'config';
 import { Organization } from 'cvat-core-wrapper';
 import CVATTooltip from 'components/common/cvat-tooltip';
 import CVATLogo from 'components/common/cvat-logo';
+import EnvironmentBadge from 'components/common/environment-badge';
 import { switchSettingsModalVisible as switchSettingsModalVisibleAction } from 'actions/settings-actions';
 import { logoutAsync } from 'actions/auth-actions';
 import { shortcutsActions, registerComponentShortcuts } from 'actions/shortcuts-actions';
@@ -404,6 +405,7 @@ function HeaderComponent(props: Props): JSX.Element {
             <GlobalHotKeys keyMap={subKeyMap(componentShortcuts, keyMap)} handlers={handlers} />
             <div className='cvat-left-header'>
                 <CVATLogo />
+                <EnvironmentBadge />
                 <Button
                     className={getButtonClassName('projects')}
                     type='link'

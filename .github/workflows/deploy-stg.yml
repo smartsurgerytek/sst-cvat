@@ -57,6 +57,7 @@ jobs:
       ref: sst-main
       image_tag: sst-main-${{ github.sha }}
       push_latest: true
+      env_label: STG
     secrets: inherit
 
   # ============================================

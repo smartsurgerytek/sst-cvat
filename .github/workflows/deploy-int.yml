@@ -75,6 +75,7 @@ jobs:
       ref: ${{ github.ref }}
       image_tag: ${{ needs.prepare.outputs.image_tag }}
       push_latest: false
+      env_label: INT
     secrets: inherit
 
   # ============================================

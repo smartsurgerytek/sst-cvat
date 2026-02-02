@@ -35,6 +35,11 @@ on:
         required: false
         type: boolean
         default: false
+      env_label:
+        description: 'Environment label for UI badge (INT, STG, etc.)'
+        required: false
+        type: string
+        default: ''
     outputs:
       image_tag:
         description: 'The image tag that was used'
@@ -117,6 +122,8 @@ jobs:
           context: .
           file: Dockerfile.ui
           push: true
+          build-args: |
+            CVAT_ENV_LABEL=${{ inputs.env_label }}
           tags: |
             ${{ steps.images.outputs.ui_image }}:${{ inputs.image_tag }}
             ${{ inputs.push_latest && format('{0}:latest', steps.images.outputs.ui_image) || '' }}
