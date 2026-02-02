@@ -57,6 +57,7 @@ jobs:
       ref: sst-main
       image_tag: sst-main-${{ github.sha }}
       push_latest: true
+      env_label: STG
     secrets: inherit
 
   # ============================================
@@ -101,6 +102,30 @@ jobs:
 
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Clean OS Login Keys (prevent 32KB limit, keep last 5)
+        run: |
+          echo "Cleaning old OS Login SSH keys to prevent profile size limit (keeping last 5)..."
+          FPS=$(gcloud compute os-login describe-profile --format="yaml" 2>/dev/null | grep "fingerprint:" | awk '{print $2}' || true)
+
+          if [ -z "$FPS" ]; then
+            echo "No existing keys found."
+            exit 0
+          fi
+
+          COUNT=$(echo "$FPS" | wc -l)
+          echo "Found $COUNT SSH key(s)."
+
+          if [ "$COUNT" -gt 5 ]; then
+            REMOVE_COUNT=$((COUNT - 5))
+            echo "Removing oldest $REMOVE_COUNT key(s), keeping last 5..."
+            echo "$FPS" | head -n "$REMOVE_COUNT" | while read fp; do
+              gcloud compute os-login ssh-keys remove --key="$fp" --quiet || true
+            done
+            echo "Cleanup complete, 5 keys remaining."
+          else
+            echo "Only $COUNT key(s) found, no cleanup needed."
+          fi
 
       - name: Prepare deployment files
         id: prepare
@@ -269,12 +294,9 @@ jobs:
               echo 'All critical services are running!'
             "
 
-      - name: Cleanup
+      - name: Cleanup temp directories
         if: always()
         run: |
-          echo "Cleaning up OS Login profile..."
-          gcloud compute os-login remove-profile --quiet || true
-
           echo "Cleaning up temp directories on VM..."
           gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
             --zone=${{ secrets.STG_GCP_ZONE }} \
@@ -282,6 +304,21 @@ jobs:
             --command="sudo rm -rf /tmp/sst-cvat /tmp/cvat-deploy" || true
 
           echo "Cleanup completed."
+
+      - name: Clean up OS Login SSH keys (keep last 5)
+        if: always()
+        run: |
+          # Only remove old SSH keys, keep last 5 to prevent interrupting other workflows
+          FPS=$(gcloud compute os-login describe-profile --format="yaml" 2>/dev/null | grep "fingerprint:" | awk '{print $2}' || true)
+          if [ -n "$FPS" ]; then
+            COUNT=$(echo "$FPS" | wc -l)
+            if [ "$COUNT" -gt 5 ]; then
+              REMOVE_COUNT=$((COUNT - 5))
+              echo "$FPS" | head -n "$REMOVE_COUNT" | while read fp; do
+                gcloud compute os-login ssh-keys remove --key="$fp" --quiet || true
+              done
+            fi
+          fi
 
       - name: Deployment Summary
         if: always()
