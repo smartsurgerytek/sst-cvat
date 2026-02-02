@@ -142,6 +142,13 @@ jobs:
             --zone=${{ secrets.STG_GCP_ZONE }} \
             --tunnel-through-iap
 
+          # Copy components directory (contains config files mounted by docker-compose)
+          gcloud compute scp --recurse \
+            components \
+            ${{ secrets.STG_VM_NAME }}:${{ env.DEPLOY_PATH }}/ \
+            --zone=${{ secrets.STG_GCP_ZONE }} \
+            --tunnel-through-iap
+
           echo "Deployment files copied to VM:${{ env.DEPLOY_PATH }}/"
 
       - name: Deploy to STG VM

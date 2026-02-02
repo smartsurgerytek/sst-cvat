@@ -52,12 +52,28 @@ jobs:
   # ============================================
   # Job 1: Build Images (reusable workflow)
   # ============================================
+  # Generate short SHA for consistent image tagging
+  prepare:
+    name: Prepare Build Parameters
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+    steps:
+      - name: Generate image tag with short SHA
+        id: vars
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          BRANCH_TAG=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
+          IMAGE_TAG="${BRANCH_TAG}-${SHORT_SHA}"
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
   build:
     name: Build Images
+    needs: prepare
     uses: ./.github/workflows/build-images.yml
     with:
       ref: ${{ github.ref }}
-      image_tag: ${{ github.ref_name }}-${{ github.sha }}
+      image_tag: ${{ needs.prepare.outputs.image_tag }}
       push_latest: false
     secrets: inherit
 
@@ -67,16 +83,13 @@ jobs:
   deploy:
     name: Deploy to INT Environment
     runs-on: ubuntu-latest
-    needs: build
+    needs: [prepare, build]
 
     steps:
-      - name: Generate short SHA
+      - name: Set deployment variables
         id: vars
         run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          BRANCH_TAG=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
-          IMAGE_TAG="${BRANCH_TAG}-${SHORT_SHA}"
-          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "image_tag=${{ needs.prepare.outputs.image_tag }}" >> $GITHUB_OUTPUT
           echo "branch_name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
 
       - name: Deployment Info
@@ -137,6 +150,13 @@ jobs:
             docker-compose.yml \
             docker-compose.int.yml \
             .env \
+            ${{ secrets.INT_VM_NAME }}:${{ env.DEPLOY_PATH }}/ \
+            --zone=${{ secrets.INT_GCP_ZONE }} \
+            --tunnel-through-iap
+
+          # Copy components directory (contains config files mounted by docker-compose)
+          gcloud compute scp --recurse \
+            components \
             ${{ secrets.INT_VM_NAME }}:${{ env.DEPLOY_PATH }}/ \
             --zone=${{ secrets.INT_GCP_ZONE }} \
             --tunnel-through-iap
