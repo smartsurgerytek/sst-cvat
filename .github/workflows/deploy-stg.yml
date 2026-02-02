@@ -121,6 +121,11 @@ jobs:
             --tunnel-through-iap \
             --command="
               set -e
+
+              # Force Docker to use /tmp for config (avoid home directory permission issues)
+              export DOCKER_CONFIG=/tmp/.docker
+              mkdir -p \${DOCKER_CONFIG}
+
               echo '============================================'
               echo 'Deploying to STG Environment'
               echo '============================================'
