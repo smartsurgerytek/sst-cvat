@@ -124,6 +124,7 @@ jobs:
 
               # Configure Docker for Artifact Registry
               echo 'Configuring Docker for Artifact Registry...'
+              export CLOUDSDK_CONFIG=/tmp/gcloud-config
               gcloud auth configure-docker ${REGISTRY} --quiet
 
               # Check if repo exists, clone or pull
