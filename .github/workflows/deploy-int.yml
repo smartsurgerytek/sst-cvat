@@ -138,10 +138,11 @@ jobs:
       - name: Prepare VM deployment directory
         run: |
           # Create deployment directory on VM (clean slate to avoid permission issues)
+          # Use chmod 777 to allow any OS Login user to access (UIDs vary between SSH sessions)
           gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
             --zone=${{ secrets.INT_GCP_ZONE }} \
             --tunnel-through-iap \
-            --command="sudo rm -rf ${{ env.DEPLOY_PATH }} && mkdir -p ${{ env.DEPLOY_PATH }}"
+            --command="sudo rm -rf ${{ env.DEPLOY_PATH }} && mkdir -p ${{ env.DEPLOY_PATH }} && chmod 777 ${{ env.DEPLOY_PATH }}"
 
       - name: Copy deployment files to VM
         run: |
