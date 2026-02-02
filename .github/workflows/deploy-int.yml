@@ -154,8 +154,9 @@ jobs:
             --command="
               set -e
 
-              # Force Docker to use /tmp for config
-              export DOCKER_CONFIG=/tmp/.docker
+              # Force Docker to use project-specific config dir (isolated from other deployments)
+              export DOCKER_CONFIG=/tmp/sst-cvat/.docker
+              rm -rf \${DOCKER_CONFIG} 2>/dev/null || true
               mkdir -p \${DOCKER_CONFIG}
 
               echo '============================================'
