@@ -274,11 +274,11 @@ jobs:
           echo "Cleaning up OS Login profile..."
           gcloud compute os-login remove-profile --quiet || true
 
-          echo "Cleaning up Docker config on VM..."
+          echo "Cleaning up temp directories on VM..."
           gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
             --zone=${{ secrets.STG_GCP_ZONE }} \
             --tunnel-through-iap \
-            --command="sudo rm -rf /tmp/sst-cvat" || true
+            --command="sudo rm -rf /tmp/sst-cvat /tmp/cvat-deploy" || true
 
           echo "Cleanup completed."
 
