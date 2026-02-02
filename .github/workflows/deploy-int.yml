@@ -124,9 +124,9 @@ jobs:
               echo '============================================'
 
               # Configure Docker for Artifact Registry
-              echo 'Configuring Docker for Artifact Registry...'
+              echo 'Logging into Docker via Access Token...'
               mkdir -p /tmp/gcloud-config
-              HOME=/tmp CLOUDSDK_CONFIG=/tmp/gcloud-config gcloud auth configure-docker ${REGISTRY} --quiet
+              HOME=/tmp CLOUDSDK_CONFIG=/tmp/gcloud-config gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://${REGISTRY}
 
               # Check if repo exists, clone or pull
               echo 'Checking repository...'
