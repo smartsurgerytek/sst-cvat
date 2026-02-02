@@ -7,13 +7,13 @@
 #
 # Flow:
 #   1. Developer works on feature branch
-#   2. Manually trigger this workflow → Build + Deploy to INT
+#   2. Manually trigger this workflow -> Build + Deploy to INT
 #   3. PM/annotation team tests on INT
-#   4. If tests pass → Create PR to sst-main
+#   4. If tests pass -> Create PR to sst-main
 #
 # Usage:
 #   1. Go to Actions tab in GitHub
-#   2. Select "Build and Deploy to INT" workflow
+#   2. Select "Deploy to INT" workflow
 #   3. Click "Run workflow"
 #   4. Select your branch from dropdown
 #   5. Click "Run workflow" button
@@ -27,7 +27,7 @@
 #
 # =============================================================================
 
-name: Build and Deploy to INT
+name: Deploy to INT
 
 on:
   workflow_dispatch:
@@ -44,103 +44,23 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # GCP Configuration
-  GCP_REGION: us-central1
   REGISTRY: us-central1-docker.pkg.dev
   REPO_NAME: cvat-repo
-
-  # Deployment Configuration
   DEPLOY_PATH: sst-cvat
   GIT_REPO_URL: https://github.com/smartsurgerytek/sst-cvat.git
 
 jobs:
   # ============================================
-  # Job 1: Build and Push Images
+  # Job 1: Build Images (reusable workflow)
   # ============================================
   build:
-    name: Build and Push Images
-    runs-on: ubuntu-latest
-    outputs:
-      image_tag: ${{ steps.tags.outputs.version_tag }}
-      branch_name: ${{ steps.tags.outputs.branch_name }}
-      short_sha: ${{ steps.tags.outputs.short_sha }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Generate image tags
-        id: tags
-        run: |
-          # Get short SHA (7 characters)
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-
-          # Get branch name and make it tag-friendly (replace / with -)
-          BRANCH_NAME="${GITHUB_REF#refs/heads/}"
-          BRANCH_TAG=$(echo "${BRANCH_NAME}" | sed 's/\//-/g')
-          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
-          echo "branch_tag=${BRANCH_TAG}" >> $GITHUB_OUTPUT
-
-          # Create the version tag: {branch}-{short_sha}
-          VERSION_TAG="${BRANCH_TAG}-${SHORT_SHA}"
-          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
-
-          echo "============================================"
-          echo "Branch:      ${BRANCH_NAME}"
-          echo "Version Tag: ${VERSION_TAG}"
-          echo "============================================"
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Setup gcloud CLI
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: |
-          gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and Push CVAT Server
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server:${{ steps.tags.outputs.version_tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and Push CVAT UI
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.ui
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:${{ steps.tags.outputs.version_tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build Summary
-        run: |
-          echo "## Build Complete!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Branch | \`${{ steps.tags.outputs.branch_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Commit | \`${{ steps.tags.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image Tag | \`${{ steps.tags.outputs.version_tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Images" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-server:${{ steps.tags.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/cvat-ui:${{ steps.tags.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+    name: Build Images
+    uses: ./.github/workflows/build-images.yml
+    with:
+      ref: ${{ github.ref }}
+      image_tag: ${{ github.ref_name }}-${{ github.sha }}
+      push_latest: false
+    secrets: inherit
 
   # ============================================
   # Job 2: Deploy to INT
@@ -151,13 +71,22 @@ jobs:
     needs: build
 
     steps:
+      - name: Generate short SHA
+        id: vars
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          BRANCH_TAG=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
+          IMAGE_TAG="${BRANCH_TAG}-${SHORT_SHA}"
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "branch_name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+
       - name: Deployment Info
         run: |
           echo "============================================"
           echo "Deploying to INT Environment"
           echo "============================================"
-          echo "Branch:       ${{ needs.build.outputs.branch_name }}"
-          echo "Image Tag:    ${{ needs.build.outputs.image_tag }}"
+          echo "Branch:       ${{ steps.vars.outputs.branch_name }}"
+          echo "Image Tag:    ${{ steps.vars.outputs.image_tag }}"
           echo "Skip Backup:  ${{ github.event.inputs.skip_backup }}"
           echo "Triggered by: ${{ github.actor }}"
           echo "============================================"
@@ -175,9 +104,8 @@ jobs:
 
       - name: Deploy to INT VM
         run: |
-          # Set variables for the deployment script
-          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
-          BRANCH_NAME="${{ needs.build.outputs.branch_name }}"
+          IMAGE_TAG="${{ steps.vars.outputs.image_tag }}"
+          BRANCH_NAME="${{ steps.vars.outputs.branch_name }}"
           REGISTRY="${{ env.REGISTRY }}"
           PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
           REPO_NAME="${{ env.REPO_NAME }}"
@@ -186,7 +114,6 @@ jobs:
           GIT_REPO_URL="${{ env.GIT_REPO_URL }}"
           CVAT_HOST="${{ secrets.INT_CVAT_HOST }}"
 
-          # SSH to VM and run deployment
           gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
             --zone=${{ secrets.INT_GCP_ZONE }} \
             --tunnel-through-iap \
@@ -306,6 +233,13 @@ jobs:
               echo 'All critical services are running!'
             "
 
+      - name: Cleanup OS Login Profile
+        if: always()
+        run: |
+          echo "Cleaning up OS Login profile..."
+          gcloud compute os-login remove-profile --quiet || true
+          echo "OS Login profile cleaned up."
+
       - name: Deployment Summary
         if: always()
         run: |
@@ -314,8 +248,8 @@ jobs:
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Environment | **INT** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Branch | \`${{ needs.build.outputs.branch_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image Tag | \`${{ needs.build.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ steps.vars.outputs.branch_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | \`${{ steps.vars.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| VM | \`${{ secrets.INT_VM_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| CVAT Host | \`${{ secrets.INT_CVAT_HOST }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered By | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY

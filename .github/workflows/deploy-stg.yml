@@ -1,11 +1,12 @@
 # =============================================================================
-# STG Workflow: Deploy to STG Environment
+# STG Workflow: Build and Deploy to STG Environment
 # =============================================================================
 #
-# This workflow deploys CVAT to the STG (Staging/Production) environment.
+# This workflow builds CVAT images and deploys them to STG (Production).
+# Triggered automatically when code is merged to sst-main.
 #
 # Triggers:
-#   - Auto: After build-cvat.yml completes on sst-main push
+#   - Auto: Push to sst-main (after PR merge)
 #   - Manual: workflow_dispatch
 #
 # Prerequisites (GitHub Secrets):
@@ -20,11 +21,8 @@
 name: Deploy to STG
 
 on:
-  # Auto-trigger after build-cvat.yml completes on sst-main
-  workflow_run:
-    workflows: ["Build CVAT Images"]
-    types:
-      - completed
+  # Auto-trigger on push to sst-main (after PR merge)
+  push:
     branches:
       - sst-main
 
@@ -42,37 +40,41 @@ concurrency:
   cancel-in-progress: false  # Don't cancel ongoing deployments
 
 env:
-  # GCP Configuration
-  GCP_REGION: us-central1
   REGISTRY: us-central1-docker.pkg.dev
   REPO_NAME: cvat-repo
-
-  # Deployment Configuration
   DEPLOY_PATH: sst-cvat
   GIT_REPO_URL: https://github.com/smartsurgerytek/sst-cvat.git
 
 jobs:
   # ============================================
-  # Job: Deploy to STG
+  # Job 1: Build Images (reusable workflow)
+  # Only run for push events (not manual with custom tag)
+  # ============================================
+  build:
+    name: Build Images
+    if: github.event_name == 'push' || github.event.inputs.image_tag == 'latest'
+    uses: ./.github/workflows/build-images.yml
+    with:
+      ref: sst-main
+      image_tag: sst-main-${{ github.sha }}
+      push_latest: true
+    secrets: inherit
+
+  # ============================================
+  # Job 2: Deploy to STG
   # ============================================
   deploy:
     name: Deploy to STG Environment
     runs-on: ubuntu-latest
-
-    # For workflow_run: only run if the triggering workflow succeeded
-    # For workflow_dispatch: always run
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    needs: build
+    # Run even if build was skipped (manual trigger with custom tag)
+    if: always() && (needs.build.result == 'success' || needs.build.result == 'skipped')
 
     steps:
-      # ============================================
-      # Step 1: Determine parameters
-      # ============================================
-      - name: Determine parameters
+      - name: Determine image tag
         id: params
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.image_tag }}" != "latest" ]; then
             IMAGE_TAG="${{ github.event.inputs.image_tag }}"
           else
             IMAGE_TAG="latest"
@@ -88,17 +90,11 @@ jobs:
           echo "Triggered by: ${{ github.actor }}"
           echo "============================================"
 
-      # ============================================
-      # Step 2: Checkout code
-      # ============================================
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: sst-main
 
-      # ============================================
-      # Step 3: Authenticate to GCP
-      # ============================================
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
@@ -107,9 +103,6 @@ jobs:
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
 
-      # ============================================
-      # Step 4: Deploy to STG VM
-      # ============================================
       - name: Deploy to STG VM
         run: |
           IMAGE_TAG="${{ steps.params.outputs.image_tag }}"
@@ -206,9 +199,6 @@ jobs:
               echo '============================================'
             "
 
-      # ============================================
-      # Step 5: Health Check
-      # ============================================
       - name: Health Check
         run: |
           echo "Running health check..."
@@ -246,9 +236,13 @@ jobs:
               echo 'All critical services are running!'
             "
 
-      # ============================================
-      # Step 6: Deployment Summary
-      # ============================================
+      - name: Cleanup OS Login Profile
+        if: always()
+        run: |
+          echo "Cleaning up OS Login profile..."
+          gcloud compute os-login remove-profile --quiet || true
+          echo "OS Login profile cleaned up."
+
       - name: Deployment Summary
         if: always()
         run: |
