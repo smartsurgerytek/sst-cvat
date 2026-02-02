@@ -123,6 +123,14 @@ jobs:
           echo "Created .env file:"
           cat .env
 
+      - name: Prepare VM deployment directory
+        run: |
+          # Create deployment directory on VM (clean slate to avoid permission issues)
+          gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
+            --zone=${{ secrets.STG_GCP_ZONE }} \
+            --tunnel-through-iap \
+            --command="sudo rm -rf ${{ env.DEPLOY_PATH }} && mkdir -p ${{ env.DEPLOY_PATH }}"
+
       - name: Copy deployment files to VM
         run: |
           # Copy docker-compose files and .env to VM
