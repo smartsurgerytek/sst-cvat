@@ -366,7 +366,6 @@ type Props = StateToProps & DispatchToProps;
 class CanvasWrapperComponent extends React.PureComponent<Props> {
     private debouncedUpdate = debounce(this.updateCanvas.bind(this), 250, { leading: true });
     private canvasTipsRef = React.createRef<CanvasTipsComponent>();
-    private lastCanvasMouseDownEvent: MouseEvent | null = null;
 
     public componentDidMount(): void {
         const {
@@ -768,8 +767,6 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     private onCanvasMouseDown = (e: MouseEvent): void => {
         const { workspace, activatedStateID, onActivateObject } = this.props;
 
-        this.lastCanvasMouseDownEvent = e;
-
         if ((e.target as HTMLElement).tagName === 'svg' && e.button !== 2) {
             if (activatedStateID !== null && workspace !== Workspace.ATTRIBUTES) {
                 onActivateObject(null, null);
@@ -814,26 +811,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     };
 
     private onCanvasShapeClicked = (e: any): void => {
-        const { clientID, parentID } = e.detail.state;
-        const { activeControl } = this.props;
-        const lastMouseDown = this.lastCanvasMouseDownEvent;
-        const targetID = Number.isInteger(parentID) ? parentID : clientID;
-        const isShiftSelection = activeControl === ActiveControl.CURSOR &&
-            lastMouseDown && lastMouseDown.button === 0 && lastMouseDown.shiftKey;
-        if (isShiftSelection) {
-            window.document.dispatchEvent(new CustomEvent('cvat.objects.sidebar.toggle-selection', {
-                detail: {
-                    clientID: targetID,
-                    position: {
-                        x: lastMouseDown.clientX,
-                        y: lastMouseDown.clientY,
-                    },
-                },
-            }));
-            return;
-        }
-
-        let sidebarItem = null;
+        const { clientID, parentID } = e.detail.state;        let sidebarItem = null;
         if (Number.isInteger(parentID)) {
             sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-element-${clientID}`);
         } else {

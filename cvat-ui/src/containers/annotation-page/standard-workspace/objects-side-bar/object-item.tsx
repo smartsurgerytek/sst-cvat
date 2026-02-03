@@ -38,8 +38,6 @@ interface OwnProps {
     readonly: boolean;
     clientID: number;
     objectStates: ObjectState[];
-    selected?: boolean;
-    onSelect?: () => void;
 }
 
 interface StateToProps {
@@ -398,8 +396,6 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
             readonly,
             jobInstance,
             workspace,
-            selected,
-            onSelect,
         } = this.props;
 
         return (
@@ -419,8 +415,6 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 elements={elements}
                 normalizedKeyMap={normalizedKeyMap}
                 labels={labels}
-                selected={selected || false}
-                onSelect={onSelect}
                 colorBy={colorBy}
                 workspace={workspace}
                 activate={this.activate}
