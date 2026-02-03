@@ -46,6 +46,7 @@ context('Review controls: finish button', () => {
     });
 
     beforeEach(() => {
+        cy.viewport(1920, 1080);
         cy.visit(`/tasks/${taskID}/jobs/${jobID}`);
         cy.get('.cvat-canvas-container').should('exist').and('be.visible');
         cy.changeWorkspace('Review');
@@ -59,7 +60,7 @@ context('Review controls: finish button', () => {
         cy.get('.cvat-annotation-header-finish-job-button').click();
         cy.get('.cvat-modal-content-finish-job')
             .should('exist')
-            .and('contain', 'Would you like to finish the job?');
+            .and('contain', 'Finish this job?');
         cy.get('.cvat-modal-content-finish-job').within(() => {
             cy.contains('button', 'Finish job').should('exist');
             cy.contains('button', 'Cancel').click();

@@ -46,6 +46,7 @@ context('Review controls: raw compare', () => {
     });
 
     beforeEach(() => {
+        cy.viewport(1920, 1080);
         cy.visit(`/tasks/${taskID}/jobs/${jobID}`);
         cy.get('.cvat-canvas-container').should('exist').and('be.visible');
         cy.changeWorkspace('Review');

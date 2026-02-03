@@ -32,9 +32,13 @@ import {
     CombinedState, StatesOrdering, ColorBy, Workspace,
     ActiveControl,
 } from 'reducers';
+<<<<<<< HEAD
 import {
     JobStage, Label, LabelType, ObjectState, ObjectType, ShapeType,
 } from 'cvat-core-wrapper';
+=======
+import { ObjectState, ObjectType, ShapeType } from 'cvat-core-wrapper';
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
 import { filterAnnotations } from 'utils/filter-annotations';
 import { filterApplicableLabels } from 'utils/filter-applicable-labels';
 import { registerComponentShortcuts } from 'actions/shortcuts-actions';
@@ -58,7 +62,6 @@ interface StateToProps {
     annotationsFilters: any[];
     colors: string[];
     colorBy: ColorBy;
-    labels: Label[];
     activatedStateID: number | null;
     activatedElementID: number | null;
     minZLayer: number;
@@ -203,7 +206,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
                 activatedElementID,
                 zLayer: { min: minZLayer, max: maxZLayer },
             },
-            job: { instance: jobInstance, labels },
+            job: { instance: jobInstance },
             player: {
                 frame: { number: frameNumber },
             },
@@ -251,7 +254,6 @@ function mapStateToProps(state: CombinedState): StateToProps {
         annotationsFilters,
         colors,
         colorBy,
-        labels,
         activatedStateID,
         activatedElementID,
         minZLayer,
@@ -334,6 +336,7 @@ interface State {
     objectStates: ObjectState[];
     filteredStates: ObjectState[];
     sortedStatesID: number[];
+<<<<<<< HEAD
     selectedStatesID: number[];
     bulkLabelSelector: BulkLabelSelectorState;
     selectedStateIDs: number[];
@@ -341,6 +344,8 @@ interface State {
     floatingLabelPosition: { x: number; y: number } | null;
     selectedLabelID: number | null;
     selectionSource: 'canvas' | 'sidebar' | null;
+=======
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
 }
 
 class ObjectsListContainer extends React.PureComponent<Props, State> {
@@ -360,10 +365,6 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         readonly: false,
     };
 
-    private isValidationMode(): boolean {
-        return this.props.jobInstance?.stage === JobStage.VALIDATION;
-    }
-
     public constructor(props: Props) {
         super(props);
         this.state = {
@@ -371,6 +372,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             objectStates: [],
             filteredStates: [],
             sortedStatesID: [],
+<<<<<<< HEAD
             selectedStatesID: [],
             bulkLabelSelector: {
                 visible: false,
@@ -383,6 +385,8 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             floatingLabelPosition: null,
             selectedLabelID: null,
             selectionSource: null,
+=======
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
         };
     }
 
@@ -390,12 +394,9 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         window.addEventListener('keyup', this.onModifierKeyUp);
         window.addEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
         this.updateObjects();
-        window.document.addEventListener('cvat.objects.sidebar.toggle-selection', this.onExternalToggleSelection as EventListener);
-        window.document.addEventListener('keyup', this.onDocumentKeyUp);
-        window.document.addEventListener('keydown', this.onDocumentKeyDown);
-        window.document.addEventListener('mousedown', this.onDocumentMouseDown);
     }
 
+<<<<<<< HEAD
     public componentWillUnmount(): void {
         window.removeEventListener('keyup', this.onModifierKeyUp);
         window.removeEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
@@ -406,11 +407,15 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
     }
 
     public componentDidUpdate(prevProps: Props): void {
+=======
+    public componentDidUpdate(): void {
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
         const { objectStates } = this.props;
         const { objectStates: prevObjectStates } = this.state;
         if (objectStates !== prevObjectStates) {
             this.updateObjects();
         }
+<<<<<<< HEAD
         if (this.isValidationMode() && (
             this.state.selectedStateIDs.length ||
             this.state.selectedStatesID.length ||
@@ -433,16 +438,23 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 selectionSource: null,
             });
         }
+=======
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
     }
 
     private updateObjects = (): void => {
         const {
             objectStates, frameNumber, workspace,
         } = this.props;
+<<<<<<< HEAD
+=======
+        const { statesOrdering } = this.state;
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
         const filteredStates = filterAnnotations(objectStates, {
             frame: frameNumber,
             workspace,
         });
+<<<<<<< HEAD
         this.setState((prevState) => {
             const sortedStatesID = sortAndMap(filteredStates, prevState.statesOrdering);
             const availableStateIDs = new Set(sortedStatesID);
@@ -485,6 +497,12 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 selectedLabelID: nextSelectedLabelID,
                 selectionSource: hasSelection ? prevState.selectionSource : null,
             };
+=======
+        this.setState({
+            objectStates,
+            filteredStates,
+            sortedStatesID: sortAndMap(filteredStates, statesOrdering),
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
         });
     };
 
@@ -763,6 +781,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         collapseStates(filteredStates, collapsed);
     }
 
+<<<<<<< HEAD
     private onDocumentKeyUp = (event: KeyboardEvent): void => {
         const { selectionSource, selectedStateIDs } = this.state;
         if (this.isValidationMode()) {
@@ -969,6 +988,8 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         this.setState({ floatingLabelOpen: false });
     };
 
+=======
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
     public render(): JSX.Element {
         const {
             statesHidden,
@@ -982,7 +1003,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             colors,
             labels,
             colorBy,
-            readonly: readonlyProp,
+            readonly,
             statesCollapsedAll,
             showGroundTruth,
             updateAnnotations,
@@ -993,10 +1014,13 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             changeFrame,
             workspace,
         } = this.props;
-        const readonly = readonlyProp || this.isValidationMode();
         const {
+<<<<<<< HEAD
             objectStates, sortedStatesID, statesOrdering, filteredStates, selectedStatesID, bulkLabelSelector,
             selectedStateIDs,
+=======
+            objectStates, sortedStatesID, statesOrdering, filteredStates,
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
         } = this.state;
 
         const sourceState = bulkLabelSelector.sourceStateID !== null ?
@@ -1139,9 +1163,6 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 }
             },
             COPY_SHAPE: () => {
-                if (selectedStateIDs.length) {
-                    return;
-                }
                 const state = activatedState(true);
                 if (state && !readonly) {
                     copyShape(state);
@@ -1200,8 +1221,11 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     selectedStatesID={selectedStatesID}
                     showGroundTruth={showGroundTruth}
                     objectStates={filteredStates}
+<<<<<<< HEAD
                     selectState={this.onSelectState}
                     bulkChangeLabel={this.bulkChangeLabel}
+=======
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
                     switchHiddenAllShortcut={normalizedKeyMap.SWITCH_ALL_HIDDEN}
                     switchLockAllShortcut={normalizedKeyMap.SWITCH_ALL_LOCK}
                     changeStatesOrdering={this.onChangeStatesOrdering}

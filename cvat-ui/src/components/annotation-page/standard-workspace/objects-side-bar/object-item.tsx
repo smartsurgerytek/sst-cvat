@@ -18,7 +18,6 @@ interface Props {
     normalizedKeyMap: Record<string, string>;
     readonly: boolean;
     activated: boolean;
-    selected?: boolean;
     objectType: ObjectType;
     shapeType: ShapeType;
     clientID: number;
@@ -48,13 +47,15 @@ interface Props {
     runAnnotationAction(): void;
     edit(): void;
     slice(): void;
-    onSelect?: () => void;
 }
 
 function ObjectItemComponent(props: Props): JSX.Element {
     const {
         activated,
+<<<<<<< HEAD
         selected,
+=======
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
         readonly,
         objectType,
         shapeType,
@@ -84,7 +85,6 @@ function ObjectItemComponent(props: Props): JSX.Element {
         runAnnotationAction,
         edit,
         slice,
-        onSelect,
         jobInstance,
         workspace,
     } = props;
@@ -137,8 +137,6 @@ function ObjectItemComponent(props: Props): JSX.Element {
                     readonly={readonly}
                     serverID={serverID}
                     clientID={clientID}
-                    selected={selected || false}
-                    onSelect={onSelect}
                     labelID={labelID}
                     labels={labels}
                     shapeType={shapeType}

@@ -8,7 +8,10 @@ import { Row, Col } from 'antd/lib/grid';
 import { MoreOutlined } from '@ant-design/icons';
 import Dropdown from 'antd/lib/dropdown';
 import Text from 'antd/lib/typography/Text';
+<<<<<<< HEAD
 import Checkbox, { CheckboxChangeEvent } from 'antd/lib/checkbox';
+=======
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
 
 import { ColorBy } from 'reducers';
 import CVATTooltip from 'components/common/cvat-tooltip';
@@ -22,7 +25,6 @@ interface Props {
     readonly: boolean;
     clientID: number;
     serverID: number | null;
-    selected: boolean;
     labelID: number;
     labels: any[];
     shapeType: ShapeType;
@@ -32,7 +34,6 @@ interface Props {
     colorBy: ColorBy;
     type: string;
     locked: boolean;
-    onSelect?: () => void;
     changeColorShortcut: string;
     copyShortcut: string;
     pasteShortcut: string;
@@ -63,7 +64,6 @@ function ItemTopComponent(props: Props): JSX.Element {
         readonly,
         clientID,
         serverID,
-        selected,
         labelID,
         labels,
         shapeType,
@@ -96,8 +96,11 @@ function ItemTopComponent(props: Props): JSX.Element {
         edit,
         slice,
         jobInstance,
+<<<<<<< HEAD
         select,
         onSelect,
+=======
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
     } = props;
 
     const [colorPickerVisible, setColorPickerVisible] = useState(false);
@@ -115,6 +118,7 @@ function ItemTopComponent(props: Props): JSX.Element {
 
     return (
         <Row align='middle'>
+<<<<<<< HEAD
             <Col span={2}>
                 <Checkbox
                     checked={selected}
@@ -126,6 +130,9 @@ function ItemTopComponent(props: Props): JSX.Element {
                 />
             </Col>
             <Col span={7}>
+=======
+            <Col span={10}>
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
                 <Text style={{ fontSize: 12 }}>{clientID}</Text>
                 {isGroundTruth ? <Text style={{ fontSize: 12 }}>&nbsp;GT</Text> : null}
                 <br />

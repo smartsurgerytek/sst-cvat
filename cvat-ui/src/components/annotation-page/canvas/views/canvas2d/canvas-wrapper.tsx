@@ -366,7 +366,6 @@ type Props = StateToProps & DispatchToProps;
 class CanvasWrapperComponent extends React.PureComponent<Props> {
     private debouncedUpdate = debounce(this.updateCanvas.bind(this), 250, { leading: true });
     private canvasTipsRef = React.createRef<CanvasTipsComponent>();
-    private lastCanvasMouseDownEvent: MouseEvent | null = null;
 
     public componentDidMount(): void {
         const {
@@ -768,8 +767,6 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     private onCanvasMouseDown = (e: MouseEvent): void => {
         const { workspace, activatedStateID, onActivateObject } = this.props;
 
-        this.lastCanvasMouseDownEvent = e;
-
         if ((e.target as HTMLElement).tagName === 'svg' && e.button !== 2) {
             if (activatedStateID !== null && workspace !== Workspace.ATTRIBUTES) {
                 onActivateObject(null, null);
@@ -814,6 +811,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     };
 
     private onCanvasShapeClicked = (e: any): void => {
+<<<<<<< HEAD
         const { clientID, parentID } = e.detail.state;
         const { activeControl } = this.props;
         const lastMouseDown = this.lastCanvasMouseDownEvent;
@@ -849,6 +847,13 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                 clientX: e.detail.clientX || 0,
                 clientY: e.detail.clientY || 0,
             }));
+=======
+        const { clientID, parentID } = e.detail.state;        let sidebarItem = null;
+        if (Number.isInteger(parentID)) {
+            sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-element-${clientID}`);
+        } else {
+            sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-${clientID}`);
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
         }
 
         if (sidebarItem) {

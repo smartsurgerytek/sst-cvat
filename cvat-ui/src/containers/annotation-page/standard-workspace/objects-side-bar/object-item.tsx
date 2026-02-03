@@ -38,10 +38,13 @@ interface OwnProps {
     readonly: boolean;
     clientID: number;
     objectStates: ObjectState[];
+<<<<<<< HEAD
     selected?: boolean;
     select?(id: number, event?: React.MouseEvent, forceToggle?: boolean): void;
     bulkChangeLabel?(sourceID: number, label: Label): boolean;
     onSelect?: () => void;
+=======
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
 }
 
 interface StateToProps {
@@ -415,7 +418,10 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
             readonly,
             jobInstance,
             workspace,
+<<<<<<< HEAD
             onSelect,
+=======
+>>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
         } = this.props;
 
         return (
@@ -435,8 +441,6 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 elements={elements}
                 normalizedKeyMap={normalizedKeyMap}
                 labels={labels}
-                selected={selected || false}
-                onSelect={onSelect}
                 colorBy={colorBy}
                 workspace={workspace}
                 activate={this.activate}

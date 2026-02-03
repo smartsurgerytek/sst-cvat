@@ -145,15 +145,15 @@ function LeftGroup(props: Props): JSX.Element {
                         Redo
                     </Button>
                 </CVATTooltip>
-                <CVATTooltip overlay='Save and completed'>
+                <CVATTooltip overlay='Save and complete job'>
                     <Button
                         type='link'
                         disabled={saving}
                         className='cvat-annotation-header-finish-job-button cvat-annotation-header-button'
                         onClick={() => {
                             Modal.confirm({
-                                title: 'Would you like to finish the job?',
-                                content: 'It will save annotations and set the job state to "completed"',
+                                title: 'Finish this job?',
+                                content: 'It will save annotations and set the job state to "completed".',
                                 okText: 'Finish job',
                                 cancelText: 'Cancel',
                                 className: 'cvat-modal-content-finish-job',
@@ -162,7 +162,7 @@ function LeftGroup(props: Props): JSX.Element {
                         }}
                     >
                         <CheckCircleTwoTone />
-                        Finish
+                        Finish Job
                     </Button>
                 </CVATTooltip>
                 {includesDoneButton ? (

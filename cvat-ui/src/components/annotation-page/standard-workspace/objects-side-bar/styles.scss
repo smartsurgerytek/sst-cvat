@@ -205,35 +205,13 @@
 
 .cvat-objects-sidebar-states-list {
     background-color: $background-color-2;
-    height: calc(100% - $grid-unit-size * 12);
+    height: calc(100% - $grid-unit-size * 9);
     overflow-y: auto;
 
     .cvat-objects-sidebar-state-item {
         // opacity 0.53 in sidebar to keep the same look as before on sidebar
         background-color: rgba(var(--state-item-background), 0.53);
     }
-}
-
-.cvat-objects-sidebar-selection-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: $grid-unit-size $grid-unit-size * 2;
-    background: $objects-bar-tabs-color;
-    border-bottom: 1px solid $border-color-1;
-}
-
-.cvat-objects-sidebar-selection-label {
-    min-width: $grid-unit-size * 20;
-}
-
-.cvat-objects-sidebar-floating-label {
-    position: fixed;
-    z-index: 1000;
-}
-
-.cvat-objects-sidebar-floating-label-selector {
-    min-width: $grid-unit-size * 20;
 }
 
 .cvat-objects-sidebar-z-layer-mark {
