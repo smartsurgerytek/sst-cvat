@@ -255,16 +255,16 @@ jobs:
               docker pull \${CVAT_UI_IMAGE}
 
               echo 'Stopping current containers...'
-              docker compose -f docker-compose.yml -f docker-compose.int.yml down --remove-orphans || true
+              docker compose -f docker-compose.yml -f docker-compose.int.yml -f components/serverless/docker-compose.serverless.yml down --remove-orphans || true
 
-              echo 'Starting containers with new images...'
-              docker compose -f docker-compose.yml -f docker-compose.int.yml up -d
+              echo 'Starting containers with new images (with serverless support)...'
+              docker compose -f docker-compose.yml -f docker-compose.int.yml -f components/serverless/docker-compose.serverless.yml up -d
 
               echo 'Waiting for services to start...'
               sleep 10
 
               echo 'Checking container status...'
-              docker compose -f docker-compose.yml -f docker-compose.int.yml ps
+              docker compose -f docker-compose.yml -f docker-compose.int.yml -f components/serverless/docker-compose.serverless.yml ps
 
               echo '============================================'
               echo 'Deployment complete!'
@@ -288,12 +288,12 @@ jobs:
               cd ${{ env.DEPLOY_PATH }}
 
               echo 'Container Status:'
-              docker compose -f docker-compose.yml -f docker-compose.int.yml ps
+              docker compose -f docker-compose.yml -f docker-compose.int.yml -f components/serverless/docker-compose.serverless.yml ps
 
               FAILED=0
 
-              for SERVICE in cvat_server cvat_ui cvat_db; do
-                STATUS=\$(docker compose -f docker-compose.yml -f docker-compose.int.yml ps \${SERVICE} --format '{{.Status}}' 2>/dev/null || echo 'not found')
+              for SERVICE in cvat_server cvat_ui cvat_db nuclio; do
+                STATUS=\$(docker compose -f docker-compose.yml -f docker-compose.int.yml -f components/serverless/docker-compose.serverless.yml ps \${SERVICE} --format '{{.Status}}' 2>/dev/null || echo 'not found')
                 if [[ \"\${STATUS}\" == *'Up'* ]]; then
                   echo \"✓ \${SERVICE}: Running\"
                 else
