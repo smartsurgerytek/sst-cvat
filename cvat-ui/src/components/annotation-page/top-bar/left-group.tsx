@@ -3,9 +3,11 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Col } from 'antd/lib/grid';
-import Icon, { StopOutlined, CheckCircleOutlined, LoadingOutlined, CheckCircleTwoTone } from '@ant-design/icons';
+import Icon, {
+    StopOutlined, CheckCircleOutlined, LoadingOutlined, CheckCircleTwoTone, SwapOutlined,
+} from '@ant-design/icons';
 import Modal from 'antd/lib/modal';
 import Button from 'antd/lib/button';
 import Text from 'antd/lib/typography/Text';
@@ -61,6 +63,7 @@ const componentShortcuts = {
 };
 
 registerComponentShortcuts(componentShortcuts);
+const RAW_COMPARE_SWAP_STORAGE_KEY = 'rawCompareSwap';
 
 function LeftGroup(props: Props): JSX.Element {
     const {
@@ -82,6 +85,14 @@ function LeftGroup(props: Props): JSX.Element {
     } = props;
 
     const includesDoneButton = finishDrawAvailable(activeControl);
+    const [rawCompareActive, setRawCompareActive] = useState<boolean>(false);
+    const [rawCompareSwapped, setRawCompareSwapped] = useState<boolean>(() => {
+        try {
+            return JSON.parse(localStorage.getItem(RAW_COMPARE_SWAP_STORAGE_KEY) || 'false') === true;
+        } catch (error: unknown) {
+            return false;
+        }
+    });
 
     const includesToolsBlockerButton =
         [ActiveControl.OPENCV_TOOLS, ActiveControl.AI_TOOLS].includes(activeControl) && toolsBlockerState.buttonVisible;
@@ -104,6 +115,15 @@ function LeftGroup(props: Props): JSX.Element {
             onSwitchToolsBlockerState();
         },
     };
+
+    useEffect(() => {
+        const handler = (event: Event): void => {
+            const detail = (event as CustomEvent).detail || {};
+            setRawCompareActive(Boolean(detail.active));
+        };
+        window.addEventListener('cvat.rawCompareToggle', handler as EventListener);
+        return () => window.removeEventListener('cvat.rawCompareToggle', handler as EventListener);
+    }, []);
 
     return (
         <>
@@ -165,6 +185,21 @@ function LeftGroup(props: Props): JSX.Element {
                         Finish Job
                     </Button>
                 </CVATTooltip>
+                {rawCompareActive && (
+                    <Button
+                        type='link'
+                        className='cvat-annotation-header-raw-compare-swap-button cvat-annotation-header-button'
+                        onClick={() => {
+                            const next = !rawCompareSwapped;
+                            setRawCompareSwapped(next);
+                            localStorage.setItem(RAW_COMPARE_SWAP_STORAGE_KEY, JSON.stringify(next));
+                            window.dispatchEvent(new CustomEvent('cvat.rawCompareSwap', { detail: { swapped: next } }));
+                        }}
+                    >
+                        <SwapOutlined />
+                        Swap
+                    </Button>
+                )}
                 {includesDoneButton ? (
                     <CVATTooltip overlay={`Press "${drawShortcut}" to finish`}>
                         <Button type='link' className='cvat-annotation-header-done-button cvat-annotation-header-button' onClick={onFinishDraw}>
