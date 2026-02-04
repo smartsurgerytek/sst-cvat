@@ -3,13 +3,17 @@
 // SPDX-License-Identifier: MIT
 
 import React, { useEffect, useState } from 'react';
-import { ExclamationCircleTwoTone } from '@ant-design/icons';
+import { HighlightTwoTone } from '@ant-design/icons';
 import { shallowEqual, useDispatch, useSelector } from 'react-redux';
 
 import { reviewActions } from 'actions/review-actions';
 import { ActiveControl, CombinedState, NewIssueSource } from 'reducers';
 import { updateCanvasBrushTools } from 'actions/annotation-actions';
 import CVATTooltip from 'components/common/cvat-tooltip';
+import GlobalHotKeys from 'utils/mousetrap-react';
+import { ShortcutScope } from 'utils/enums';
+import { registerComponentShortcuts } from 'actions/shortcuts-actions';
+import { subKeyMap } from 'utils/component-subkeymap';
 import { Canvas, CanvasMode } from 'cvat-canvas-wrapper';
 import { DimensionType, ShapeType } from 'cvat-core-wrapper';
 import openCVWrapper from 'utils/opencv-wrapper/opencv-wrapper';
@@ -26,13 +30,25 @@ type BrushForm = 'circle' | 'square';
 const DEFAULT_BRUSH_FORM: BrushForm = 'circle';
 const DEFAULT_BRUSH_COLOR = '#ff0000';
 
+const componentShortcuts = {
+    OPEN_REVIEW_ISSUE_MASK: {
+        name: 'Open an issue (mask)',
+        description: 'Create a new mask issue in the review workspace',
+        sequences: ['m'],
+        scope: ShortcutScope.REVIEW_WORKSPACE_CONTROLS,
+    },
+};
+
+registerComponentShortcuts(componentShortcuts);
+
 function IssueMaskControl(props: Props): JSX.Element {
     const {
         canvasInstance, activeControl, disabled, updateActiveControl: updateControl,
     } = props;
     const dispatch = useDispatch();
-    const { dimension } = useSelector((state: CombinedState) => ({
+    const { dimension, keyMap } = useSelector((state: CombinedState) => ({
         dimension: state.annotation.job.instance?.dimension,
+        keyMap: state.shortcuts.keyMap,
     }), shallowEqual);
 
     const is2D = dimension === DimensionType.DIMENSION_2D;
@@ -154,28 +170,43 @@ function IssueMaskControl(props: Props): JSX.Element {
         'cvat-issue-mask-control cvat-disabled-canvas-control' :
         `cvat-issue-mask-control${activeControl === ActiveControl.OPEN_ISSUE_MASK ? ' cvat-active-canvas-control' : ''}`;
 
+    const handler = (): void => {
+        if (disabled || !is2D) return;
+        if (activeControl === ActiveControl.OPEN_ISSUE_MASK) {
+            canvasInstance.draw({ enabled: false });
+            dispatch(updateCanvasBrushTools({ visible: false }));
+            return;
+        }
+
+        if (canvasInstance.mode() !== CanvasMode.IDLE) {
+            canvasInstance.cancel();
+        }
+
+        dispatch(updateCanvasBrushTools({ visible: true }));
+        updateControl(ActiveControl.OPEN_ISSUE_MASK);
+    };
+
+    const handlers: Record<keyof typeof componentShortcuts, (event?: KeyboardEvent) => void> = {
+        OPEN_REVIEW_ISSUE_MASK: (event: KeyboardEvent | undefined) => {
+            if (event) event.preventDefault();
+            handler();
+        },
+    };
+
     return (
-        <CVATTooltip title='Open an issue (mask)' placement='right'>
-            <ExclamationCircleTwoTone
-                className={className}
-                twoToneColor={activeControl === ActiveControl.OPEN_ISSUE_MASK ? '#faad14' : undefined}
-                onClick={() => {
-                    if (disabled || !is2D) return;
-                    if (activeControl === ActiveControl.OPEN_ISSUE_MASK) {
-                        canvasInstance.draw({ enabled: false });
-                        dispatch(updateCanvasBrushTools({ visible: false }));
-                        return;
-                    }
-
-                    if (canvasInstance.mode() !== CanvasMode.IDLE) {
-                        canvasInstance.cancel();
-                    }
-
-                    dispatch(updateCanvasBrushTools({ visible: true }));
-                    updateControl(ActiveControl.OPEN_ISSUE_MASK);
-                }}
+        <>
+            <GlobalHotKeys
+                keyMap={subKeyMap(componentShortcuts, keyMap)}
+                handlers={handlers}
             />
-        </CVATTooltip>
+            <CVATTooltip title='Open an issue (mask)' placement='right'>
+                <HighlightTwoTone
+                    className={className}
+                    twoToneColor={activeControl === ActiveControl.OPEN_ISSUE_MASK ? '#faad14' : undefined}
+                    onClick={handler}
+                />
+            </CVATTooltip>
+        </>
     );
 }
 
