@@ -39,6 +39,7 @@ import { useUpdateEffect } from 'utils/hooks';
 import defaultLayout, { ItemLayout, ViewType } from './canvas-layout.conf';
 
 const ReactGridLayout = WidthProvider(RGL);
+const RAW_COMPARE_SWAP_STORAGE_KEY = 'rawCompareSwap';
 
 const ViewFabric = (itemLayout: ItemLayout): JSX.Element => {
     const { viewType: type, offset } = itemLayout;
@@ -184,6 +185,13 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
     const hasKnownDimension = Boolean(resolvedType);
     const layoutType = resolvedType ?? DimensionType.DIMENSION_2D;
     const [layoutMode, setLayoutMode] = useState<'grid' | 'raw_compare'>('grid');
+    const [rawCompareSwapped, setRawCompareSwapped] = useState<boolean>(() => {
+        try {
+            return JSON.parse(localStorage.getItem(RAW_COMPARE_SWAP_STORAGE_KEY) || 'false') === true;
+        } catch (error: unknown) {
+            return false;
+        }
+    });
     const [layoutConfig, setLayoutConfig] = useState<ItemLayout[]>([]);
     const gridLayoutRef = useRef<ItemLayout[] | null>(null);
     const rawCompareRestoreRef = useRef<ItemLayout[] | null>(null);
@@ -210,6 +218,24 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
     const buildRawCompareLayout = useCallback((): ItemLayout[] => {
         const totalWidth = config.CANVAS_WORKSPACE_COLS;
         const leftWidth = Math.floor(totalWidth / 2);
+        if (rawCompareSwapped) {
+            return [{
+                viewType: ViewType.RAW_FRAME,
+                offset: [0],
+                x: 0,
+                y: 0,
+                w: leftWidth,
+                h: config.CANVAS_WORKSPACE_ROWS,
+            }, {
+                viewType: ViewType.CANVAS,
+                offset: [0],
+                x: leftWidth,
+                y: 0,
+                w: totalWidth - leftWidth,
+                h: config.CANVAS_WORKSPACE_ROWS,
+            }];
+        }
+
         return [{
             viewType: ViewType.CANVAS,
             offset: [0],
@@ -225,7 +251,7 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
             w: totalWidth - leftWidth,
             h: config.CANVAS_WORKSPACE_ROWS,
         }];
-    }, []);
+    }, [rawCompareSwapped]);
 
     const [rowHeight, setRowHeight] = useState<number>(Math.floor(computeRowHeight()));
     const [fullscreenKey, setFullscreenKey] = useState<string>('');
@@ -309,6 +335,20 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
         window.addEventListener('cvat.rawCompareToggle', handler as EventListener);
         return () => window.removeEventListener('cvat.rawCompareToggle', handler as EventListener);
     }, [buildDefaultGridLayout, buildRawCompareLayout, hasKnownDimension, layoutConfig, layoutMode, resolvedType]);
+
+    useEffect(() => {
+        const handler = (event: Event): void => {
+            const detail = (event as CustomEvent).detail || {};
+            const swapped = Boolean(detail.swapped);
+            setRawCompareSwapped(swapped);
+            localStorage.setItem(RAW_COMPARE_SWAP_STORAGE_KEY, JSON.stringify(swapped));
+            if (layoutMode === 'raw_compare') {
+                setLayoutConfig(buildRawCompareLayout());
+            }
+        };
+        window.addEventListener('cvat.rawCompareSwap', handler as EventListener);
+        return () => window.removeEventListener('cvat.rawCompareSwap', handler as EventListener);
+    }, [buildRawCompareLayout, layoutMode]);
 
     useEffect(() => {
         const handler = (event: Event): void => {
