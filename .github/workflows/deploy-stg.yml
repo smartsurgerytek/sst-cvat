@@ -42,7 +42,7 @@ concurrency:
 env:
   REGISTRY: us-central1-docker.pkg.dev
   REPO_NAME: cvat-repo
-  DEPLOY_PATH: /tmp/cvat-deploy
+  DEPLOY_PATH: /opt/sst-cvat-stg
 
 jobs:
   # ============================================
@@ -150,12 +150,13 @@ jobs:
 
       - name: Prepare VM deployment directory
         run: |
-          # Create deployment directory on VM (clean slate to avoid permission issues)
+          # Create deployment directory on VM (persistent location in /opt)
           # Use chmod 777 to allow any OS Login user to access (UIDs vary between SSH sessions)
+          # Note: Directory persists across deployments for volume mounts (Grafana dashboards, etc.)
           gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
             --zone=${{ secrets.STG_GCP_ZONE }} \
             --tunnel-through-iap \
-            --command="sudo rm -rf ${{ env.DEPLOY_PATH }} && mkdir -p ${{ env.DEPLOY_PATH }} && chmod 777 ${{ env.DEPLOY_PATH }}"
+            --command="sudo mkdir -p ${{ env.DEPLOY_PATH }} && sudo chmod 777 ${{ env.DEPLOY_PATH }}"
 
       - name: Copy deployment files to VM
         run: |
@@ -297,11 +298,18 @@ jobs:
       - name: Cleanup temp directories
         if: always()
         run: |
-          echo "Cleaning up temp directories on VM..."
+          echo "Cleaning up temp docker config on VM..."
+          # SAFE TO REMOVE (not needed for container restart):
+          #   - /tmp/sst-cvat/.docker: Docker registry credentials (only needed during image pull)
+          #
+          # DO NOT REMOVE (required for container restart):
+          #   - /opt/sst-cvat-stg/: Deployment files (docker-compose, .env, components/)
+          #     Contains volume mounts for Grafana dashboards, analytics configs, etc.
+          #   - Docker image cache: Containers restart using locally cached images
           gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
             --zone=${{ secrets.STG_GCP_ZONE }} \
             --tunnel-through-iap \
-            --command="sudo rm -rf /tmp/sst-cvat /tmp/cvat-deploy" || true
+            --command="sudo rm -rf /tmp/sst-cvat" || true
 
           echo "Cleanup completed."
 
