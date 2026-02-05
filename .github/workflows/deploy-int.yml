@@ -163,12 +163,17 @@ jobs:
       - name: Prepare VM deployment directory
         run: |
           # Create deployment directory on VM (persistent location in /opt)
-          # Use chmod 777 to allow any OS Login user to access (UIDs vary between SSH sessions)
+          # IMPORTANT: chown to current user so scp can set permissions without sudo
+          # OS Login UIDs vary between sessions, so we use $(id -u):$(id -g) dynamically
           # Note: Directory persists across deployments for volume mounts (Grafana dashboards, etc.)
           gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
             --zone=${{ secrets.INT_GCP_ZONE }} \
             --tunnel-through-iap \
-            --command="sudo mkdir -p ${{ env.DEPLOY_PATH }} && sudo chmod 777 ${{ env.DEPLOY_PATH }}"
+            --command="
+              sudo mkdir -p ${{ env.DEPLOY_PATH }}
+              sudo chown \$(id -u):\$(id -g) ${{ env.DEPLOY_PATH }}
+              sudo chmod 755 ${{ env.DEPLOY_PATH }}
+            "
 
       - name: Copy deployment files to VM
         run: |
