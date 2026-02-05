@@ -188,6 +188,13 @@ jobs:
             --zone=${{ secrets.INT_GCP_ZONE }} \
             --tunnel-through-iap
 
+          # Fix file permissions so containers (Grafana, etc.) can read mounted files
+          # Files copied via scp have restrictive permissions (600), but containers run as different users
+          gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
+            --zone=${{ secrets.INT_GCP_ZONE }} \
+            --tunnel-through-iap \
+            --command="chmod -R a+rX ${{ env.DEPLOY_PATH }}"
+
           echo "Deployment files copied to VM:${{ env.DEPLOY_PATH }}/"
 
       - name: Deploy to INT VM
