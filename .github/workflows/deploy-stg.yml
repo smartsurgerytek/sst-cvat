@@ -178,10 +178,11 @@ jobs:
 
           # Fix file permissions so containers (Grafana, etc.) can read mounted files
           # Files copied via scp have restrictive permissions (600), but containers run as different users
+          # Use sudo because /opt directory is owned by root
           gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
             --zone=${{ secrets.STG_GCP_ZONE }} \
             --tunnel-through-iap \
-            --command="chmod -R a+rX ${{ env.DEPLOY_PATH }}"
+            --command="sudo chmod -R a+rX ${{ env.DEPLOY_PATH }}"
 
           echo "Deployment files copied to VM:${{ env.DEPLOY_PATH }}/"
 
