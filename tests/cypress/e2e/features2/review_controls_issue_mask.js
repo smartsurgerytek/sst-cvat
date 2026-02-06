@@ -106,9 +106,11 @@ context('Review controls: issue mask (validation + annotation)', () => {
 
     it('annotation mode: convert to mask -> save -> reload and verify mask exists', () => {
         const issueDescription = 'Issue from mask';
+        let issueId = null;
 
         setJobStage('annotation');
         openJob();
+        cy.changeWorkspace('Standard');
 
         cy.contains('[role="tab"]', 'Issues').click();
         cy.get('.cvat-objects-sidebar-issues-list').then(($list) => {
@@ -119,6 +121,37 @@ context('Review controls: issue mask (validation + annotation)', () => {
                 cy.contains('[role="tab"]', 'Issues').click();
             }
         });
+
+        cy.contains('.cvat-objects-sidebar-issue-item', issueDescription)
+            .invoke('attr', 'id')
+            .then((idAttr) => {
+                issueId = Number(idAttr.match(/\d+$/)[0]);
+            });
+
+        cy.contains('.cvat-hidden-issue-label', issueDescription).click();
+        cy.get('.cvat-issue-dialog').should('be.visible');
+        cy.get('.cvat-issue-dialog-remove-button').should('not.exist');
+        cy.intercept('PATCH', '/api/issues/*').as('resolveIssueFromDialog');
+        cy.get('.cvat-issue-dialog-footer').contains('button', 'Resolve').click();
+        cy.wait('@resolveIssueFromDialog').its('response.statusCode').should('equal', 200);
+
+        cy.contains('.cvat-objects-sidebar-issue-item', issueDescription)
+            .find('.cvat-issues-reopen-button')
+            .should('be.visible');
+        cy.then(() => {
+            cy.get(`#cvat_canvas_issue_region_${issueId}`).should('not.exist');
+        });
+        cy.contains('.cvat-hidden-issue-label', issueDescription).should('not.exist');
+
+        cy.intercept('PATCH', '/api/issues/*').as('reopenIssueFromList');
+        cy.contains('.cvat-objects-sidebar-issue-item', issueDescription)
+            .find('.cvat-issues-reopen-button')
+            .click();
+        cy.wait('@reopenIssueFromList').its('response.statusCode').should('equal', 200);
+        cy.then(() => {
+            cy.get(`#cvat_canvas_issue_region_${issueId}`).should('exist');
+        });
+        cy.contains('.cvat-hidden-issue-label', issueDescription).should('exist');
 
         cy.get('.cvat-objects-sidebar-issues-list').within(() => {
             cy.contains('.cvat-objects-sidebar-issue-item', issueDescription)

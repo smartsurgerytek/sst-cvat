@@ -26,7 +26,7 @@ import CVATTooltip from 'components/common/cvat-tooltip';
 import { ActiveControl, CombinedState, Workspace } from 'reducers';
 import Paragraph from 'antd/lib/typography/Paragraph';
 import {
-    ConflictSeverity, QualityConflict, Issue, getCore, ObjectType, ShapeType, LabelType,
+    ConflictSeverity, QualityConflict, Issue, getCore, ObjectType, ShapeType, LabelType, JobStage,
 } from 'cvat-core-wrapper';
 import { changeShowGroundTruth } from 'actions/settings-actions';
 import { ShowGroundTruthIcon } from 'icons';
@@ -51,6 +51,8 @@ export default function LabelsListComponent(): JSX.Element {
         activeControl,
         labels,
         user,
+        issueFetching,
+        jobStage,
     } = useSelector((state: CombinedState) => ({
         frame: state.annotation.player.frame.number,
         frameIssues: state.review.frameIssues,
@@ -66,12 +68,15 @@ export default function LabelsListComponent(): JSX.Element {
         activeControl: state.annotation.canvas.activeControl,
         labels: state.annotation.job.labels,
         user: state.auth.user,
+        issueFetching: state.review.fetching.issueId,
+        jobStage: state.annotation.job.instance?.stage,
     }), shallowEqual);
 
     const [convertModalVisible, setConvertModalVisible] = useState(false);
     const [issueToConvert, setIssueToConvert] = useState<Issue | null>(null);
     const [selectedLabelId, setSelectedLabelId] = useState<number | null>(null);
     const [resolveAfterConvert, setResolveAfterConvert] = useState(false);
+    const isReviewMode = workspace === Workspace.REVIEW && jobStage === JobStage.VALIDATION;
 
     const maskLabels = filterApplicableForType(LabelType.MASK, labels);
 
@@ -158,6 +163,20 @@ export default function LabelsListComponent(): JSX.Element {
             dispatch(reviewActions.resolveIssueFailed(error));
             notification.error({
                 message: 'Could not resolve the issue',
+            });
+        }
+    };
+
+    const reopenIssueDirect = async (issue: Issue): Promise<void> => {
+        if (typeof issue.id !== 'number') return;
+        try {
+            dispatch(reviewActions.reopenIssue(issue.id));
+            await issue.reopen();
+            dispatch(reviewActions.reopenIssueSuccess());
+        } catch (error) {
+            dispatch(reviewActions.reopenIssueFailed(error));
+            notification.error({
+                message: 'Could not reopen the issue',
             });
         }
     };
@@ -377,6 +396,20 @@ export default function LabelsListComponent(): JSX.Element {
                                             onClick={() => openConvertModal(frameIssue)}
                                         >
                                             Convert to mask
+                                        </Button>
+                                    </Row>
+                                )}
+                                {!isReviewMode && frameIssue.resolved && (
+                                    <Row justify='start'>
+                                        <Button
+                                            type='link'
+                                            className='cvat-issues-reopen-button'
+                                            loading={issueFetching === frameIssue.id}
+                                            onClick={() => {
+                                                void reopenIssueDirect(frameIssue);
+                                            }}
+                                        >
+                                            Reopen
                                         </Button>
                                     </Row>
                                 )}

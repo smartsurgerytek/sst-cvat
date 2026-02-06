@@ -31,6 +31,7 @@ interface Props {
     scale: number;
     clientCoordinates: [number, number];
     canvasRect: DOMRect | null;
+    allowRemoving: boolean;
     collapse: () => void;
     resolve: () => void;
     reopen: () => void;
@@ -59,6 +60,7 @@ export default function IssueDialog(props: Props): JSX.Element {
         blur,
         clientCoordinates,
         canvasRect,
+        allowRemoving,
     } = props;
 
     const { id, comments } = issue;
@@ -184,12 +186,14 @@ export default function IssueDialog(props: Props): JSX.Element {
                     />
                 </Col>
             </Row>
-            <Row className='cvat-issue-dialog-footer' justify='space-between'>
-                <Col>
-                    <Button type='link' className='cvat-issue-dialog-remove-button' danger onClick={onDeleteIssue}>
-                        Remove
-                    </Button>
-                </Col>
+            <Row className='cvat-issue-dialog-footer' justify={allowRemoving ? 'space-between' : 'end'}>
+                {allowRemoving && (
+                    <Col>
+                        <Button type='link' className='cvat-issue-dialog-remove-button' danger onClick={onDeleteIssue}>
+                            Remove
+                        </Button>
+                    </Col>
+                )}
                 <Col>
                     {currentText.length ? (
                         <Button

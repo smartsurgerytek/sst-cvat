@@ -7,11 +7,13 @@ import './styles.scss';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSelector, useDispatch, shallowEqual } from 'react-redux';
 
-import { ActiveControl, CombinedState, NewIssueSource } from 'reducers';
+import {
+    ActiveControl, CombinedState, NewIssueSource, Workspace,
+} from 'reducers';
 
 import { commentIssueAsync, resolveIssueAsync, reopenIssueAsync } from 'actions/review-actions';
 import {
-    AnnotationConflict, ConflictSeverity, ObjectState, QualityConflict,
+    AnnotationConflict, ConflictSeverity, JobStage, ObjectState, QualityConflict,
 } from 'cvat-core-wrapper';
 import { Canvas, CanvasMode } from 'cvat-canvas-wrapper';
 import { highlightConflict, updateActiveControl } from 'actions/annotation-actions';
@@ -47,6 +49,8 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         showConflicts,
         highlightedConflict,
         activeControl,
+        jobStage,
+        workspace,
     } = useSelector((state: CombinedState) => ({
         frameIssues: state.review.frameIssues,
         issuesHidden: state.review.issuesHidden,
@@ -62,6 +66,8 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         showConflicts: state.settings.shapes.showGroundTruth,
         highlightedConflict: state.annotation.annotations.highlightedConflict,
         activeControl: state.annotation.canvas.activeControl,
+        jobStage: state.annotation.job.instance?.stage,
+        workspace: state.annotation.workspace,
     }), shallowEqual);
 
     const [expandedIssue, setExpandedIssue] = useState<number | null>(null);
@@ -71,6 +77,8 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         ?.map((annotationConflict: AnnotationConflict) => annotationConflict.serverID);
 
     const canvasReady = canvasInstance instanceof Canvas && canvasIsReady;
+    const isReviewMode = workspace === Workspace.REVIEW && jobStage === JobStage.VALIDATION;
+    const hideResolvedIssuesOnCanvas = !isReviewMode;
 
     const onEnter = useCallback((conflict: QualityConflict) => {
         if (canvasReady && activeControl === ActiveControl.CURSOR) {
@@ -128,7 +136,10 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         if (canvasReady) {
             type IssueRegionSet = Record<number, { hidden: boolean; points: number[] }>;
             const regions = !issuesHidden ? frameIssues
-                .filter((_issue: any) => !issuesResolvedHidden || !_issue.resolved)
+                .filter((_issue: any) => (
+                    (!issuesResolvedHidden || !_issue.resolved) &&
+                    (!hideResolvedIssuesOnCanvas || !_issue.resolved)
+                ))
                 .reduce((acc: IssueRegionSet, issue: any): IssueRegionSet => {
                     acc[issue.id] = {
                         points: issue.position,
@@ -155,7 +166,15 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
                 }
             }
         }
-    }, [newIssuePosition, frameIssues, issuesResolvedHidden, issuesHidden, canvasReady, showConflicts]);
+    }, [
+        newIssuePosition,
+        frameIssues,
+        issuesResolvedHidden,
+        issuesHidden,
+        canvasReady,
+        showConflicts,
+        hideResolvedIssuesOnCanvas,
+    ]);
 
     useEffect(() => {
         if (canvasReady && showConflicts && qualityConflicts.length) {
@@ -197,7 +216,7 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
     for (const issue of frameIssues) {
         if (issuesHidden) break;
         const issueResolved = issue.resolved;
-        if (issuesResolvedHidden && issueResolved) continue;
+        if ((issuesResolvedHidden && issueResolved) || (hideResolvedIssuesOnCanvas && issueResolved)) continue;
         const offset = 15;
         const translated = issue.position.map((coord: number): number => coord + geometry.offset);
         const minX = Math.min(...translated.filter((_: number, idx: number): boolean => idx % 2 === 0)) + offset;
@@ -230,6 +249,7 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
                     scale={1 / geometry.scale}
                     isFetching={issueFetching !== null}
                     resolved={issueResolved}
+                    allowRemoving={isReviewMode}
                     highlight={highlight}
                     blur={blur}
                     clientCoordinates={canvasInstance.translateFromSVG([minX, minY]) as [number, number]}
