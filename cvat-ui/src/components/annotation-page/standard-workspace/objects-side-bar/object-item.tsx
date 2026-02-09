@@ -18,6 +18,7 @@ interface Props {
     normalizedKeyMap: Record<string, string>;
     readonly: boolean;
     activated: boolean;
+    selected: boolean;
     objectType: ObjectType;
     shapeType: ShapeType;
     clientID: number;
@@ -33,6 +34,7 @@ interface Props {
     jobInstance: any;
     workspace: Workspace;
     activate(activeElementID?: number): void;
+    select(event?: React.MouseEvent, forceToggle?: boolean): void;
     copy(): void;
     propagate(): void;
     switchOrientation(): void;
@@ -51,6 +53,7 @@ interface Props {
 function ObjectItemComponent(props: Props): JSX.Element {
     const {
         activated,
+        selected,
         readonly,
         objectType,
         shapeType,
@@ -66,6 +69,7 @@ function ObjectItemComponent(props: Props): JSX.Element {
         normalizedKeyMap,
         isGroundTruth,
         activate,
+        select,
         copy,
         propagate,
         createURL,
@@ -88,13 +92,25 @@ function ObjectItemComponent(props: Props): JSX.Element {
             ObjectType.TAG.toUpperCase() :
             `${shapeType.toUpperCase()} ${objectType.toUpperCase()}`;
 
-    const className = !activated ?
-        'cvat-objects-sidebar-state-item' :
-        'cvat-objects-sidebar-state-item cvat-objects-sidebar-state-active-item';
-
+    const className = [
+        'cvat-objects-sidebar-state-item',
+        activated ? 'cvat-objects-sidebar-state-active-item' : '',
+        selected ? 'cvat-objects-sidebar-state-selected-item' : '',
+    ].filter(Boolean).join(' ');
     const activateState = useCallback(() => {
         activate();
     }, []);
+
+    const selectState = useCallback((event?: React.MouseEvent) => {
+        select(event);
+    }, [select]);
+
+    const handleKeyDown = useCallback((event: React.KeyboardEvent): void => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            select();
+        }
+    }, [select]);
 
     const sizeControlsVisible = shapeType === ShapeType.CUBOID && workspace === Workspace.STANDARD3D;
 
@@ -102,6 +118,10 @@ function ObjectItemComponent(props: Props): JSX.Element {
         <div style={{ display: 'flex', marginBottom: '1px' }}>
             <div
                 onMouseEnter={activateState}
+                onClick={selectState}
+                onKeyDown={handleKeyDown}
+                role='button'
+                tabIndex={0}
                 id={`cvat-objects-sidebar-state-item-${clientID}`}
                 className={className}
                 style={{ '--state-item-background': `${color}` } as React.CSSProperties}
@@ -119,6 +139,7 @@ function ObjectItemComponent(props: Props): JSX.Element {
                     colorBy={colorBy}
                     type={type}
                     locked={locked}
+                    selected={selected}
                     isGroundTruth={isGroundTruth}
                     copyShortcut={normalizedKeyMap.COPY_SHAPE}
                     pasteShortcut={normalizedKeyMap.PASTE_SHAPE}
@@ -142,6 +163,7 @@ function ObjectItemComponent(props: Props): JSX.Element {
                     edit={edit}
                     slice={slice}
                     runAnnotationAction={runAnnotationAction}
+                    select={select}
                 />
                 <ObjectButtonsContainer readonly={readonly} clientID={clientID} />
                 {(!!attributes.length || sizeControlsVisible) && (

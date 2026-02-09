@@ -38,6 +38,9 @@ interface OwnProps {
     readonly: boolean;
     clientID: number;
     objectStates: ObjectState[];
+    selected?: boolean;
+    select?(id: number, event?: React.MouseEvent, forceToggle?: boolean): void;
+    bulkChangeLabel?(sourceID: number, label: Label): boolean;
 }
 
 interface StateToProps {
@@ -55,6 +58,7 @@ interface StateToProps {
     normalizedKeyMap: Record<string, string>;
     canvasInstance: Canvas | Canvas3d;
     workspace: Workspace;
+    selected: boolean;
 }
 
 interface DispatchToProps {
@@ -107,6 +111,7 @@ function mapStateToProps(state: CombinedState, own: OwnProps): StateToProps {
         normalizedKeyMap,
         canvasInstance: canvasInstance as Canvas | Canvas3d,
         workspace,
+        selected: Boolean(own.selected),
     };
 }
 
@@ -317,10 +322,22 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
     };
 
     private changeLabel = (label: any): void => {
-        const { objectState, readonly } = this.props;
+        const {
+            objectState, readonly, bulkChangeLabel,
+        } = this.props;
         if (!readonly) {
+            if (bulkChangeLabel && bulkChangeLabel(objectState.clientID as number, label)) {
+                return;
+            }
             objectState.label = label;
             this.commit();
+        }
+    };
+
+    private select = (event?: React.MouseEvent, forceToggle = false): void => {
+        const { objectState, readonly, select } = this.props;
+        if (!readonly && select) {
+            select(objectState.clientID as number, event, forceToggle);
         }
     };
 
@@ -391,6 +408,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
             objectState,
             attributes,
             activated,
+            selected,
             colorBy,
             normalizedKeyMap,
             readonly,
@@ -403,6 +421,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 jobInstance={jobInstance}
                 readonly={readonly}
                 activated={activated}
+                selected={selected}
                 objectType={objectState.objectType}
                 shapeType={objectState.shapeType}
                 clientID={objectState.clientID as number}
@@ -418,6 +437,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 colorBy={colorBy}
                 workspace={workspace}
                 activate={this.activate}
+                select={this.select}
                 remove={this.remove}
                 copy={this.copy}
                 createURL={this.createURL}

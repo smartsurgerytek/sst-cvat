@@ -8,6 +8,7 @@ import { Row, Col } from 'antd/lib/grid';
 import { MoreOutlined } from '@ant-design/icons';
 import Dropdown from 'antd/lib/dropdown';
 import Text from 'antd/lib/typography/Text';
+import Checkbox, { CheckboxChangeEvent } from 'antd/lib/checkbox';
 
 import { ColorBy } from 'reducers';
 import CVATTooltip from 'components/common/cvat-tooltip';
@@ -30,6 +31,7 @@ interface Props {
     colorBy: ColorBy;
     type: string;
     locked: boolean;
+    selected: boolean;
     changeColorShortcut: string;
     copyShortcut: string;
     pasteShortcut: string;
@@ -52,6 +54,7 @@ interface Props {
     runAnnotationAction(): void;
     edit(): void;
     slice(): void;
+    select(event?: React.MouseEvent, forceToggle?: boolean): void;
 }
 
 function ItemTopComponent(props: Props): JSX.Element {
@@ -67,6 +70,7 @@ function ItemTopComponent(props: Props): JSX.Element {
         colorBy,
         type,
         locked,
+        selected,
         changeColorShortcut,
         copyShortcut,
         pasteShortcut,
@@ -91,13 +95,26 @@ function ItemTopComponent(props: Props): JSX.Element {
         edit,
         slice,
         jobInstance,
+        select,
     } = props;
 
     const [colorPickerVisible, setColorPickerVisible] = useState(false);
 
+    const onCheckboxChange = (event: CheckboxChangeEvent): void => {
+        event.stopPropagation();
+        select(undefined, true);
+    };
+
     return (
         <Row align='middle'>
-            <Col span={10}>
+            <Col span={2}>
+                <Checkbox
+                    checked={selected}
+                    onChange={onCheckboxChange}
+                    onClick={(event): void => event.stopPropagation()}
+                />
+            </Col>
+            <Col span={7}>
                 <Text style={{ fontSize: 12 }}>{clientID}</Text>
                 {isGroundTruth ? <Text style={{ fontSize: 12 }}>&nbsp;GT</Text> : null}
                 <br />
@@ -109,7 +126,7 @@ function ItemTopComponent(props: Props): JSX.Element {
                     {type}
                 </Text>
             </Col>
-            <Col span={12}>
+            <Col span={13}>
                 <CVATTooltip title='Change current label'>
                     <LabelSelector
                         disabled={locked || readonly || shapeType === ShapeType.SKELETON}
@@ -117,6 +134,9 @@ function ItemTopComponent(props: Props): JSX.Element {
                         labels={labels}
                         value={labelID}
                         onChange={changeLabel}
+                        onClick={(event): void => event.stopPropagation()}
+                        onMouseDown={(event): void => event.stopPropagation()}
+                        popupClassName='cvat-objects-sidebar-state-item-label-selector-dropdown'
                         className='cvat-objects-sidebar-state-item-label-selector'
                     />
                 </CVATTooltip>

@@ -9,7 +9,7 @@ import Text from 'antd/lib/typography/Text';
 
 import { StatesOrdering, Workspace } from 'reducers';
 import ObjectItemContainer from 'containers/annotation-page/standard-workspace/objects-side-bar/object-item';
-import { ObjectState } from 'cvat-core-wrapper';
+import { Label, ObjectState } from 'cvat-core-wrapper';
 import ObjectListHeader from './objects-list-header';
 
 interface Props {
@@ -21,9 +21,12 @@ interface Props {
     statesOrdering: StatesOrdering;
     sortedStatesID: number[];
     objectStates: any[];
+    selectedStatesID: number[];
     switchLockAllShortcut: string;
     switchHiddenAllShortcut: string;
     showGroundTruth: boolean;
+    selectState(id: number, event?: React.MouseEvent, forceToggle?: boolean): void;
+    bulkChangeLabel(sourceID: number, label: Label): boolean;
     changeStatesOrdering(value: StatesOrdering): void;
     lockAllStates(): void;
     unlockAllStates(): void;
@@ -44,9 +47,12 @@ function ObjectListComponent(props: Props): JSX.Element {
         statesOrdering,
         sortedStatesID,
         objectStates,
+        selectedStatesID,
         switchLockAllShortcut,
         switchHiddenAllShortcut,
         showGroundTruth,
+        selectState,
+        bulkChangeLabel,
         changeStatesOrdering,
         lockAllStates,
         unlockAllStates,
@@ -104,6 +110,9 @@ function ObjectListComponent(props: Props): JSX.Element {
                                     readonly={readonly}
                                     objectStates={objectStates}
                                     clientID={id}
+                                    selected={selectedStatesID.includes(id)}
+                                    select={selectState}
+                                    bulkChangeLabel={bulkChangeLabel}
                                 />
                             </React.Fragment>
                         );

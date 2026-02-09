@@ -4,12 +4,15 @@
 // SPDX-License-Identifier: MIT
 
 import React from 'react';
+import ReactDOM from 'react-dom';
 import PropTypes from 'prop-types';
+import message from 'antd/lib/message';
 
 import { connect } from 'react-redux';
 import GlobalHotKeys, { KeyMap } from 'utils/mousetrap-react';
 
 import ObjectsListComponent from 'components/annotation-page/standard-workspace/objects-side-bar/objects-list';
+import LabelSelector from 'components/label-selector/label-selector';
 import {
     updateAnnotationsAsync,
     changeFrameAsync,
@@ -29,8 +32,11 @@ import {
     CombinedState, StatesOrdering, ColorBy, Workspace,
     ActiveControl,
 } from 'reducers';
-import { ObjectState, ObjectType, ShapeType } from 'cvat-core-wrapper';
+import {
+    Label, LabelType, ObjectState, ObjectType, ShapeType,
+} from 'cvat-core-wrapper';
 import { filterAnnotations } from 'utils/filter-annotations';
+import { filterApplicableLabels } from 'utils/filter-applicable-labels';
 import { registerComponentShortcuts } from 'actions/shortcuts-actions';
 import { ShortcutScope } from 'utils/enums';
 import { subKeyMap } from 'utils/component-subkeymap';
@@ -42,6 +48,7 @@ interface OwnProps {
 
 interface StateToProps {
     jobInstance: any;
+    labels: Label[];
     frameNumber: any;
     statesHidden: boolean;
     statesLocked: boolean;
@@ -195,7 +202,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
                 activatedElementID,
                 zLayer: { min: minZLayer, max: maxZLayer },
             },
-            job: { instance: jobInstance },
+            job: { instance: jobInstance, labels },
             player: {
                 frame: { number: frameNumber },
             },
@@ -237,6 +244,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         statesCollapsedAll: collapsedAll,
         collapsedStates: collapsed,
         objectStates,
+        labels,
         frameNumber,
         jobInstance,
         annotationsFilters,
@@ -306,14 +314,36 @@ function sortAndMap(objectStates: ObjectState[], ordering: StatesOrdering): numb
 
 type Props = StateToProps & DispatchToProps & OwnProps;
 
+interface BulkLabelSelectorState {
+    visible: boolean;
+    sourceStateID: number | null;
+    left: number;
+    top: number;
+}
+
+interface PendingBulkLabelSelectorState {
+    sourceStateID: number;
+    left: number;
+    top: number;
+}
+
 interface State {
     statesOrdering: StatesOrdering;
     objectStates: ObjectState[];
     filteredStates: ObjectState[];
     sortedStatesID: number[];
+    selectedStatesID: number[];
+    bulkLabelSelector: BulkLabelSelectorState;
 }
 
 class ObjectsListContainer extends React.PureComponent<Props, State> {
+    private pendingBulkLabelSelector: PendingBulkLabelSelectorState | null = null;
+
+    private lastPointerPosition = {
+        left: 0,
+        top: 0,
+    };
+
     static propTypes = {
         readonly: PropTypes.bool,
     };
@@ -329,10 +359,19 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             objectStates: [],
             filteredStates: [],
             sortedStatesID: [],
+            selectedStatesID: [],
+            bulkLabelSelector: {
+                visible: false,
+                sourceStateID: null,
+                left: 0,
+                top: 0,
+            },
         };
     }
 
     public componentDidMount(): void {
+        window.addEventListener('keyup', this.onModifierKeyUp);
+        window.addEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
         this.updateObjects();
     }
 
@@ -344,6 +383,11 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         }
     }
 
+    public componentWillUnmount(): void {
+        window.removeEventListener('keyup', this.onModifierKeyUp);
+        window.removeEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
+    }
+
     private updateObjects = (): void => {
         const {
             objectStates, frameNumber, workspace,
@@ -353,10 +397,39 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             frame: frameNumber,
             workspace,
         });
-        this.setState({
-            objectStates,
-            filteredStates,
-            sortedStatesID: sortAndMap(filteredStates, statesOrdering),
+        const sortedStatesID = sortAndMap(filteredStates, statesOrdering);
+        this.setState((prevState) => {
+            const availableStateIDs = new Set(sortedStatesID);
+            const selectedStatesID = prevState.selectedStatesID
+                .filter((id: number) => availableStateIDs.has(id));
+            const {
+                bulkLabelSelector,
+            } = prevState;
+
+            const bulkLabelSourceIsValid = bulkLabelSelector.sourceStateID !== null &&
+                availableStateIDs.has(bulkLabelSelector.sourceStateID) &&
+                selectedStatesID.includes(bulkLabelSelector.sourceStateID);
+
+            const nextBulkLabelSelector = bulkLabelSourceIsValid ?
+                bulkLabelSelector :
+                {
+                    visible: false,
+                    sourceStateID: null,
+                    left: 0,
+                    top: 0,
+                };
+
+            if (!bulkLabelSourceIsValid) {
+                this.pendingBulkLabelSelector = null;
+            }
+
+            return {
+                objectStates,
+                filteredStates,
+                sortedStatesID,
+                selectedStatesID,
+                bulkLabelSelector: nextBulkLabelSelector,
+            };
         });
     };
 
@@ -366,6 +439,166 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             statesOrdering,
             sortedStatesID: sortAndMap(filteredStates, statesOrdering),
         });
+    };
+
+    private resetBulkLabelSelector = (clearSelectedStates = false): void => {
+        this.pendingBulkLabelSelector = null;
+        this.setState((prevState) => ({
+            selectedStatesID: clearSelectedStates ? [] : prevState.selectedStatesID,
+            bulkLabelSelector: {
+                visible: false,
+                sourceStateID: null,
+                left: 0,
+                top: 0,
+            },
+        }));
+    };
+
+    private getPointerPosition = (event?: React.MouseEvent): { left: number; top: number } => {
+        if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+            this.lastPointerPosition = {
+                left: event.clientX,
+                top: event.clientY,
+            };
+        }
+
+        return this.lastPointerPosition;
+    };
+
+    private onModifierKeyUp = (event: KeyboardEvent): void => {
+        if (!['Control', 'Meta'].includes(event.key) || !this.pendingBulkLabelSelector) {
+            return;
+        }
+
+        const { pendingBulkLabelSelector } = this;
+        this.pendingBulkLabelSelector = null;
+
+        this.setState((prevState) => {
+            const {
+                sourceStateID, left, top,
+            } = pendingBulkLabelSelector;
+            if (prevState.selectedStatesID.length < 2 || !prevState.selectedStatesID.includes(sourceStateID)) {
+                return null;
+            }
+
+            return {
+                bulkLabelSelector: {
+                    visible: true,
+                    sourceStateID,
+                    left,
+                    top,
+                },
+            };
+        });
+    };
+
+    private onBulkLabelSelectorChange = (label: Label): void => {
+        const {
+            bulkLabelSelector: { sourceStateID },
+        } = this.state;
+        if (sourceStateID !== null) {
+            this.bulkChangeLabel(sourceStateID, label);
+        }
+
+        this.resetBulkLabelSelector(true);
+    };
+
+    private onOutsideBulkLabelSelectorClick = (event: MouseEvent): void => {
+        const {
+            bulkLabelSelector: { visible },
+        } = this.state;
+
+        if (!visible || !(event.target instanceof Element)) {
+            return;
+        }
+
+        const clickInsideAnchor = event.target.closest('.cvat-objects-sidebar-bulk-label-selector-anchor');
+        const clickInsideDropdown = event.target.closest('.cvat-objects-sidebar-bulk-label-selector-dropdown');
+
+        if (!clickInsideAnchor && !clickInsideDropdown) {
+            this.resetBulkLabelSelector(true);
+        }
+    };
+
+    private onSelectState = (stateID: number, event?: React.MouseEvent, forceToggle = false): void => {
+        const { sortedStatesID } = this.state;
+        if (!sortedStatesID.includes(stateID)) {
+            return;
+        }
+
+        const withModifierSelection = forceToggle || Boolean(event?.ctrlKey || event?.metaKey);
+        const pointerPosition = this.getPointerPosition(event);
+
+        this.setState((prevState) => {
+            const {
+                selectedStatesID,
+            } = prevState;
+
+            if (withModifierSelection) {
+                const nextSelectedStateIDs = selectedStatesID.includes(stateID) ?
+                    selectedStatesID.filter((id: number) => id !== stateID) :
+                    [...selectedStatesID, stateID];
+
+                return {
+                    selectedStatesID: nextSelectedStateIDs,
+                };
+            }
+
+            return {
+                selectedStatesID: [stateID],
+            };
+        }, () => {
+            const { selectedStatesID } = this.state;
+            const selected = selectedStatesID.includes(stateID);
+            if (withModifierSelection && !forceToggle && selected) {
+                this.pendingBulkLabelSelector = {
+                    sourceStateID: stateID,
+                    ...pointerPosition,
+                };
+            } else {
+                this.resetBulkLabelSelector();
+            }
+        });
+    };
+
+    private bulkChangeLabel = (sourceStateID: number, label: Label): boolean => {
+        const { readonly, updateAnnotations } = this.props;
+        const { objectStates, selectedStatesID } = this.state;
+
+        if (readonly || selectedStatesID.length < 2 || !selectedStatesID.includes(sourceStateID)) {
+            return false;
+        }
+
+        const selectedStateIDsSet = new Set(selectedStatesID);
+        const selectedStates = objectStates.filter(
+            (state: ObjectState): boolean => selectedStateIDsSet.has(state.clientID as number),
+        );
+        const updatedStates: ObjectState[] = [];
+
+        for (const state of selectedStates) {
+            const bothAreTags = state.objectType === ObjectType.TAG && label.type === LabelType.TAG;
+            const labelIsApplicable = label.type === LabelType.ANY ||
+                (state.shapeType === label.type && state.shapeType !== ShapeType.SKELETON) ||
+                bothAreTags;
+
+            if (!state.lock && labelIsApplicable) {
+                state.label = label;
+                updatedStates.push(state);
+            }
+        }
+
+        if (updatedStates.length) {
+            updateAnnotations(updatedStates);
+        }
+
+        const skipped = selectedStates.length - updatedStates.length;
+        if (skipped > 0) {
+            message.warning(
+                `Updated ${updatedStates.length} object(s). Skipped ${skipped} incompatible or locked object(s).`,
+            );
+        }
+
+        return updatedStates.length > 0;
     };
 
     private onLockAllStates = (): void => {
@@ -443,6 +676,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             keyMap,
             normalizedKeyMap,
             colors,
+            labels,
             colorBy,
             readonly,
             statesCollapsedAll,
@@ -456,8 +690,17 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             workspace,
         } = this.props;
         const {
-            objectStates, sortedStatesID, statesOrdering, filteredStates,
+            objectStates, sortedStatesID, statesOrdering, filteredStates, selectedStatesID, bulkLabelSelector,
         } = this.state;
+
+        const sourceState = bulkLabelSelector.sourceStateID !== null ?
+            objectStates.find((state: ObjectState): boolean => state.clientID === bulkLabelSelector.sourceStateID) :
+            null;
+        const labelSelectorLabels = sourceState ? filterApplicableLabels(sourceState, labels) : [];
+        const labelSelectorValue = sourceState ? sourceState.label.id : null;
+        const shouldRenderBulkLabelSelector = Boolean(
+            bulkLabelSelector.visible && sourceState && labelSelectorLabels.length,
+        );
 
         const preventDefault = (event: KeyboardEvent | undefined): void => {
             if (event) {
@@ -645,8 +888,11 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     workspace={workspace}
                     statesOrdering={statesOrdering}
                     sortedStatesID={sortedStatesID}
+                    selectedStatesID={selectedStatesID}
                     showGroundTruth={showGroundTruth}
                     objectStates={filteredStates}
+                    selectState={this.onSelectState}
+                    bulkChangeLabel={this.bulkChangeLabel}
                     switchHiddenAllShortcut={normalizedKeyMap.SWITCH_ALL_HIDDEN}
                     switchLockAllShortcut={normalizedKeyMap.SWITCH_ALL_LOCK}
                     changeStatesOrdering={this.onChangeStatesOrdering}
@@ -658,6 +904,32 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     showAllStates={this.onShowAllStates}
                     changeShowGroundTruth={this.changeShowGroundTruth}
                 />
+                {shouldRenderBulkLabelSelector && ReactDOM.createPortal(
+                    <div
+                        className='cvat-objects-sidebar-bulk-label-selector-anchor'
+                        style={{
+                            left: bulkLabelSelector.left,
+                            top: bulkLabelSelector.top,
+                        }}
+                    >
+                        <LabelSelector
+                            autoFocus
+                            open
+                            size='middle'
+                            labels={labelSelectorLabels}
+                            value={labelSelectorValue}
+                            popupClassName='cvat-objects-sidebar-bulk-label-selector-dropdown'
+                            className='cvat-objects-sidebar-bulk-label-selector'
+                            onChange={this.onBulkLabelSelectorChange}
+                            onOpenChange={(open: boolean) => {
+                                if (!open) {
+                                    this.resetBulkLabelSelector();
+                                }
+                            }}
+                        />
+                    </div>,
+                    window.document.body,
+                )}
             </>
         );
     }

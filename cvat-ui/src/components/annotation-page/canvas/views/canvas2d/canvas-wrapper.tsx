@@ -806,14 +806,19 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
 
     private onCanvasShapeClicked = (e: any): void => {
         const { clientID, parentID } = e.detail.state;
-        let sidebarItem = null;
-        if (Number.isInteger(parentID)) {
-            sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-element-${clientID}`);
-        } else {
-            sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-${clientID}`);
-        }
+        const targetStateID = Number.isInteger(parentID) ? parentID : clientID;
+        const sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-${targetStateID}`);
+        const withSelectionModifier = Boolean(e.detail.ctrlKey || e.detail.metaKey);
 
         if (sidebarItem) {
+            sidebarItem.dispatchEvent(new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                ctrlKey: withSelectionModifier ? e.detail.ctrlKey : false,
+                metaKey: withSelectionModifier ? e.detail.metaKey : false,
+                clientX: e.detail.clientX || 0,
+                clientY: e.detail.clientY || 0,
+            }));
             sidebarItem.scrollIntoView();
         }
     };

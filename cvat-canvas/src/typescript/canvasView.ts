@@ -1761,7 +1761,8 @@ export class CanvasViewImpl implements CanvasView, Listener {
             this.controller.drag(e.clientX, e.clientY);
 
             if (this.mode !== Mode.IDLE) return;
-            if (e.ctrlKey || e.altKey) return;
+            // Keep hover activation when Ctrl/Cmd is held to support multi-select preview.
+            if (e.altKey) return;
 
             if (!this.isImageLoading) {
                 const { offset } = this.controller.geometry;
@@ -2650,13 +2651,17 @@ export class CanvasViewImpl implements CanvasView, Listener {
                 }
             }
 
-            this.svgShapes[state.clientID].on('click.canvas', (): void => {
+            this.svgShapes[state.clientID].on('click.canvas', (e: MouseEvent): void => {
                 this.canvas.dispatchEvent(
                     new CustomEvent('canvas.clicked', {
                         bubbles: false,
                         cancelable: true,
                         detail: {
                             state,
+                            ctrlKey: e.ctrlKey,
+                            metaKey: e.metaKey,
+                            clientX: e.clientX,
+                            clientY: e.clientY,
                         },
                     }),
                 );
@@ -3445,7 +3450,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
 
                 const mouseover = (e: MouseEvent): void => {
                     const locked = this.drawnStates[state.clientID].lock;
-                    if (!locked && !e.ctrlKey && this.mode === Mode.IDLE) {
+                    if (!locked && this.mode === Mode.IDLE) {
                         circle.attr({
                             'stroke-width': consts.POINTS_SELECTED_STROKE_WIDTH / this.geometry.scale,
                         });
@@ -3488,6 +3493,10 @@ export class CanvasViewImpl implements CanvasView, Listener {
                             cancelable: true,
                             detail: {
                                 state: element,
+                                ctrlKey: e.ctrlKey,
+                                metaKey: e.metaKey,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
                             },
                         }),
                     );
