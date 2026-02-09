@@ -39,12 +39,18 @@ interface OwnProps {
     clientID: number;
     objectStates: ObjectState[];
 <<<<<<< HEAD
+<<<<<<< HEAD
     selected?: boolean;
     select?(id: number, event?: React.MouseEvent, forceToggle?: boolean): void;
     bulkChangeLabel?(sourceID: number, label: Label): boolean;
     onSelect?: () => void;
 =======
 >>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
+=======
+    selected?: boolean;
+    select?(id: number, event?: React.MouseEvent, forceToggle?: boolean): void;
+    bulkChangeLabel?(sourceID: number, label: Label): boolean;
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
 }
 
 interface StateToProps {
@@ -429,6 +435,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 jobInstance={jobInstance}
                 readonly={readonly}
                 activated={activated}
+                selected={selected}
                 objectType={objectState.objectType}
                 shapeType={objectState.shapeType}
                 clientID={objectState.clientID as number}

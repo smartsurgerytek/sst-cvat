@@ -33,12 +33,18 @@ import {
     ActiveControl,
 } from 'reducers';
 <<<<<<< HEAD
+<<<<<<< HEAD
 import {
     JobStage, Label, LabelType, ObjectState, ObjectType, ShapeType,
 } from 'cvat-core-wrapper';
 =======
 import { ObjectState, ObjectType, ShapeType } from 'cvat-core-wrapper';
 >>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
+=======
+import {
+    Label, LabelType, ObjectState, ObjectType, ShapeType,
+} from 'cvat-core-wrapper';
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
 import { filterAnnotations } from 'utils/filter-annotations';
 import { filterApplicableLabels } from 'utils/filter-applicable-labels';
 import { registerComponentShortcuts } from 'actions/shortcuts-actions';
@@ -206,7 +212,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
                 activatedElementID,
                 zLayer: { min: minZLayer, max: maxZLayer },
             },
-            job: { instance: jobInstance },
+            job: { instance: jobInstance, labels },
             player: {
                 frame: { number: frameNumber },
             },
@@ -337,6 +343,7 @@ interface State {
     filteredStates: ObjectState[];
     sortedStatesID: number[];
 <<<<<<< HEAD
+<<<<<<< HEAD
     selectedStatesID: number[];
     bulkLabelSelector: BulkLabelSelectorState;
     selectedStateIDs: number[];
@@ -346,11 +353,18 @@ interface State {
     selectionSource: 'canvas' | 'sidebar' | null;
 =======
 >>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
+=======
+    selectedStatesID: number[];
+    bulkLabelSelector: BulkLabelSelectorState;
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
 }
 
 class ObjectsListContainer extends React.PureComponent<Props, State> {
     private pendingBulkLabelSelector: PendingBulkLabelSelectorState | null = null;
+<<<<<<< HEAD
     private checkboxModifierSelectionActive = false;
+=======
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
 
     private lastPointerPosition = {
         left: 0,
@@ -373,6 +387,9 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             filteredStates: [],
             sortedStatesID: [],
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
             selectedStatesID: [],
             bulkLabelSelector: {
                 visible: false,
@@ -380,6 +397,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 left: 0,
                 top: 0,
             },
+<<<<<<< HEAD
             selectedStateIDs: [],
             floatingLabelOpen: false,
             floatingLabelPosition: null,
@@ -387,6 +405,8 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             selectionSource: null,
 =======
 >>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
+=======
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
         };
     }
 
@@ -442,6 +462,11 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
 >>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
     }
 
+    public componentWillUnmount(): void {
+        window.removeEventListener('keyup', this.onModifierKeyUp);
+        window.removeEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
+    }
+
     private updateObjects = (): void => {
         const {
             objectStates, frameNumber, workspace,
@@ -454,6 +479,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             frame: frameNumber,
             workspace,
         });
+<<<<<<< HEAD
 <<<<<<< HEAD
         this.setState((prevState) => {
             const sortedStatesID = sortAndMap(filteredStates, prevState.statesOrdering);
@@ -469,6 +495,23 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
 
             const nextBulkLabelSelector = bulkLabelSourceIsValid ?
                 prevState.bulkLabelSelector :
+=======
+        const sortedStatesID = sortAndMap(filteredStates, statesOrdering);
+        this.setState((prevState) => {
+            const availableStateIDs = new Set(sortedStatesID);
+            const selectedStatesID = prevState.selectedStatesID
+                .filter((id: number) => availableStateIDs.has(id));
+            const {
+                bulkLabelSelector,
+            } = prevState;
+
+            const bulkLabelSourceIsValid = bulkLabelSelector.sourceStateID !== null &&
+                availableStateIDs.has(bulkLabelSelector.sourceStateID) &&
+                selectedStatesID.includes(bulkLabelSelector.sourceStateID);
+
+            const nextBulkLabelSelector = bulkLabelSourceIsValid ?
+                bulkLabelSelector :
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
                 {
                     visible: false,
                     sourceStateID: null,
@@ -480,15 +523,19 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 this.pendingBulkLabelSelector = null;
             }
 
+<<<<<<< HEAD
             const nextSelectedLabelID = mergedSelectedStateIDs.length ?
                 filteredStates.find((state: ObjectState) => state.clientID === mergedSelectedStateIDs[0])?.label?.id ?? null :
                 null;
             const hasSelection = mergedSelectedStateIDs.length > 0;
 
+=======
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
             return {
                 objectStates,
                 filteredStates,
                 sortedStatesID,
+<<<<<<< HEAD
                 selectedStatesID: mergedSelectedStateIDs,
                 bulkLabelSelector: nextBulkLabelSelector,
                 selectedStateIDs: mergedSelectedStateIDs,
@@ -503,6 +550,11 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             filteredStates,
             sortedStatesID: sortAndMap(filteredStates, statesOrdering),
 >>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
+=======
+                selectedStatesID,
+                bulkLabelSelector: nextBulkLabelSelector,
+            };
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
         });
     };
 
@@ -516,24 +568,32 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
 
     private resetBulkLabelSelector = (clearSelectedStates = false): void => {
         this.pendingBulkLabelSelector = null;
+<<<<<<< HEAD
         if (clearSelectedStates) {
             this.checkboxModifierSelectionActive = false;
         }
         this.setState((prevState) => ({
             selectedStatesID: clearSelectedStates ? [] : prevState.selectedStatesID,
             selectedStateIDs: clearSelectedStates ? [] : prevState.selectedStateIDs,
+=======
+        this.setState((prevState) => ({
+            selectedStatesID: clearSelectedStates ? [] : prevState.selectedStatesID,
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
             bulkLabelSelector: {
                 visible: false,
                 sourceStateID: null,
                 left: 0,
                 top: 0,
             },
+<<<<<<< HEAD
             ...(clearSelectedStates ? {
                 floatingLabelOpen: false,
                 floatingLabelPosition: null,
                 selectedLabelID: null,
                 selectionSource: null,
             } : {}),
+=======
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
         }));
     };
 
@@ -609,18 +669,23 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             return;
         }
 
+<<<<<<< HEAD
         const sourceIsCheckbox = Boolean(
             event?.target instanceof Element &&
             event.target.closest('.ant-checkbox-wrapper, .ant-checkbox, .ant-checkbox-input'),
         );
         const withModifierSelection = Boolean(event?.ctrlKey || event?.metaKey);
         const isCheckboxSelection = forceToggle || sourceIsCheckbox;
+=======
+        const withModifierSelection = forceToggle || Boolean(event?.ctrlKey || event?.metaKey);
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
         const pointerPosition = this.getPointerPosition(event);
 
         this.setState((prevState) => {
             const {
                 selectedStatesID,
             } = prevState;
+<<<<<<< HEAD
             const computeNextState = (nextSelectedStateIDs: number[]): Partial<State> => ({
                 selectedStatesID: nextSelectedStateIDs,
                 selectedStateIDs: nextSelectedStateIDs,
@@ -644,12 +709,15 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
 
                 return computeNextState(nextSelectedStateIDs);
             }
+=======
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
 
             if (withModifierSelection) {
                 const nextSelectedStateIDs = selectedStatesID.includes(stateID) ?
                     selectedStatesID.filter((id: number) => id !== stateID) :
                     [...selectedStatesID, stateID];
 
+<<<<<<< HEAD
                 return computeNextState(nextSelectedStateIDs);
             }
 
@@ -667,6 +735,20 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             }
 
             if (withModifierSelection && !isCheckboxSelection && selected) {
+=======
+                return {
+                    selectedStatesID: nextSelectedStateIDs,
+                };
+            }
+
+            return {
+                selectedStatesID: [stateID],
+            };
+        }, () => {
+            const { selectedStatesID } = this.state;
+            const selected = selectedStatesID.includes(stateID);
+            if (withModifierSelection && !forceToggle && selected) {
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
                 this.pendingBulkLabelSelector = {
                     sourceStateID: stateID,
                     ...pointerPosition,
@@ -1016,11 +1098,15 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         } = this.props;
         const {
 <<<<<<< HEAD
+<<<<<<< HEAD
             objectStates, sortedStatesID, statesOrdering, filteredStates, selectedStatesID, bulkLabelSelector,
             selectedStateIDs,
 =======
             objectStates, sortedStatesID, statesOrdering, filteredStates,
 >>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
+=======
+            objectStates, sortedStatesID, statesOrdering, filteredStates, selectedStatesID, bulkLabelSelector,
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
         } = this.state;
 
         const sourceState = bulkLabelSelector.sourceStateID !== null ?
@@ -1222,10 +1308,15 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     showGroundTruth={showGroundTruth}
                     objectStates={filteredStates}
 <<<<<<< HEAD
+<<<<<<< HEAD
                     selectState={this.onSelectState}
                     bulkChangeLabel={this.bulkChangeLabel}
 =======
 >>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
+=======
+                    selectState={this.onSelectState}
+                    bulkChangeLabel={this.bulkChangeLabel}
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
                     switchHiddenAllShortcut={normalizedKeyMap.SWITCH_ALL_HIDDEN}
                     switchLockAllShortcut={normalizedKeyMap.SWITCH_ALL_LOCK}
                     changeStatesOrdering={this.onChangeStatesOrdering}

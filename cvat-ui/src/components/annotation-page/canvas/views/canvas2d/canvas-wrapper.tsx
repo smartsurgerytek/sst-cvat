@@ -813,6 +813,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     private onCanvasShapeClicked = (e: any): void => {
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         const { clientID, parentID } = e.detail.state;
         const { activeControl } = this.props;
         const lastMouseDown = this.lastCanvasMouseDownEvent;
@@ -836,6 +837,13 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         const sidebarItem = Number.isInteger(parentID) ?
             window.document.getElementById(`cvat-objects-sidebar-state-item-element-${clientID}`) ||
             window.document.getElementById(`cvat-objects-sidebar-state-item-${parentID}`) :
+=======
+        const { clientID, parentID } = e.detail.state;
+        const targetStateID = Number.isInteger(parentID) ? parentID : clientID;
+        const selectionSidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-${targetStateID}`);
+        const sidebarItem = Number.isInteger(parentID) ?
+            window.document.getElementById(`cvat-objects-sidebar-state-item-element-${clientID}`) || selectionSidebarItem :
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
             selectionSidebarItem;
         const withSelectionModifier = Boolean(e.detail.ctrlKey || e.detail.metaKey);
 
@@ -848,6 +856,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                 clientX: e.detail.clientX || 0,
                 clientY: e.detail.clientY || 0,
             }));
+<<<<<<< HEAD
 =======
         const { clientID, parentID } = e.detail.state;        let sidebarItem = null;
 =======
@@ -858,6 +867,8 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         } else {
             sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-${clientID}`);
 >>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
+=======
+>>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
         }
 
         if (sidebarItem) {
