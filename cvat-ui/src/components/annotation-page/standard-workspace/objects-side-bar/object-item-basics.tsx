@@ -102,7 +102,9 @@ function ItemTopComponent(props: Props): JSX.Element {
 
     const onCheckboxChange = (event: CheckboxChangeEvent): void => {
         event.stopPropagation();
-        select(undefined, true);
+        const nativeEvent = event.nativeEvent as MouseEvent | KeyboardEvent;
+        const withSelectionModifier = Boolean(nativeEvent.ctrlKey || nativeEvent.metaKey);
+        select(nativeEvent as unknown as React.MouseEvent, withSelectionModifier);
     };
 
     return (
@@ -112,6 +114,8 @@ function ItemTopComponent(props: Props): JSX.Element {
                     checked={selected}
                     onChange={onCheckboxChange}
                     onClick={(event): void => event.stopPropagation()}
+                    onMouseDown={(event): void => event.stopPropagation()}
+                    onMouseUp={(event): void => event.stopPropagation()}
                 />
             </Col>
             <Col span={7}>

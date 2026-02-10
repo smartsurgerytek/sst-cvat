@@ -42,6 +42,20 @@ context('Objects sidebar: multi-select and bulk label change', () => {
     const getVisibleSidebarStateItem = (stateID) => (
         silentGet(`#cvat-objects-sidebar-state-item-${stateID}`).filter(':visible').first()
     );
+    const getSidebarStateCheckbox = (stateID) => (
+        getVisibleSidebarStateItem(stateID).find('input.ant-checkbox-input[type="checkbox"]').first()
+    );
+    const clickSidebarStateCheckbox = (stateID, options = {}) => (
+        getSidebarStateCheckbox(stateID)
+            .should('exist')
+            .click({
+                force: true,
+                log: false,
+                ctrlKey: false,
+                metaKey: false,
+                ...options,
+            })
+    );
 
     function disableAllureListenersForThisSpec() {
         // Work around allure-cypress serializer overflow for this spec only.
@@ -101,12 +115,17 @@ context('Objects sidebar: multi-select and bulk label change', () => {
             const element = $item.get(0);
             const win = element.ownerDocument.defaultView;
             const rect = element.getBoundingClientRect();
+            const clientX = rect.left + Math.min(
+                Math.max(rect.width * 0.2, 24),
+                Math.max(rect.width - 24, 1),
+            );
             element.dispatchEvent(new win.MouseEvent('click', {
                 bubbles: true,
                 cancelable: true,
                 view: win,
-                clientX: rect.left + Math.min(10, rect.width / 2),
-                clientY: rect.top + Math.min(10, rect.height / 2),
+                button: 0,
+                clientX,
+                clientY: rect.top + rect.height / 2,
                 ...options,
             }));
         });
@@ -160,6 +179,19 @@ context('Objects sidebar: multi-select and bulk label change', () => {
             checkObjectLabel(secondID, secondLabel);
             checkObjectLabel(thirdID, firstLabel);
 
+            // Ctrl/Cmd + checkbox starts multi-select from the first Ctrl/Cmd click.
+            clickSidebarStateCheckbox(firstID, { ctrlKey: true });
+            getVisibleSidebarStateItem(firstID)
+                .should('have.class', selectedStateClass);
+            getVisibleSidebarStateItem(secondID)
+                .should('not.have.class', selectedStateClass);
+
+            clickSidebarStateCheckbox(secondID, { ctrlKey: true });
+            getVisibleSidebarStateItem(firstID)
+                .should('have.class', selectedStateClass);
+            getVisibleSidebarStateItem(secondID)
+                .should('have.class', selectedStateClass);
+
             // Make source state (2nd click with Ctrl) have a different label than the target one.
             selectSidebarState(secondID);
             selectSidebarState(firstID, { ctrlKey: true });
@@ -174,10 +206,6 @@ context('Objects sidebar: multi-select and bulk label change', () => {
             checkObjectLabel(firstID, secondLabel);
             checkObjectLabel(secondID, secondLabel);
             checkObjectLabel(thirdID, firstLabel);
-            getVisibleSidebarStateItem(firstID)
-                .should('not.have.class', selectedStateClass);
-            getVisibleSidebarStateItem(secondID)
-                .should('not.have.class', selectedStateClass);
 
             // Same rule for canvas flow: source state is the Ctrl-clicked one.
             silentGet(`#cvat_canvas_shape_${thirdID}`).click({ force: true, log: false });
@@ -192,10 +220,6 @@ context('Objects sidebar: multi-select and bulk label change', () => {
             getVisibleBulkLabelDropdown().should('be.visible');
 
             cy.get('body').click(0, 0, { force: true, log: false });
-            getVisibleSidebarStateItem(firstID)
-                .should('not.have.class', selectedStateClass);
-            getVisibleSidebarStateItem(thirdID)
-                .should('not.have.class', selectedStateClass);
 
             silentGet(`#cvat_canvas_shape_${thirdID}`).click({ force: true, log: false });
             silentGet(`#cvat_canvas_shape_${firstID}`).click({ force: true, ctrlKey: true, log: false });
@@ -210,10 +234,6 @@ context('Objects sidebar: multi-select and bulk label change', () => {
             checkObjectLabel(firstID, firstLabel);
             checkObjectLabel(secondID, secondLabel);
             checkObjectLabel(thirdID, firstLabel);
-            getVisibleSidebarStateItem(firstID)
-                .should('not.have.class', selectedStateClass);
-            getVisibleSidebarStateItem(thirdID)
-                .should('not.have.class', selectedStateClass);
         });
     });
 });

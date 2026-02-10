@@ -102,6 +102,10 @@ function ObjectItemComponent(props: Props): JSX.Element {
     }, []);
 
     const selectState = useCallback((event?: React.MouseEvent) => {
+        if (event?.target instanceof Element &&
+            event.target.closest('.ant-checkbox-wrapper, .ant-checkbox, .ant-checkbox-input')) {
+            return;
+        }
         select(event);
     }, [select]);
 
