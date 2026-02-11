@@ -104,6 +104,7 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
 
     const {
         frameIssues,
+        labels,
         issuesHidden,
         issuesResolvedHidden,
         canvasInstance,
@@ -121,6 +122,7 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         workspace,
     } = useSelector((state: CombinedState) => ({
         frameIssues: state.review.frameIssues,
+        labels: state.annotation.job.labels,
         issuesHidden: state.review.issuesHidden,
         issuesResolvedHidden: state.review.issuesResolvedHidden,
         canvasInstance: state.annotation.canvas.instance,
@@ -162,6 +164,7 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
 
     const [conflictMapping, setConflictMapping] = useState<ConflictMappingElement[]>([]);
     const [issueBounds, setIssueBounds] = useState<Record<number, IssueBounds>>({});
+    const labelTexts = Array.from(new Set(labels.map((label) => label.name).filter(Boolean)));
 
     const issueLabels: JSX.Element[] = [];
     const issueDialogs: JSX.Element[] = [];
@@ -451,6 +454,7 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
                     left={createLeft}
                     angle={-geometry.angle}
                     scale={1 / geometry.scale}
+                    labelTexts={labelTexts}
                     onCreateIssue={onCreateIssue}
                     canvasRect={canvasRect}
                     clientCoordinates={canvasInstance.translateFromSVG([createLeft, createTop]) as [number, number]}

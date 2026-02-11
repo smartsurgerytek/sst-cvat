@@ -116,7 +116,16 @@ context('Review controls: issue mask (validation + annotation)', () => {
         });
     }
 
-    function createIssueFromMask(issueDescription, maskStroke = null, returnWorkspace = null) {
+    function createIssueFromMask(
+        issueDescription,
+        maskStroke = null,
+        returnWorkspace = null,
+        options = {},
+    ) {
+        const {
+            verifyLabelTextSelect = false,
+            selectedLabelText = 'mask label',
+        } = options;
         const strokes = maskStroke || [{
             method: 'brush',
             coordinates: [[300, 300], [320, 320], [340, 300]],
@@ -141,14 +150,38 @@ context('Review controls: issue mask (validation + annotation)', () => {
                 cy.get('.cvat-issue-mask-control').should('not.have.class', 'cvat-active-canvas-control');
 
                 cy.intercept('POST', '/api/issues?*').as('createIssue');
-                cy.get('.cvat-create-issue-dialog').should('be.visible').within(() => {
-                    cy.get('#issue_description').type(issueDescription);
-                    cy.get('[type="submit"]').click();
-                });
+                cy.get('.cvat-create-issue-dialog').should('be.visible');
+                if (verifyLabelTextSelect) {
+                    cy.get('.cvat-create-issue-dialog').then(($dialog) => {
+                        const hasLabelTextSelector = $dialog
+                            .find('.cvat-create-issue-dialog-shortcut-selector').length > 0;
+
+                        if (hasLabelTextSelector) {
+                            cy.get('.cvat-create-issue-dialog .cvat-create-issue-dialog-shortcut-selector')
+                                .click();
+                            cy.get('.ant-select-dropdown')
+                                .should('exist')
+                                .contains('.ant-select-item-option', selectedLabelText)
+                                .click();
+                            cy.get('.cvat-create-issue-dialog #issue_description')
+                                .should('have.value', selectedLabelText)
+                                .clear()
+                                .type(issueDescription);
+                        } else {
+                            cy.get('.cvat-create-issue-dialog #issue_description')
+                                .clear()
+                                .type(issueDescription);
+                        }
+                    });
+                } else {
+                    cy.get('.cvat-create-issue-dialog #issue_description').type(issueDescription);
+                }
+                cy.get('.cvat-create-issue-dialog [type="submit"]').click();
                 cy.wait('@createIssue').then((interception) => {
                     expect(interception.response.statusCode).to.equal(201);
                     expect(interception.request.body.is_mask_issue).to.equal(true);
                     expect(isLikelyRle(interception.request.body.position)).to.equal(true);
+                    expect(interception.request.body.message).to.equal(issueDescription);
                 });
                 cy.get('.cvat-create-issue-dialog').should('not.exist');
             } else {
@@ -186,7 +219,15 @@ context('Review controls: issue mask (validation + annotation)', () => {
         setJobStage('validation');
         openJob();
 
-        createIssueFromMask(issueDescription);
+        createIssueFromMask(
+            issueDescription,
+            null,
+            null,
+            {
+                verifyLabelTextSelect: true,
+                selectedLabelText: 'mask label 2',
+            },
+        );
 
         cy.saveJob();
         openJob();
