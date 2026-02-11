@@ -80,6 +80,19 @@ export default function LabelsListComponent(): JSX.Element {
 
     const maskLabels = filterApplicableForType(LabelType.MASK, labels);
 
+    const isLikelyRle = (points: number[]): boolean => {
+        if (!Array.isArray(points) || points.length < 5) return false;
+        const [left, top, right, bottom] = points.slice(-4);
+        if (![left, top, right, bottom].every(Number.isFinite)) return false;
+        const width = right - left + 1;
+        const height = bottom - top + 1;
+        if (width <= 0 || height <= 0) return false;
+        const rle = points.slice(0, -4);
+        if (!rle.length || rle.some((value) => !Number.isFinite(value) || value < 0)) return false;
+        const total = rle.reduce((acc, value) => acc + value, 0);
+        return Math.abs(total - width * height) < 0.001;
+    };
+
     const openConvertModal = (issue: Issue): void => {
         if (!maskLabels.length) {
             notification.warning({
@@ -186,7 +199,8 @@ export default function LabelsListComponent(): JSX.Element {
         const label = labels.find((_label) => _label.id === selectedLabelId);
         if (!label) return;
 
-        const maskPoints = polygonToMaskRle(issueToConvert.position || []);
+        const position = issueToConvert.position || [];
+        const maskPoints = issueToConvert.isMaskIssue && isLikelyRle(position) ? position : polygonToMaskRle(position);
         if (!maskPoints) {
             notification.error({
                 message: 'Conversion failed',

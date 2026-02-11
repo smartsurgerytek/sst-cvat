@@ -13,10 +13,11 @@ import {
 
 import { commentIssueAsync, resolveIssueAsync, reopenIssueAsync } from 'actions/review-actions';
 import {
-    AnnotationConflict, ConflictSeverity, JobStage, ObjectState, QualityConflict,
+    AnnotationConflict, ConflictSeverity, JobStage, ObjectState, QualityConflict, ShapeType,
 } from 'cvat-core-wrapper';
 import { Canvas, CanvasMode } from 'cvat-canvas-wrapper';
 import { highlightConflict, updateActiveControl } from 'actions/annotation-actions';
+import openCVWrapper from 'utils/opencv-wrapper/opencv-wrapper';
 import CreateIssueDialog from './create-issue-dialog';
 import HiddenIssueLabel from './hidden-issue-label';
 import IssueDialog from './issue-dialog';
@@ -30,6 +31,73 @@ interface ConflictMappingElement {
     serverID: number;
     conflict: QualityConflict;
 }
+
+type IssueRegionPoints = number[] | number[][];
+type IssueRegionSet = Record<number, { hidden: boolean; points: IssueRegionPoints }>;
+type IssueBounds = { minX: number; minY: number; maxX: number; maxY: number };
+
+const isLikelyRle = (points: number[]): boolean => {
+    if (!Array.isArray(points) || points.length < 5) return false;
+    const [left, top, right, bottom] = points.slice(-4);
+    if (![left, top, right, bottom].every(Number.isFinite)) return false;
+    const width = right - left + 1;
+    const height = bottom - top + 1;
+    if (width <= 0 || height <= 0) return false;
+    const rle = points.slice(0, -4);
+    if (!rle.length || rle.some((value) => !Number.isFinite(value) || value < 0)) return false;
+    const total = rle.reduce((acc, value) => acc + value, 0);
+    return Math.abs(total - width * height) < 0.001;
+};
+
+const getRleBounds = (points: number[]): IssueBounds | null => {
+    if (points.length < 4) return null;
+    const [left, top, right, bottom] = points.slice(-4);
+    if (![left, top, right, bottom].every(Number.isFinite)) return null;
+    if (right < left || bottom < top) return null;
+    return {
+        minX: left,
+        minY: top,
+        maxX: right,
+        maxY: bottom,
+    };
+};
+
+const boundsToPolygon = (bounds: IssueBounds): number[] => ([
+    bounds.minX, bounds.minY,
+    bounds.maxX, bounds.minY,
+    bounds.maxX, bounds.maxY,
+    bounds.minX, bounds.maxY,
+]);
+
+const flattenPoints = (points: IssueRegionPoints): number[] => (
+    Array.isArray(points[0]) ? (points as number[][]).flat() : (points as number[])
+);
+
+const getBoundsFromPoints = (points: IssueRegionPoints): IssueBounds | null => {
+    const flat = flattenPoints(points);
+    if (!flat.length) return null;
+    const xs = flat.filter((_, idx) => idx % 2 === 0);
+    const ys = flat.filter((_, idx) => idx % 2 !== 0);
+    if (!xs.length || !ys.length) return null;
+    return {
+        minX: Math.min(...xs),
+        minY: Math.min(...ys),
+        maxX: Math.max(...xs),
+        maxY: Math.max(...ys),
+    };
+};
+
+const getMaskContours = async (points: number[]): Promise<number[][] | null> => {
+    try {
+        const contours = await openCVWrapper.getContoursFromState({
+            shapeType: ShapeType.MASK,
+            points,
+        } as any);
+        return contours.length ? contours : null;
+    } catch (error) {
+        return null;
+    }
+};
 
 export default function IssueAggregatorComponent(): JSX.Element | null {
     const dispatch = useDispatch();
@@ -77,8 +145,9 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         ?.map((annotationConflict: AnnotationConflict) => annotationConflict.serverID);
 
     const canvasReady = canvasInstance instanceof Canvas && canvasIsReady;
-    const isReviewMode = workspace === Workspace.REVIEW && jobStage === JobStage.VALIDATION;
-    const hideResolvedIssuesOnCanvas = !isReviewMode;
+    const isReviewWorkspace = workspace === Workspace.REVIEW;
+    const isValidationReviewMode = isReviewWorkspace && jobStage === JobStage.VALIDATION;
+    const hideResolvedIssuesOnCanvas = !isValidationReviewMode;
 
     const onEnter = useCallback((conflict: QualityConflict) => {
         if (canvasReady && activeControl === ActiveControl.CURSOR) {
@@ -92,6 +161,7 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
     }, [canvasReady, activeControl]);
 
     const [conflictMapping, setConflictMapping] = useState<ConflictMappingElement[]>([]);
+    const [issueBounds, setIssueBounds] = useState<Record<number, IssueBounds>>({});
 
     const issueLabels: JSX.Element[] = [];
     const issueDialogs: JSX.Element[] = [];
@@ -133,30 +203,81 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
     }, [canvasReady]);
 
     useEffect(() => {
-        if (canvasReady) {
-            type IssueRegionSet = Record<number, { hidden: boolean; points: number[] }>;
-            const regions = !issuesHidden ? frameIssues
-                .filter((_issue: any) => (
-                    (!issuesResolvedHidden || !_issue.resolved) &&
-                    (!hideResolvedIssuesOnCanvas || !_issue.resolved)
-                ))
-                .reduce((acc: IssueRegionSet, issue: any): IssueRegionSet => {
-                    acc[issue.id] = {
-                        points: issue.position,
+        if (!canvasReady) {
+            return () => {};
+        }
+
+        let canceled = false;
+
+        const buildRegions = async (): Promise<void> => {
+            const regions: IssueRegionSet = {};
+            const boundsMap: Record<number, IssueBounds> = {};
+            const visibleIssues = !issuesHidden ? frameIssues.filter((_issue: any) => (
+                (!issuesResolvedHidden || !_issue.resolved) &&
+                (!hideResolvedIssuesOnCanvas || !_issue.resolved)
+            )) : [];
+
+            for (const issue of visibleIssues) {
+                const position = issue.position as number[];
+                const isMaskIssue = issue.isMaskIssue === true;
+                let displayPoints: IssueRegionPoints | null = null;
+                let bounds = null;
+
+                if (isMaskIssue && Array.isArray(position) && isLikelyRle(position)) {
+                    bounds = getRleBounds(position);
+                    const contours = await getMaskContours(position);
+                    if (contours) {
+                        displayPoints = contours;
+                    } else if (bounds) {
+                        displayPoints = boundsToPolygon(bounds);
+                    }
+                } else {
+                    displayPoints = position;
+                }
+
+                if (displayPoints?.length) {
+                    regions[issue.id] = {
+                        points: displayPoints,
                         hidden: issue.resolved,
                     };
-                    return acc;
-                }, {}) : {};
-
-            if (newIssuePosition) {
-                // regions[0] is always empty because key is an id of an issue (<0, >0 are possible)
-                regions[0] = {
-                    points: newIssuePosition,
-                    hidden: false,
-                };
+                    const computedBounds = bounds ?? getBoundsFromPoints(displayPoints);
+                    if (computedBounds) {
+                        boundsMap[issue.id] = computedBounds;
+                    }
+                }
             }
 
+            if (newIssuePosition) {
+                const isMaskIssue = newIssueSource === NewIssueSource.ISSUE_MASK;
+                let displayPoints: IssueRegionPoints | null = null;
+                let bounds = null;
+                if (isMaskIssue && Array.isArray(newIssuePosition) && isLikelyRle(newIssuePosition)) {
+                    bounds = getRleBounds(newIssuePosition);
+                    const contours = await getMaskContours(newIssuePosition);
+                    if (contours) {
+                        displayPoints = contours;
+                    } else if (bounds) {
+                        displayPoints = boundsToPolygon(bounds);
+                    }
+                } else {
+                    displayPoints = newIssuePosition;
+                }
+
+                if (displayPoints?.length) {
+                    regions[0] = {
+                        points: displayPoints,
+                        hidden: false,
+                    };
+                    const computedBounds = bounds ?? getBoundsFromPoints(displayPoints);
+                    if (computedBounds) {
+                        boundsMap[0] = computedBounds;
+                    }
+                }
+            }
+
+            if (canceled) return;
             canvasInstance.setupIssueRegions(regions);
+            setIssueBounds(boundsMap);
 
             if (newIssuePosition) {
                 setExpandedIssue(null);
@@ -165,15 +286,22 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
                     element.style.display = 'block';
                 }
             }
-        }
+        };
+
+        void buildRegions();
+
+        return () => {
+            canceled = true;
+        };
     }, [
-        newIssuePosition,
-        frameIssues,
-        issuesResolvedHidden,
-        issuesHidden,
         canvasReady,
-        showConflicts,
+        canvasInstance,
+        frameIssues,
+        issuesHidden,
+        issuesResolvedHidden,
         hideResolvedIssuesOnCanvas,
+        newIssuePosition,
+        newIssueSource,
     ]);
 
     useEffect(() => {
@@ -217,11 +345,12 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         if (issuesHidden) break;
         const issueResolved = issue.resolved;
         if ((issuesResolvedHidden && issueResolved) || (hideResolvedIssuesOnCanvas && issueResolved)) continue;
-        const offset = 15;
-        const translated = issue.position.map((coord: number): number => coord + geometry.offset);
-        const minX = Math.min(...translated.filter((_: number, idx: number): boolean => idx % 2 === 0)) + offset;
-        const minY = Math.min(...translated.filter((_: number, idx: number): boolean => idx % 2 !== 0)) + offset;
         const { id } = issue;
+        const bounds = issueBounds[id];
+        if (!bounds) continue;
+        const offset = 15;
+        const minX = bounds.minX + geometry.offset + offset;
+        const minY = bounds.minY + geometry.offset + offset;
         const highlight = (): void => {
             const element = window.document.getElementById(`cvat_canvas_issue_region_${id}`);
             if (element) {
@@ -249,7 +378,7 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
                     scale={1 / geometry.scale}
                     isFetching={issueFetching !== null}
                     resolved={issueResolved}
-                    allowRemoving={isReviewMode}
+                    allowRemoving={isReviewWorkspace}
                     highlight={highlight}
                     blur={blur}
                     clientCoordinates={canvasInstance.translateFromSVG([minX, minY]) as [number, number]}
@@ -289,13 +418,9 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         }
     }
 
-    const translated = newIssuePosition ? newIssuePosition.map((coord: number): number => coord + geometry.offset) : [];
-    const createLeft = translated.length ?
-        Math.max(...translated.filter((_: number, idx: number): boolean => idx % 2 === 0)) :
-        null;
-    const createTop = translated.length ?
-        Math.min(...translated.filter((_: number, idx: number): boolean => idx % 2 !== 0)) :
-        null;
+    const newIssueBounds = issueBounds[0];
+    const createLeft = newIssueBounds ? newIssueBounds.maxX + geometry.offset : null;
+    const createTop = newIssueBounds ? newIssueBounds.minY + geometry.offset : null;
 
     for (const conflict of conflictMapping) {
         const isConflictHighlighted = highlightedObjectsIDs?.includes(conflict.serverID) || false;

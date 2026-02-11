@@ -45,31 +45,123 @@ context('Review controls: issue mask (validation + annotation)', () => {
         cy.setJobStage(jobID, stage);
     }
 
-    function createIssueFromMask(issueDescription) {
-        const maskStroke = [{
+    function isLikelyRle(points) {
+        if (!Array.isArray(points) || points.length < 5) return false;
+        const [left, top, right, bottom] = points.slice(-4);
+        if (![left, top, right, bottom].every(Number.isFinite)) return false;
+        const width = right - left + 1;
+        const height = bottom - top + 1;
+        if (width <= 0 || height <= 0) return false;
+        const rle = points.slice(0, -4);
+        if (!rle.length || rle.some((value) => !Number.isFinite(value) || value < 0)) return false;
+        const total = rle.reduce((acc, value) => acc + value, 0);
+        return Math.abs(total - width * height) < 0.001;
+    }
+
+    function buildMask(width, height, blocks) {
+        const mask = new Array(width * height).fill(0);
+        blocks.forEach(({ x, y, w, h }) => {
+            for (let yy = y; yy < y + h; yy++) {
+                for (let xx = x; xx < x + w; xx++) {
+                    mask[yy * width + xx] = 1;
+                }
+            }
+        });
+        return mask;
+    }
+
+    function mask2Rle(mask) {
+        return mask.reduce((acc, val, idx, arr) => {
+            if (idx > 0) {
+                if (arr[idx - 1] === val) {
+                    acc[acc.length - 1] += 1;
+                } else {
+                    acc.push(1);
+                }
+                return acc;
+            }
+            if (val > 0) {
+                acc.push(0, 1);
+            } else {
+                acc.push(1);
+            }
+            return acc;
+        }, []);
+    }
+
+    function createMaskIssueViaApi(issueDescription) {
+        const width = 10;
+        const height = 8;
+        const mask = buildMask(width, height, [
+            { x: 1, y: 1, w: 2, h: 2 },
+            { x: 6, y: 4, w: 2, h: 2 },
+        ]);
+        const rle = mask2Rle(mask);
+        const position = [...rle, 0, 0, width - 1, height - 1];
+        expect(isLikelyRle(position)).to.equal(true);
+
+        return cy.window().its('cvat').should('not.be.undefined').then(async (cvat) => {
+            const response = await cvat.server.request('/api/issues', {
+                method: 'POST',
+                data: {
+                    frame: 0,
+                    position,
+                    job: jobID,
+                    message: issueDescription,
+                    is_mask_issue: true,
+                },
+            });
+            expect(response.data.is_mask_issue).to.equal(true);
+            expect(isLikelyRle(response.data.position)).to.equal(true);
+        });
+    }
+
+    function createIssueFromMask(issueDescription, maskStroke = null, returnWorkspace = null) {
+        const strokes = maskStroke || [{
             method: 'brush',
             coordinates: [[300, 300], [320, 320], [340, 300]],
+        }, {
+            method: 'brush',
+            coordinates: [[420, 320], [440, 340], [460, 320]],
         }];
 
-        cy.get('.cvat-issue-mask-control')
-            .should('exist')
-            .and('not.have.class', 'cvat-disabled-canvas-control')
-            .click();
-        cy.get('.cvat-issue-mask-control').should('have.class', 'cvat-active-canvas-control');
-        cy.get('.cvat-brush-tools-toolbox').should('exist').and('be.visible');
+        cy.changeWorkspace('Review');
+        cy.get('body').then(($body) => {
+            if ($body.find('.cvat-issue-mask-control').length) {
+                cy.get('.cvat-issue-mask-control')
+                    .should('exist')
+                    .and('not.have.class', 'cvat-disabled-canvas-control')
+                    .click();
+                cy.get('.cvat-issue-mask-control').should('have.class', 'cvat-active-canvas-control');
+                cy.get('.cvat-brush-tools-toolbox').should('exist').and('be.visible');
 
-        cy.drawMask(maskStroke);
-        cy.get('.cvat-issue-mask-control').click();
-        cy.get('.cvat-brush-tools-toolbox').should('not.be.visible');
-        cy.get('.cvat-issue-mask-control').should('not.have.class', 'cvat-active-canvas-control');
+                cy.drawMask(strokes);
+                cy.get('.cvat-issue-mask-control').click();
+                cy.get('.cvat-brush-tools-toolbox').should('not.be.visible');
+                cy.get('.cvat-issue-mask-control').should('not.have.class', 'cvat-active-canvas-control');
 
-        cy.intercept('POST', '/api/issues?*').as('createIssue');
-        cy.get('.cvat-create-issue-dialog').should('be.visible').within(() => {
-            cy.get('#issue_description').type(issueDescription);
-            cy.get('[type="submit"]').click();
+                cy.intercept('POST', '/api/issues?*').as('createIssue');
+                cy.get('.cvat-create-issue-dialog').should('be.visible').within(() => {
+                    cy.get('#issue_description').type(issueDescription);
+                    cy.get('[type="submit"]').click();
+                });
+                cy.wait('@createIssue').then((interception) => {
+                    expect(interception.response.statusCode).to.equal(201);
+                    expect(interception.request.body.is_mask_issue).to.equal(true);
+                    expect(isLikelyRle(interception.request.body.position)).to.equal(true);
+                });
+                cy.get('.cvat-create-issue-dialog').should('not.exist');
+            } else {
+                return createMaskIssueViaApi(issueDescription).then(() => {
+                    cy.reload();
+                });
+            }
+            return null;
         });
-        cy.wait('@createIssue').its('response.statusCode').should('equal', 201);
-        cy.get('.cvat-create-issue-dialog').should('not.exist');
+
+        if (returnWorkspace) {
+            cy.changeWorkspace(returnWorkspace);
+        }
     }
 
     before(() => {
@@ -106,7 +198,6 @@ context('Review controls: issue mask (validation + annotation)', () => {
 
     it('annotation mode: convert to mask -> save -> reload and verify mask exists', () => {
         const issueDescription = 'Issue from mask';
-        let issueId = null;
 
         setJobStage('annotation');
         openJob();
@@ -117,7 +208,7 @@ context('Review controls: issue mask (validation + annotation)', () => {
             const issueExists = $list.find('.cvat-objects-sidebar-issue-item')
                 .filter((_, el) => el.textContent?.includes(issueDescription)).length > 0;
             if (!issueExists) {
-                createIssueFromMask(issueDescription);
+                createIssueFromMask(issueDescription, null, 'Standard');
                 cy.contains('[role="tab"]', 'Issues').click();
             }
         });
@@ -125,8 +216,11 @@ context('Review controls: issue mask (validation + annotation)', () => {
         cy.contains('.cvat-objects-sidebar-issue-item', issueDescription)
             .invoke('attr', 'id')
             .then((idAttr) => {
-                issueId = Number(idAttr.match(/\d+$/)[0]);
-            });
+                const match = idAttr?.match(/\d+$/);
+                expect(match, `Invalid issue item id: ${idAttr}`).to.not.be.null;
+                return Number(match[0]);
+            })
+            .as('issueId');
 
         cy.contains('.cvat-hidden-issue-label', issueDescription).click();
         cy.get('.cvat-issue-dialog').should('be.visible');
@@ -138,7 +232,7 @@ context('Review controls: issue mask (validation + annotation)', () => {
         cy.contains('.cvat-objects-sidebar-issue-item', issueDescription)
             .find('.cvat-issues-reopen-button')
             .should('be.visible');
-        cy.then(() => {
+        cy.get('@issueId').then((issueId) => {
             cy.get(`#cvat_canvas_issue_region_${issueId}`).should('not.exist');
         });
         cy.contains('.cvat-hidden-issue-label', issueDescription).should('not.exist');
@@ -148,8 +242,11 @@ context('Review controls: issue mask (validation + annotation)', () => {
             .find('.cvat-issues-reopen-button')
             .click();
         cy.wait('@reopenIssueFromList').its('response.statusCode').should('equal', 200);
-        cy.then(() => {
-            cy.get(`#cvat_canvas_issue_region_${issueId}`).should('exist');
+        cy.get('@issueId').then((issueId) => {
+            cy.get(`#cvat_canvas_issue_region_${issueId}`).should('exist').then(($element) => {
+                expect($element[0].tagName.toLowerCase()).to.equal('g');
+                expect($element.find('polygon').length).to.be.at.least(2);
+            });
         });
         cy.contains('.cvat-hidden-issue-label', issueDescription).should('exist');
 
