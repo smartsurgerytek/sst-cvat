@@ -69,7 +69,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
     private issueRegionPattern_1: SVG.Pattern;
     private issueRegionPattern_2: SVG.Pattern;
     private drawnStates: Record<number, DrawnState>;
-    private drawnIssueRegions: Record<number, SVG.Shape>;
+    private drawnIssueRegions: Record<number, SVG.Element>;
     private geometry: Geometry;
     private drawHandler: DrawHandler;
     private masksHandler: MasksHandler;
@@ -731,12 +731,26 @@ export class CanvasViewImpl implements CanvasView, Listener {
         }
 
         // Transform all drawn issues region
+        const pointRadius = `${(consts.BASE_POINT_SIZE * 3) / this.geometry.scale}`;
+        const strokeWidth = `${consts.BASE_STROKE_WIDTH / this.geometry.scale}`;
         for (const issueRegion of Object.values(this.drawnIssueRegions)) {
-            ((issueRegion as any) as SVG.Shape).attr('r', `${(consts.BASE_POINT_SIZE * 3) / this.geometry.scale}`);
-            ((issueRegion as any) as SVG.Shape).attr(
-                'stroke-width',
-                `${consts.BASE_STROKE_WIDTH / this.geometry.scale}`,
-            );
+            const element = issueRegion as any;
+            if (element.type === 'g' && typeof element.children === 'function') {
+                const group = element as SVG.G;
+                group.attr('stroke-width', strokeWidth);
+                for (const child of group.children()) {
+                    if ((child as any).type === 'circle') {
+                        (child as SVG.Circle).attr('r', pointRadius);
+                    }
+                    (child as SVG.Element).attr('stroke-width', strokeWidth);
+                }
+            } else {
+                const shape = issueRegion as SVG.Shape;
+                if ((shape as any).type === 'circle') {
+                    shape.attr('r', pointRadius);
+                }
+                shape.attr('stroke-width', strokeWidth);
+            }
         }
 
         // Transform patterns
@@ -773,7 +787,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
         }
     }
 
-    private setupIssueRegions(issueRegions: Record<number, { hidden: boolean; points: number[] }>): void {
+    private setupIssueRegions(issueRegions: Record<number, { hidden: boolean; points: number[] | number[][] }>): void {
         for (const issueRegion of Object.keys(this.drawnIssueRegions)) {
             if (!(issueRegion in issueRegions) || !+issueRegion) {
                 this.drawnIssueRegions[+issueRegion].remove();
@@ -783,45 +797,87 @@ export class CanvasViewImpl implements CanvasView, Listener {
 
         for (const issueRegion of Object.keys(issueRegions)) {
             if (issueRegion in this.drawnIssueRegions) continue;
-            const points = this.translateToCanvas(issueRegions[+issueRegion].points);
-            if (points.length === 2) {
-                this.drawnIssueRegions[+issueRegion] = this.adoptedContent
-                    .circle((consts.BASE_POINT_SIZE * 3 * 2) / this.geometry.scale)
-                    .center(points[0], points[1])
-                    .addClass('cvat_canvas_issue_region')
-                    .attr({
-                        id: `cvat_canvas_issue_region_${issueRegion}`,
-                        fill: 'url(#cvat_issue_region_pattern_1)',
-                    });
-            } else if (points.length === 4) {
-                const stringified = stringifyPoints([
-                    points[0],
-                    points[1],
-                    points[2],
-                    points[1],
-                    points[2],
-                    points[3],
-                    points[0],
-                    points[3],
-                ]);
-                this.drawnIssueRegions[+issueRegion] = this.adoptedContent
-                    .polygon(stringified)
+            const rawPoints = issueRegions[+issueRegion].points;
+            const contours = Array.isArray(rawPoints[0]) ? rawPoints as number[][] : [rawPoints as number[]];
+            if (!contours.length) continue;
+
+            if (contours.length > 1) {
+                const group = this.adoptedContent
+                    .group()
                     .addClass('cvat_canvas_issue_region')
                     .attr({
                         id: `cvat_canvas_issue_region_${issueRegion}`,
                         fill: 'url(#cvat_issue_region_pattern_1)',
                         'stroke-width': `${consts.BASE_STROKE_WIDTH / this.geometry.scale}`,
                     });
+
+                for (const contour of contours) {
+                    const points = this.translateToCanvas(contour);
+                    if (points.length === 2) {
+                        group
+                            .circle((consts.BASE_POINT_SIZE * 3 * 2) / this.geometry.scale)
+                            .center(points[0], points[1])
+                            .attr({ fill: 'inherit' });
+                    } else if (points.length === 4) {
+                        const stringified = stringifyPoints([
+                            points[0],
+                            points[1],
+                            points[2],
+                            points[1],
+                            points[2],
+                            points[3],
+                            points[0],
+                            points[3],
+                        ]);
+                        group.polygon(stringified).attr({ fill: 'inherit' });
+                    } else if (points.length) {
+                        const stringified = stringifyPoints(points);
+                        group.polygon(stringified).attr({ fill: 'inherit' });
+                    }
+                }
+
+                this.drawnIssueRegions[+issueRegion] = group;
             } else {
-                const stringified = stringifyPoints(points);
-                this.drawnIssueRegions[+issueRegion] = this.adoptedContent
-                    .polygon(stringified)
-                    .addClass('cvat_canvas_issue_region')
-                    .attr({
-                        id: `cvat_canvas_issue_region_${issueRegion}`,
-                        fill: 'url(#cvat_issue_region_pattern_1)',
-                        'stroke-width': `${consts.BASE_STROKE_WIDTH / this.geometry.scale}`,
-                    });
+                const points = this.translateToCanvas(contours[0]);
+                if (points.length === 2) {
+                    this.drawnIssueRegions[+issueRegion] = this.adoptedContent
+                        .circle((consts.BASE_POINT_SIZE * 3 * 2) / this.geometry.scale)
+                        .center(points[0], points[1])
+                        .addClass('cvat_canvas_issue_region')
+                        .attr({
+                            id: `cvat_canvas_issue_region_${issueRegion}`,
+                            fill: 'url(#cvat_issue_region_pattern_1)',
+                        });
+                } else if (points.length === 4) {
+                    const stringified = stringifyPoints([
+                        points[0],
+                        points[1],
+                        points[2],
+                        points[1],
+                        points[2],
+                        points[3],
+                        points[0],
+                        points[3],
+                    ]);
+                    this.drawnIssueRegions[+issueRegion] = this.adoptedContent
+                        .polygon(stringified)
+                        .addClass('cvat_canvas_issue_region')
+                        .attr({
+                            id: `cvat_canvas_issue_region_${issueRegion}`,
+                            fill: 'url(#cvat_issue_region_pattern_1)',
+                            'stroke-width': `${consts.BASE_STROKE_WIDTH / this.geometry.scale}`,
+                        });
+                } else if (points.length) {
+                    const stringified = stringifyPoints(points);
+                    this.drawnIssueRegions[+issueRegion] = this.adoptedContent
+                        .polygon(stringified)
+                        .addClass('cvat_canvas_issue_region')
+                        .attr({
+                            id: `cvat_canvas_issue_region_${issueRegion}`,
+                            fill: 'url(#cvat_issue_region_pattern_1)',
+                            'stroke-width': `${consts.BASE_STROKE_WIDTH / this.geometry.scale}`,
+                        });
+                }
             }
 
             if (issueRegions[+issueRegion].hidden) {

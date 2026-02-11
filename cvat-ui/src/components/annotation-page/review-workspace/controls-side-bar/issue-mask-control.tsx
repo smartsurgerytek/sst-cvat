@@ -15,8 +15,7 @@ import { ShortcutScope } from 'utils/enums';
 import { registerComponentShortcuts } from 'actions/shortcuts-actions';
 import { subKeyMap } from 'utils/component-subkeymap';
 import { Canvas, CanvasMode } from 'cvat-canvas-wrapper';
-import { DimensionType, ShapeType } from 'cvat-core-wrapper';
-import openCVWrapper from 'utils/opencv-wrapper/opencv-wrapper';
+import { DimensionType, ShapeType, getCore } from 'cvat-core-wrapper';
 
 interface Props {
     canvasInstance: Canvas;
@@ -29,6 +28,67 @@ const DEFAULT_BRUSH_SIZE = 10;
 type BrushForm = 'circle' | 'square';
 const DEFAULT_BRUSH_FORM: BrushForm = 'circle';
 const DEFAULT_BRUSH_COLOR = '#ff0000';
+const core = getCore();
+
+const fillMaskHoles = (mask: number[], width: number, height: number): number[] => {
+    const size = width * height;
+    const visited = new Uint8Array(size);
+    const stack: number[] = [];
+
+    const pushIf = (x: number, y: number): void => {
+        if (x < 0 || y < 0 || x >= width || y >= height) return;
+        const idx = y * width + x;
+        if (mask[idx] === 0 && !visited[idx]) {
+            visited[idx] = 1;
+            stack.push(idx);
+        }
+    };
+
+    for (let x = 0; x < width; x++) {
+        pushIf(x, 0);
+        pushIf(x, height - 1);
+    }
+    for (let y = 0; y < height; y++) {
+        pushIf(0, y);
+        pushIf(width - 1, y);
+    }
+
+    while (stack.length) {
+        const idx = stack.pop() as number;
+        const x = idx % width;
+        const y = Math.floor(idx / width);
+        pushIf(x + 1, y);
+        pushIf(x - 1, y);
+        pushIf(x, y + 1);
+        pushIf(x, y - 1);
+    }
+
+    const filled = mask.slice();
+    for (let i = 0; i < size; i++) {
+        if (mask[i] === 0 && !visited[i]) {
+            filled[i] = 1;
+        }
+    }
+
+    return filled;
+};
+
+const fillMaskIfClosed = (points: number[]): number[] => {
+    if (!Array.isArray(points) || points.length < 5) return points;
+    const [left, top, right, bottom] = points.slice(-4);
+    if (![left, top, right, bottom].every(Number.isFinite)) return points;
+    const width = right - left + 1;
+    const height = bottom - top + 1;
+    if (width <= 0 || height <= 0) return points;
+
+    const rle = points.slice(0, -4);
+    if (!rle.length) return points;
+
+    const mask = core.utils.rle2Mask(rle, width, height);
+    const filled = fillMaskHoles(mask, width, height);
+    const filledRle = core.utils.mask2Rle(filled);
+    return [...filledRle, left, top, right, bottom];
+};
 
 const componentShortcuts = {
     OPEN_REVIEW_ISSUE_MASK: {
@@ -121,29 +181,16 @@ function IssueMaskControl(props: Props): JSX.Element {
             return () => {};
         }
 
-        const onDrawn = async (event: Event): Promise<void> => {
+        const onDrawn = (event: Event): void => {
             if (activeControl !== ActiveControl.OPEN_ISSUE_MASK) return;
             const { detail } = event as CustomEvent;
             const state = detail?.state;
             if (!state || state.shapeType !== ShapeType.MASK) return;
 
-            let points: number[] | null = null;
-            try {
-                points = await openCVWrapper.getContourFromState({
-                    shapeType: ShapeType.MASK,
-                    points: state.points,
-                } as any);
-            } catch (error) {
-                points = null;
-            }
-
-            if (!points?.length) {
-                const [left, top, right, bottom] = state.points.slice(-4);
-                points = [left, top, right, top, right, bottom, left, bottom];
-            }
-
-            if (points.length) {
-                dispatch(reviewActions.startIssue(points, NewIssueSource.ISSUE_MASK));
+            const points = state.points as number[] | undefined;
+            if (points?.length) {
+                const filledPoints = fillMaskIfClosed(points);
+                dispatch(reviewActions.startIssue(filledPoints, NewIssueSource.ISSUE_MASK));
             }
 
             dispatch(updateCanvasBrushTools({ visible: false }));
