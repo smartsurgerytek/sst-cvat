@@ -8,7 +8,6 @@ import Spin from 'antd/lib/spin';
 import Text from 'antd/lib/typography/Text';
 import CVATTooltip from 'components/common/cvat-tooltip';
 import {
-    PicCenterOutlined,
     ReloadOutlined,
 } from '@ant-design/icons';
 
@@ -117,19 +116,6 @@ function RawFrameView(): JSX.Element {
             <div className='cvat-raw-frame-view-header'>
                 <Text strong className='cvat-raw-frame-view-title'>Original</Text>
                 <div className='cvat-raw-frame-view-controls'>
-                    <CVATTooltip title='Fit views'>
-                        <PicCenterOutlined
-                            onClick={() => {
-                                window.dispatchEvent(new CustomEvent('cvat.canvasLayoutAction', { detail: { action: 'fit' } }));
-                                setZoom(1);
-                                setPan({ x: 0, y: 0 });
-                            }}
-                            onKeyDown={handleIconKeyDown}
-                            role='button'
-                            tabIndex={0}
-                            aria-label='Fit views'
-                        />
-                    </CVATTooltip>
                     <CVATTooltip title='Reload layout'>
                         <ReloadOutlined
                             onClick={() => {
