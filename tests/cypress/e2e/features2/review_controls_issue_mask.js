@@ -302,11 +302,21 @@ context('Review controls: issue mask (validation + annotation)', () => {
         });
         cy.contains('.cvat-hidden-issue-label', issueDescription).should('exist');
 
-        cy.get('.cvat-objects-sidebar-issues-list').within(() => {
-            cy.contains('.cvat-objects-sidebar-issue-item', issueDescription)
-                .find('.cvat-issues-convert-to-mask-button')
-                .should('be.visible')
-                .click();
+        cy.contains('.cvat-hidden-issue-label', issueDescription).click();
+        cy.get('.cvat-issue-dialog').should('be.visible').then(($dialog) => {
+            const hasDialogConvertButton = $dialog.find('.cvat-issue-dialog-convert-to-mask-button').length > 0;
+            if (hasDialogConvertButton) {
+                cy.get('.cvat-issue-dialog-convert-to-mask-button')
+                    .should('be.visible')
+                    .click();
+            } else {
+                cy.get('.cvat-objects-sidebar-issues-list').within(() => {
+                    cy.contains('.cvat-objects-sidebar-issue-item', issueDescription)
+                        .find('.cvat-issues-convert-to-mask-button')
+                        .should('be.visible')
+                        .click();
+                });
+            }
         });
 
         cy.get('.ant-modal').contains('Convert issue to mask');
