@@ -157,6 +157,17 @@ context('Review controls: issue mask (validation + annotation)', () => {
                             .find('.cvat-create-issue-dialog-shortcut-selector').length > 0;
 
                         if (hasLabelTextSelector) {
+                            const prefixText = 'Issue ';
+                            const suffixText = ' from mask';
+                            cy.get('.cvat-create-issue-dialog #issue_description')
+                                .clear()
+                                .type(`${prefixText}${suffixText}`)
+                                .then(($input) => {
+                                    const input = $input[0];
+                                    const cursorPosition = prefixText.length;
+                                    input.focus();
+                                    input.setSelectionRange(cursorPosition, cursorPosition);
+                                });
                             cy.get('.cvat-create-issue-dialog .cvat-create-issue-dialog-shortcut-selector')
                                 .click();
                             cy.get('.ant-select-dropdown')
@@ -164,7 +175,7 @@ context('Review controls: issue mask (validation + annotation)', () => {
                                 .contains('.ant-select-item-option', selectedLabelText)
                                 .click();
                             cy.get('.cvat-create-issue-dialog #issue_description')
-                                .should('have.value', selectedLabelText)
+                                .should('have.value', `${prefixText}${selectedLabelText}${suffixText}`)
                                 .clear()
                                 .type(issueDescription);
                         } else {
