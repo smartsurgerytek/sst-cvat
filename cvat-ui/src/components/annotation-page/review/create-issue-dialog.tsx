@@ -39,6 +39,7 @@ function MessageForm(props: Readonly<FormProps>): JSX.Element {
 
     const dialogRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<InputRef>(null);
+    const cursorRangeRef = useRef<{ start: number; end: number } | null>(null);
     const [form] = Form.useForm();
     const labelOptions = useMemo(
         () => labelTexts.map((label: string) => ({
@@ -66,13 +67,39 @@ function MessageForm(props: Readonly<FormProps>): JSX.Element {
         }
     }, [position]);
 
+    const storeCursorRange = (): void => {
+        const inputElement = inputRef.current?.input;
+        if (!inputElement) return;
+        const start = inputElement.selectionStart ?? inputElement.value.length;
+        const end = inputElement.selectionEnd ?? start;
+        cursorRangeRef.current = { start, end };
+    };
+
     const applyLabelText = (labelText: string): void => {
+        const currentDescription = String(form.getFieldValue('issue_description') || '');
+        const inputElement = inputRef.current?.input;
+        const liveStart = inputElement?.selectionStart;
+        const liveEnd = inputElement?.selectionEnd;
+        const liveRange = Number.isInteger(liveStart) && Number.isInteger(liveEnd) ?
+            { start: liveStart as number, end: liveEnd as number } :
+            cursorRangeRef.current;
+        const safeStart = Math.min(Math.max(0, liveRange?.start ?? currentDescription.length), currentDescription.length);
+        const safeEnd = Math.min(Math.max(safeStart, liveRange?.end ?? safeStart), currentDescription.length);
+        const nextDescription = `${currentDescription.slice(0, safeStart)}${labelText}${currentDescription.slice(safeEnd)}`;
+        const nextCursor = safeStart + labelText.length;
+
         form.setFieldsValue({
-            issue_label_text: labelText,
-            issue_description: labelText,
+            issue_label_text: undefined,
+            issue_description: nextDescription,
         });
+
         setTimeout(() => {
-            inputRef.current?.focus();
+            const nextInputElement = inputRef.current?.input;
+            if (nextInputElement) {
+                nextInputElement.focus();
+                nextInputElement.setSelectionRange(nextCursor, nextCursor);
+                cursorRangeRef.current = { start: nextCursor, end: nextCursor };
+            }
         }, 0);
     };
 
@@ -109,7 +136,23 @@ function MessageForm(props: Readonly<FormProps>): JSX.Element {
                     name='issue_description'
                     rules={[{ required: true, message: 'Please, fill out the field' }]}
                 >
-                    <Input ref={inputRef} autoComplete='off' placeholder='Please, describe the issue' />
+                    <Input
+                        ref={inputRef}
+                        autoComplete='off'
+                        placeholder='Please, describe the issue'
+                        onClick={() => {
+                            storeCursorRange();
+                        }}
+                        onKeyUp={() => {
+                            storeCursorRange();
+                        }}
+                        onSelect={() => {
+                            storeCursorRange();
+                        }}
+                        onBlur={() => {
+                            storeCursorRange();
+                        }}
+                    />
                 </Form.Item>
                 <Row justify='space-between'>
                     <Col>
