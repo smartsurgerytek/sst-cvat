@@ -53,6 +53,10 @@ services:
 
   # Enable Traefik dashboard for INT environment
   traefik:
+    ports:
+       - 80:80
+       - 8080:8080
+       - 8090:8090
     environment:
       # Enable Traefik API Dashboard
       TRAEFIK_API_DASHBOARD: "true"
@@ -61,4 +65,4 @@ services:
       traefik.enable: "true"
       traefik.http.routers.dashboard.entrypoints: dashboard
       traefik.http.routers.dashboard.service: api@internal
-      traefik.http.routers.dashboard.rule: Host(`${CVAT_HOST:-localhost}`)
+      traefik.http.routers.dashboard.rule: "Host(`${CVAT_HOST:-localhost}`)"
