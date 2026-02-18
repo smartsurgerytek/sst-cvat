@@ -119,9 +119,9 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.INT_SSH_KEY }}" > ~/.ssh/id_rsa
+          printf "%s" "${{ secrets.INT_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.INT_EC2_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${{ secrets.INT_EC2_HOST }}" >> ~/.ssh/known_hosts || true
 
       - name: Prepare deployment files
         id: prepare
