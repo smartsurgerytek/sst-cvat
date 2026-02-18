@@ -128,7 +128,7 @@ jobs:
         run: |
           IMAGE_TAG="${{ steps.vars.outputs.image_tag }}"
           ECR_REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
-          CVAT_HOST="${{ secrets.INT_CVAT_HOST }}"
+          CVAT_HOST="cvat-int.getsmartsurgery.net"
 
           # Create .env file
           cat > .env << EOF
@@ -311,10 +311,10 @@ jobs:
           echo "| Branch | \`${{ steps.vars.outputs.branch_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Image Tag | \`${{ steps.vars.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| EC2 Host | \`${{ secrets.INT_EC2_HOST }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| CVAT URL | https://${{ secrets.INT_CVAT_HOST }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CVAT URL | https://cvat-int.getsmartsurgery.net |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered By | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "1. Test on INT environment: https://${{ secrets.INT_CVAT_HOST }}" >> $GITHUB_STEP_SUMMARY
+          echo "1. Test on INT environment: https://cvat-int.getsmartsurgery.net" >> $GITHUB_STEP_SUMMARY
           echo "2. If tests pass, create PR to \`sst-main\`" >> $GITHUB_STEP_SUMMARY
