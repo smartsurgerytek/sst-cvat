@@ -119,9 +119,18 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          # Use printf to preserve multiline SSH key correctly
           printf "%s" "${{ secrets.INT_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "${{ secrets.INT_EC2_HOST }}" >> ~/.ssh/known_hosts || true
+          # Add host key (non-fatal if it fails)
+          ssh-keyscan -H "${{ secrets.INT_EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Test SSH Connectivity
+        run: |
+          echo "Testing SSH connection..."
+          ssh -i ~/.ssh/id_rsa -o BatchMode=yes -o ConnectTimeout=10 \
+            ubuntu@${{ secrets.INT_EC2_HOST }} "echo 'SSH connection successful!'"
 
       - name: Prepare deployment files
         id: prepare
