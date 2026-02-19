@@ -116,21 +116,17 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          # Use printf to preserve multiline SSH key correctly
-          printf "%s" "${{ secrets.INT_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          # Add host key (non-fatal if it fails)
-          ssh-keyscan -H "${{ secrets.INT_EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Test SSH Connectivity
+      - name: Install Session Manager Plugin
         run: |
-          echo "Testing SSH connection..."
-          ssh -i ~/.ssh/id_rsa -o BatchMode=yes -o ConnectTimeout=10 \
-            ubuntu@${{ secrets.INT_EC2_HOST }} "echo 'SSH connection successful!'"
+          curl "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" -o "session-manager-plugin.deb"
+          sudo dpkg -i session-manager-plugin.deb
 
       - name: Prepare deployment files
         id: prepare
