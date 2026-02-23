@@ -842,8 +842,13 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         const targetStateID = Number.isInteger(parentID) ? parentID : clientID;
         const selectionSidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-${targetStateID}`);
         const sidebarItem = Number.isInteger(parentID) ?
+<<<<<<< HEAD
             window.document.getElementById(`cvat-objects-sidebar-state-item-element-${clientID}`) || selectionSidebarItem :
 >>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
+=======
+            window.document.getElementById(`cvat-objects-sidebar-state-item-element-${clientID}`) ||
+            window.document.getElementById(`cvat-objects-sidebar-state-item-${parentID}`) :
+>>>>>>> f51383665 (fix(objects-list): refine checkbox selection logic for improved multi-select behavior)
             selectionSidebarItem;
         const withSelectionModifier = Boolean(e.detail.ctrlKey || e.detail.metaKey);
 

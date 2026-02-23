@@ -363,8 +363,11 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
     private pendingBulkLabelSelector: PendingBulkLabelSelectorState | null = null;
 <<<<<<< HEAD
     private checkboxModifierSelectionActive = false;
+<<<<<<< HEAD
 =======
 >>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
+=======
+>>>>>>> f51383665 (fix(objects-list): refine checkbox selection logic for improved multi-select behavior)
 
     private lastPointerPosition = {
         left: 0,
@@ -676,9 +679,12 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         );
         const withModifierSelection = Boolean(event?.ctrlKey || event?.metaKey);
         const isCheckboxSelection = forceToggle || sourceIsCheckbox;
+<<<<<<< HEAD
 =======
         const withModifierSelection = forceToggle || Boolean(event?.ctrlKey || event?.metaKey);
 >>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
+=======
+>>>>>>> f51383665 (fix(objects-list): refine checkbox selection logic for improved multi-select behavior)
         const pointerPosition = this.getPointerPosition(event);
 
         this.setState((prevState) => {
@@ -711,6 +717,23 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             }
 =======
 >>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
+
+            if (isCheckboxSelection) {
+                if (!withModifierSelection) {
+                    return {
+                        selectedStatesID: selectedStatesID.includes(stateID) ? [] : [stateID],
+                    };
+                }
+
+                const baseSelectedStateIDs = this.checkboxModifierSelectionActive ? selectedStatesID : [];
+                const nextSelectedStateIDs = baseSelectedStateIDs.includes(stateID) ?
+                    baseSelectedStateIDs.filter((id: number) => id !== stateID) :
+                    [...baseSelectedStateIDs, stateID];
+
+                return {
+                    selectedStatesID: nextSelectedStateIDs,
+                };
+            }
 
             if (withModifierSelection) {
                 const nextSelectedStateIDs = selectedStatesID.includes(stateID) ?
@@ -747,8 +770,21 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         }, () => {
             const { selectedStatesID } = this.state;
             const selected = selectedStatesID.includes(stateID);
+<<<<<<< HEAD
             if (withModifierSelection && !forceToggle && selected) {
 >>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
+=======
+
+            if (selectedStatesID.length === 0) {
+                this.checkboxModifierSelectionActive = false;
+            } else if (isCheckboxSelection) {
+                this.checkboxModifierSelectionActive = withModifierSelection;
+            } else if (!withModifierSelection) {
+                this.checkboxModifierSelectionActive = false;
+            }
+
+            if (withModifierSelection && !isCheckboxSelection && selected) {
+>>>>>>> f51383665 (fix(objects-list): refine checkbox selection logic for improved multi-select behavior)
                 this.pendingBulkLabelSelector = {
                     sourceStateID: stateID,
                     ...pointerPosition,
