@@ -5,7 +5,9 @@
 import './styles.scss';
 import 'react-grid-layout/css/styles.css';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+    useCallback, useEffect, useRef, useState,
+} from 'react';
 import { shallowEqual, useSelector } from 'react-redux';
 import RGL, { WidthProvider } from 'react-grid-layout';
 import PropTypes from 'prop-types';
@@ -39,7 +41,6 @@ import { useUpdateEffect } from 'utils/hooks';
 import defaultLayout, { ItemLayout, ViewType } from './canvas-layout.conf';
 
 const ReactGridLayout = WidthProvider(RGL);
-const RAW_COMPARE_SWAP_STORAGE_KEY = 'rawCompareSwap';
 
 const ViewFabric = (itemLayout: ItemLayout): JSX.Element => {
     const { viewType: type, offset } = itemLayout;
@@ -187,7 +188,7 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
     const [layoutMode, setLayoutMode] = useState<'grid' | 'raw_compare'>('grid');
     const [rawCompareSwapped, setRawCompareSwapped] = useState<boolean>(() => {
         try {
-            return JSON.parse(localStorage.getItem(RAW_COMPARE_SWAP_STORAGE_KEY) || 'false') === true;
+            return JSON.parse(localStorage.getItem(config.RAW_COMPARE_SWAP_STORAGE_KEY) || 'false') === true;
         } catch (error: unknown) {
             return false;
         }
@@ -341,7 +342,7 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
             const detail = (event as CustomEvent).detail || {};
             const swapped = Boolean(detail.swapped);
             setRawCompareSwapped(swapped);
-            localStorage.setItem(RAW_COMPARE_SWAP_STORAGE_KEY, JSON.stringify(swapped));
+            localStorage.setItem(config.RAW_COMPARE_SWAP_STORAGE_KEY, JSON.stringify(swapped));
             if (layoutMode === 'raw_compare') {
                 setLayoutConfig(buildRawCompareLayout());
             }
@@ -512,65 +513,65 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
             )}
             { resolvedType === DimensionType.DIMENSION_3D && <CanvasWrapper3DComponent /> }
             {!showRawCompare && (
-            <div className='cvat-grid-layout-common-setups'>
-                <CVATTooltip title='Fit views'>
-                    <PicCenterOutlined
-                        onClick={() => {
-                            if (showRawCompare) {
-                                window.dispatchEvent(new CustomEvent('cvat.rawCompareToggle', { detail: { active: false } }));
-                            }
-                            setLayoutConfig(fitLayout(layoutType as DimensionType, layoutConfig));
-                            window.dispatchEvent(new Event('resize'));
-                        }}
-                    />
-                </CVATTooltip>
-                <CVATTooltip title='Add context image'>
-                    <PlusOutlined
-                        style={{
-                            pointerEvents: !relatedFiles ? 'none' : undefined,
-                            opacity: !relatedFiles ? 0.2 : undefined,
-                        }}
-                        disabled={!!relatedFiles}
-                        onClick={() => {
-                            const MAXIMUM_RELATED = 12;
-                            const existingRelated = layoutConfig
-                                .filter((configItem: ItemLayout) => configItem.viewType === ViewType.RELATED_IMAGE);
-
-                            if (existingRelated.length >= MAXIMUM_RELATED) {
-                                return;
-                            }
-
-                            if (existingRelated.length === 0) {
-                                setLayoutConfig(defaultLayout[type?.toUpperCase() as '2D' | '3D']['1']);
-                                return;
-                            }
-
-                            const viewIndexes = existingRelated
-                                .map((item: ItemLayout) => +(item.viewIndex as string)).sort();
-                            const max = Math.max(...viewIndexes);
-                            let viewIndex = max + 1;
-                            for (let i = 0; i < max + 1; i++) {
-                                if (!viewIndexes.includes(i)) {
-                                    viewIndex = i;
-                                    break;
+                <div className='cvat-grid-layout-common-setups'>
+                    <CVATTooltip title='Fit views'>
+                        <PicCenterOutlined
+                            onClick={() => {
+                                if (showRawCompare) {
+                                    window.dispatchEvent(new CustomEvent('cvat.rawCompareToggle', { detail: { active: false } }));
                                 }
-                            }
+                                setLayoutConfig(fitLayout(layoutType as DimensionType, layoutConfig));
+                                window.dispatchEvent(new Event('resize'));
+                            }}
+                        />
+                    </CVATTooltip>
+                    <CVATTooltip title='Add context image'>
+                        <PlusOutlined
+                            style={{
+                                pointerEvents: !relatedFiles ? 'none' : undefined,
+                                opacity: !relatedFiles ? 0.2 : undefined,
+                            }}
+                            disabled={!!relatedFiles}
+                            onClick={() => {
+                                const MAXIMUM_RELATED = 12;
+                                const existingRelated = layoutConfig
+                                    .filter((configItem: ItemLayout) => configItem.viewType === ViewType.RELATED_IMAGE);
 
-                            const latest = existingRelated[existingRelated.length - 1];
-                            const copy = { ...latest, offset: [0, viewIndex], viewIndex: `${viewIndex}` };
-                            setLayoutConfig(fitLayout(type as DimensionType, [...layoutConfig, copy]));
+                                if (existingRelated.length >= MAXIMUM_RELATED) {
+                                    return;
+                                }
+
+                                if (existingRelated.length === 0) {
+                                    setLayoutConfig(defaultLayout[type?.toUpperCase() as '2D' | '3D']['1']);
+                                    return;
+                                }
+
+                                const viewIndexes = existingRelated
+                                    .map((item: ItemLayout) => +(item.viewIndex as string)).sort();
+                                const max = Math.max(...viewIndexes);
+                                let viewIndex = max + 1;
+                                for (let i = 0; i < max + 1; i++) {
+                                    if (!viewIndexes.includes(i)) {
+                                        viewIndex = i;
+                                        break;
+                                    }
+                                }
+
+                                const latest = existingRelated[existingRelated.length - 1];
+                                const copy = { ...latest, offset: [0, viewIndex], viewIndex: `${viewIndex}` };
+                                setLayoutConfig(fitLayout(type as DimensionType, [...layoutConfig, copy]));
+                                window.dispatchEvent(new Event('resize'));
+                            }}
+                        />
+                    </CVATTooltip>
+                    <CVATTooltip title='Reload layout'>
+                        <ReloadOutlined onClick={() => {
+                            setLayoutConfig([...getLayout()]);
                             window.dispatchEvent(new Event('resize'));
                         }}
-                    />
-                </CVATTooltip>
-                <CVATTooltip title='Reload layout'>
-                    <ReloadOutlined onClick={() => {
-                        setLayoutConfig([...getLayout()]);
-                        window.dispatchEvent(new Event('resize'));
-                    }}
-                    />
-                </CVATTooltip>
-            </div>
+                        />
+                    </CVATTooltip>
+                </div>
             )}
         </Layout.Content>
     );

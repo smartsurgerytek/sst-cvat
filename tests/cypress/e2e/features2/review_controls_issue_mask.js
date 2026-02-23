@@ -4,6 +4,8 @@
 
 /// <reference types="cypress" />
 
+import { isLikelyRle } from '../../support/utils';
+
 context('Review controls: issue mask (validation + annotation)', () => {
     let taskID = null;
     let jobID = null;
@@ -45,22 +47,11 @@ context('Review controls: issue mask (validation + annotation)', () => {
         cy.setJobStage(jobID, stage);
     }
 
-    function isLikelyRle(points) {
-        if (!Array.isArray(points) || points.length < 5) return false;
-        const [left, top, right, bottom] = points.slice(-4);
-        if (![left, top, right, bottom].every(Number.isFinite)) return false;
-        const width = right - left + 1;
-        const height = bottom - top + 1;
-        if (width <= 0 || height <= 0) return false;
-        const rle = points.slice(0, -4);
-        if (!rle.length || rle.some((value) => !Number.isFinite(value) || value < 0)) return false;
-        const total = rle.reduce((acc, value) => acc + value, 0);
-        return Math.abs(total - width * height) < 0.001;
-    }
-
     function buildMask(width, height, blocks) {
         const mask = new Array(width * height).fill(0);
-        blocks.forEach(({ x, y, w, h }) => {
+        blocks.forEach(({
+            x, y, w, h,
+        }) => {
             for (let yy = y; yy < y + h; yy++) {
                 for (let xx = x; xx < x + w; xx++) {
                     mask[yy * width + xx] = 1;
@@ -93,8 +84,12 @@ context('Review controls: issue mask (validation + annotation)', () => {
         const width = 10;
         const height = 8;
         const mask = buildMask(width, height, [
-            { x: 1, y: 1, w: 2, h: 2 },
-            { x: 6, y: 4, w: 2, h: 2 },
+            {
+                x: 1, y: 1, w: 2, h: 2,
+            },
+            {
+                x: 6, y: 4, w: 2, h: 2,
+            },
         ]);
         const rle = mask2Rle(mask);
         const position = [...rle, 0, 0, width - 1, height - 1];
@@ -159,9 +154,10 @@ context('Review controls: issue mask (validation + annotation)', () => {
                         if (hasLabelTextSelector) {
                             const prefixText = 'Issue ';
                             const suffixText = ' from mask';
+                            cy.get('.cvat-create-issue-dialog #issue_description').clear();
                             cy.get('.cvat-create-issue-dialog #issue_description')
-                                .clear()
-                                .type(`${prefixText}${suffixText}`)
+                                .type(`${prefixText}${suffixText}`);
+                            cy.get('.cvat-create-issue-dialog #issue_description')
                                 .then(($input) => {
                                     const input = $input[0];
                                     const cursorPosition = prefixText.length;
@@ -175,13 +171,12 @@ context('Review controls: issue mask (validation + annotation)', () => {
                                 .contains('.ant-select-item-option', selectedLabelText)
                                 .click();
                             cy.get('.cvat-create-issue-dialog #issue_description')
-                                .should('have.value', `${prefixText}${selectedLabelText}${suffixText}`)
-                                .clear()
-                                .type(issueDescription);
+                                .should('have.value', `${prefixText}${selectedLabelText}${suffixText}`);
+                            cy.get('.cvat-create-issue-dialog #issue_description').clear();
+                            cy.get('.cvat-create-issue-dialog #issue_description').type(issueDescription);
                         } else {
-                            cy.get('.cvat-create-issue-dialog #issue_description')
-                                .clear()
-                                .type(issueDescription);
+                            cy.get('.cvat-create-issue-dialog #issue_description').clear();
+                            cy.get('.cvat-create-issue-dialog #issue_description').type(issueDescription);
                         }
                     });
                 } else {
@@ -258,7 +253,7 @@ context('Review controls: issue mask (validation + annotation)', () => {
         cy.contains('[role="tab"]', 'Issues').click();
         cy.get('.cvat-objects-sidebar-issues-list').then(($list) => {
             const issueExists = $list.find('.cvat-objects-sidebar-issue-item')
-                .filter((_, el) => el.textContent?.includes(issueDescription)).length > 0;
+                .filter((_, el) => el.textContent && el.textContent.includes(issueDescription)).length > 0;
             if (!issueExists) {
                 createIssueFromMask(issueDescription, null, 'Standard');
                 cy.contains('[role="tab"]', 'Issues').click();
@@ -268,8 +263,10 @@ context('Review controls: issue mask (validation + annotation)', () => {
         cy.contains('.cvat-objects-sidebar-issue-item', issueDescription)
             .invoke('attr', 'id')
             .then((idAttr) => {
-                const match = idAttr?.match(/\d+$/);
-                expect(match, `Invalid issue item id: ${idAttr}`).to.not.be.null;
+                const match = idAttr && idAttr.match(/\d+$/);
+                if (!match) {
+                    throw new Error(`Invalid issue item id: ${idAttr}`);
+                }
                 return Number(match[0]);
             })
             .as('issueId');

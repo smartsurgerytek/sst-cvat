@@ -83,9 +83,17 @@ function MessageForm(props: Readonly<FormProps>): JSX.Element {
         const liveRange = Number.isInteger(liveStart) && Number.isInteger(liveEnd) ?
             { start: liveStart as number, end: liveEnd as number } :
             cursorRangeRef.current;
-        const safeStart = Math.min(Math.max(0, liveRange?.start ?? currentDescription.length), currentDescription.length);
-        const safeEnd = Math.min(Math.max(safeStart, liveRange?.end ?? safeStart), currentDescription.length);
-        const nextDescription = `${currentDescription.slice(0, safeStart)}${labelText}${currentDescription.slice(safeEnd)}`;
+        const safeStart = Math.min(
+            Math.max(0, liveRange?.start ?? currentDescription.length),
+            currentDescription.length,
+        );
+        const safeEnd = Math.min(
+            Math.max(safeStart, liveRange?.end ?? safeStart),
+            currentDescription.length,
+        );
+        const nextDescription = `${currentDescription.slice(0, safeStart)}${labelText}${
+            currentDescription.slice(safeEnd)
+        }`;
         const nextCursor = safeStart + labelText.length;
 
         form.setFieldsValue({

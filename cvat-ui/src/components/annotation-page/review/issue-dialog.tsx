@@ -7,7 +7,7 @@ import React, {
     useState, useEffect, useRef, useCallback,
 } from 'react';
 import ReactDOM from 'react-dom';
-import { useDispatch, useSelector } from 'react-redux';
+import { shallowEqual, useDispatch, useSelector } from 'react-redux';
 import dayjs from 'dayjs';
 import Modal from 'antd/lib/modal';
 import { Row, Col } from 'antd/lib/grid';
@@ -19,6 +19,7 @@ import Input from 'antd/lib/input';
 import Select from 'antd/lib/select';
 import Checkbox from 'antd/lib/checkbox';
 import notification from 'antd/lib/notification';
+import { logError } from 'cvat-logger';
 import CVATTooltip from 'components/common/cvat-tooltip';
 import {
     Issue, Comment as CommentModel, getCore, ObjectType, ShapeType, LabelType,
@@ -27,6 +28,8 @@ import { createAnnotationsAsync } from 'actions/annotation-actions';
 import { deleteIssueAsync } from 'actions/review-actions';
 import { CombinedState, Workspace } from 'reducers';
 import { filterApplicableForType } from 'utils/filter-applicable-labels';
+import { ensureError } from 'utils/error-handling';
+import { isLikelyRle } from 'utils/masks';
 import { useDialogPositioning } from './use-dialog-positioning';
 
 const core = getCore();
@@ -60,7 +63,7 @@ export default function IssueDialog(props: Props): JSX.Element {
     const { labels, workspace } = useSelector((state: CombinedState) => ({
         labels: state.annotation.job.labels,
         workspace: state.annotation.workspace,
-    }));
+    }), shallowEqual);
     const {
         issue,
         left,
@@ -134,19 +137,6 @@ export default function IssueDialog(props: Props): JSX.Element {
         });
     }, [id, collapse, dispatch]);
 
-    const isLikelyRle = (points: number[]): boolean => {
-        if (!Array.isArray(points) || points.length < 5) return false;
-        const [left, top, right, bottom] = points.slice(-4);
-        if (![left, top, right, bottom].every(Number.isFinite)) return false;
-        const width = right - left + 1;
-        const height = bottom - top + 1;
-        if (width <= 0 || height <= 0) return false;
-        const rle = points.slice(0, -4);
-        if (!rle.length || rle.some((value) => !Number.isFinite(value) || value < 0)) return false;
-        const total = rle.reduce((acc, value) => acc + value, 0);
-        return Math.abs(total - width * height) < 0.001;
-    };
-
     const polygonToMaskRle = (points: number[]): number[] | null => {
         if (!Array.isArray(points) || points.length < 6) {
             return null;
@@ -154,12 +144,12 @@ export default function IssueDialog(props: Props): JSX.Element {
 
         const xs = points.filter((_, idx) => idx % 2 === 0);
         const ys = points.filter((_, idx) => idx % 2 !== 0);
-        const left = Math.floor(Math.min(...xs));
-        const right = Math.ceil(Math.max(...xs));
-        const top = Math.floor(Math.min(...ys));
-        const bottom = Math.ceil(Math.max(...ys));
-        const width = right - left + 1;
-        const height = bottom - top + 1;
+        const bboxLeft = Math.floor(Math.min(...xs));
+        const bboxRight = Math.ceil(Math.max(...xs));
+        const bboxTop = Math.floor(Math.min(...ys));
+        const bboxBottom = Math.ceil(Math.max(...ys));
+        const width = bboxRight - bboxLeft + 1;
+        const height = bboxBottom - bboxTop + 1;
         if (width <= 0 || height <= 0) {
             return null;
         }
@@ -173,9 +163,9 @@ export default function IssueDialog(props: Props): JSX.Element {
         ctx.clearRect(0, 0, width, height);
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
-        ctx.moveTo(points[0] - left, points[1] - top);
+        ctx.moveTo(points[0] - bboxLeft, points[1] - bboxTop);
         for (let i = 2; i < points.length; i += 2) {
-            ctx.lineTo(points[i] - left, points[i + 1] - top);
+            ctx.lineTo(points[i] - bboxLeft, points[i + 1] - bboxTop);
         }
         ctx.closePath();
         ctx.fill();
@@ -187,7 +177,7 @@ export default function IssueDialog(props: Props): JSX.Element {
         }
 
         const rle = core.utils.mask2Rle(mask);
-        rle.push(left, top, right, bottom);
+        rle.push(bboxLeft, bboxTop, bboxRight, bboxBottom);
         return rle;
     };
 
@@ -216,8 +206,9 @@ export default function IssueDialog(props: Props): JSX.Element {
         const label = labels.find((_label) => _label.id === selectedLabelId);
         if (!label) return;
 
-        const position = issue.position || [];
-        const maskPoints = issue.isMaskIssue && isLikelyRle(position) ? position : polygonToMaskRle(position);
+        const issuePosition = issue.position || [];
+        const maskPoints = issue.isMaskIssue && isLikelyRle(issuePosition) ?
+            issuePosition : polygonToMaskRle(issuePosition);
         if (!maskPoints) {
             notification.error({
                 message: 'Conversion failed',
@@ -237,10 +228,50 @@ export default function IssueDialog(props: Props): JSX.Element {
             rotation: 0,
         });
 
-        await dispatch(createAnnotationsAsync([objectState]));
+        try {
+            const created = await dispatch(createAnnotationsAsync([objectState])) as boolean;
+            if (!created) {
+                const issueRef = typeof id === 'number' ? ` (issue #${id})` : '';
+                notification.error({
+                    message: 'Conversion failed',
+                    description:
+                        `Could not create a mask annotation${issueRef}. ` +
+                        'Please try again or report the issue ID to support.',
+                });
+                return;
+            }
+        } catch (error) {
+            logError(ensureError(error), false, {
+                type: 'Issue mask conversion create annotation failed',
+                issue_id: id,
+            });
+            const issueRef = typeof id === 'number' ? ` (issue #${id})` : '';
+            notification.error({
+                message: 'Conversion failed',
+                description:
+                    `Could not create a mask annotation${issueRef}. ` +
+                    'Please try again or report the issue ID to support.',
+            });
+            return;
+        }
+
         onCloseConvertModal();
         if (resolveAfterConvert) {
-            resolve();
+            try {
+                resolve();
+            } catch (error) {
+                logError(ensureError(error), false, {
+                    type: 'Issue mask conversion resolve issue failed',
+                    issue_id: id,
+                });
+                const issueRef = typeof id === 'number' ? ` #${id}` : '';
+                notification.warning({
+                    message: 'Mask created, issue not resolved',
+                    description:
+                        `The mask annotation was created, but the issue${issueRef} ` +
+                        'could not be resolved automatically. Please try resolving it again.',
+                });
+            }
         }
     };
 
@@ -357,9 +388,7 @@ export default function IssueDialog(props: Props): JSX.Element {
                 open={convertModalVisible}
                 title='Convert issue to mask'
                 onCancel={onCloseConvertModal}
-                onOk={() => {
-                    void onConvertToMask();
-                }}
+                onOk={onConvertToMask}
                 okButtonProps={{ disabled: !selectedLabelId }}
                 destroyOnClose
             >

@@ -17,6 +17,7 @@ import Button from 'antd/lib/button';
 import Select from 'antd/lib/select';
 import Checkbox from 'antd/lib/checkbox';
 import notification from 'antd/lib/notification';
+import { logError } from 'cvat-logger';
 
 import {
     activateObject, fetchAnnotationsAsync, changeFrameAsync, highlightConflict, createAnnotationsAsync,
@@ -30,7 +31,9 @@ import {
 } from 'cvat-core-wrapper';
 import { changeShowGroundTruth } from 'actions/settings-actions';
 import { ShowGroundTruthIcon } from 'icons';
+import { ensureError } from 'utils/error-handling';
 import { filterApplicableForType } from 'utils/filter-applicable-labels';
+import { isLikelyRle } from 'utils/masks';
 
 const core = getCore();
 
@@ -79,19 +82,6 @@ export default function LabelsListComponent(): JSX.Element {
     const isReviewMode = workspace === Workspace.REVIEW && jobStage === JobStage.VALIDATION;
 
     const maskLabels = filterApplicableForType(LabelType.MASK, labels);
-
-    const isLikelyRle = (points: number[]): boolean => {
-        if (!Array.isArray(points) || points.length < 5) return false;
-        const [left, top, right, bottom] = points.slice(-4);
-        if (![left, top, right, bottom].every(Number.isFinite)) return false;
-        const width = right - left + 1;
-        const height = bottom - top + 1;
-        if (width <= 0 || height <= 0) return false;
-        const rle = points.slice(0, -4);
-        if (!rle.length || rle.some((value) => !Number.isFinite(value) || value < 0)) return false;
-        const total = rle.reduce((acc, value) => acc + value, 0);
-        return Math.abs(total - width * height) < 0.001;
-    };
 
     const openConvertModal = (issue: Issue): void => {
         if (!maskLabels.length) {
@@ -159,24 +149,23 @@ export default function LabelsListComponent(): JSX.Element {
         return rle;
     };
 
-    const resolveIssueDirect = async (issue: Issue): Promise<void> => {
-        if (typeof issue.id !== 'number') return;
+    const resolveIssueDirect = async (issue: Issue): Promise<boolean> => {
+        if (typeof issue.id !== 'number') return false;
         if (!user) {
-            notification.error({
-                message: 'Could not resolve the issue',
-                description: 'User information is not available.',
-            });
-            return;
+            return false;
         }
         try {
             dispatch(reviewActions.resolveIssue(issue.id));
             await issue.resolve(user);
             dispatch(reviewActions.resolveIssueSuccess());
+            return true;
         } catch (error) {
-            dispatch(reviewActions.resolveIssueFailed(error));
-            notification.error({
-                message: 'Could not resolve the issue',
+            logError(ensureError(error), false, {
+                type: 'Issue mask conversion resolve issue failed (sidebar)',
+                issue_id: issue.id,
             });
+            dispatch(reviewActions.resolveIssueFailed(error));
+            return false;
         }
     };
 
@@ -220,11 +209,47 @@ export default function LabelsListComponent(): JSX.Element {
             rotation: 0,
         });
 
-        await dispatch(createAnnotationsAsync([objectState]));
+        try {
+            const created = await dispatch(createAnnotationsAsync([objectState])) as boolean;
+            if (!created) {
+                const issueRef = typeof issueToConvert.id === 'number' ? ` (issue #${issueToConvert.id})` : '';
+                notification.error({
+                    message: 'Conversion failed',
+                    description:
+                        `Could not create a mask annotation${issueRef}. ` +
+                        'Please try again or report the issue ID to support.',
+                });
+                return;
+            }
+        } catch (error) {
+            logError(ensureError(error), false, {
+                type: 'Issue mask conversion create annotation failed (sidebar)',
+                issue_id: issueToConvert.id,
+            });
+            const issueRef = typeof issueToConvert.id === 'number' ? ` (issue #${issueToConvert.id})` : '';
+            notification.error({
+                message: 'Conversion failed',
+                description:
+                    `Could not create a mask annotation${issueRef}. ` +
+                    'Please try again or report the issue ID to support.',
+            });
+            return;
+        }
+
+        let resolvedAfterConvert = true;
         if (resolveAfterConvert) {
-            await resolveIssueDirect(issueToConvert);
+            resolvedAfterConvert = await resolveIssueDirect(issueToConvert);
         }
         closeConvertModal();
+        if (resolveAfterConvert && !resolvedAfterConvert) {
+            const issueRef = typeof issueToConvert.id === 'number' ? ` #${issueToConvert.id}` : '';
+            notification.warning({
+                message: 'Mask created, issue not resolved',
+                description:
+                    `The mask annotation was created, but the issue${issueRef} ` +
+                    'could not be resolved automatically. Please try resolving it again.',
+            });
+        }
     };
 
     const isLikelyMaskIssue = (issue: Issue): boolean => issue.isMaskIssue === true;
@@ -420,7 +445,7 @@ export default function LabelsListComponent(): JSX.Element {
                                             className='cvat-issues-reopen-button'
                                             loading={issueFetching === frameIssue.id}
                                             onClick={() => {
-                                                void reopenIssueDirect(frameIssue);
+                                                reopenIssueDirect(frameIssue);
                                             }}
                                         >
                                             Reopen

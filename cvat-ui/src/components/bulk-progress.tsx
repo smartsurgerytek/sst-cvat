@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { useHistory } from 'react-router';
-import { useSelector, useDispatch } from 'react-redux';
+import { shallowEqual, useSelector, useDispatch } from 'react-redux';
 import notification from 'antd/lib/notification';
 import Button from 'antd/lib/button';
 import Progress from 'antd/lib/progress';
@@ -20,7 +20,7 @@ export default function BulkProgress(): JSX.Element | null {
         fetching: state.bulkActions.fetching,
         status: state.bulkActions.status,
         bulkError: state.notifications.errors.bulkOperation.processing,
-    }));
+    }), shallowEqual);
 
     const percent = status?.percent ?? 0;
     const message = status?.message ?? 'Processing...';

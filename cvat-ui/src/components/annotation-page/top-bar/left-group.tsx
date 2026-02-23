@@ -11,6 +11,7 @@ import Icon, {
 import Modal from 'antd/lib/modal';
 import Button from 'antd/lib/button';
 import Text from 'antd/lib/typography/Text';
+import config from 'config';
 
 import { UndoIcon, RedoIcon } from 'icons';
 import { ActiveControl, ToolsBlockerState } from 'reducers';
@@ -63,7 +64,6 @@ const componentShortcuts = {
 };
 
 registerComponentShortcuts(componentShortcuts);
-const RAW_COMPARE_SWAP_STORAGE_KEY = 'rawCompareSwap';
 
 function LeftGroup(props: Props): JSX.Element {
     const {
@@ -88,7 +88,7 @@ function LeftGroup(props: Props): JSX.Element {
     const [rawCompareActive, setRawCompareActive] = useState<boolean>(false);
     const [rawCompareSwapped, setRawCompareSwapped] = useState<boolean>(() => {
         try {
-            return JSON.parse(localStorage.getItem(RAW_COMPARE_SWAP_STORAGE_KEY) || 'false') === true;
+            return JSON.parse(localStorage.getItem(config.RAW_COMPARE_SWAP_STORAGE_KEY) || 'false') === true;
         } catch (error: unknown) {
             return false;
         }
@@ -192,7 +192,7 @@ function LeftGroup(props: Props): JSX.Element {
                         onClick={() => {
                             const next = !rawCompareSwapped;
                             setRawCompareSwapped(next);
-                            localStorage.setItem(RAW_COMPARE_SWAP_STORAGE_KEY, JSON.stringify(next));
+                            localStorage.setItem(config.RAW_COMPARE_SWAP_STORAGE_KEY, JSON.stringify(next));
                             window.dispatchEvent(new CustomEvent('cvat.rawCompareSwap', { detail: { swapped: next } }));
                         }}
                     >

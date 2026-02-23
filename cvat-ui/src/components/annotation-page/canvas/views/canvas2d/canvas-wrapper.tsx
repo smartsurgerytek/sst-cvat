@@ -655,11 +655,11 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     private onCanvasShapeDrawn = (event: any): void => {
         const {
             jobInstance, activeLabelID, activeObjectType, frame, updateActiveControl, onCreateAnnotations,
-            onUpdateEditedObject, activeObjectHidden, workspace,
+            onUpdateEditedObject, activeObjectHidden, workspace, activeControl,
         } = this.props;
 
         // Skip creating annotations when using the issue-mask drawing control
-        if (this.props.activeControl === ActiveControl.OPEN_ISSUE_MASK) {
+        if (activeControl === ActiveControl.OPEN_ISSUE_MASK) {
             updateActiveControl(ActiveControl.CURSOR);
             return;
         }
@@ -811,7 +811,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     };
 
     private onCanvasShapeClicked = (e: any): void => {
-        const { clientID, parentID } = e.detail.state;        let sidebarItem = null;
+        const { clientID, parentID } = e.detail.state; let sidebarItem = null;
         if (Number.isInteger(parentID)) {
             sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-element-${clientID}`);
         } else {
