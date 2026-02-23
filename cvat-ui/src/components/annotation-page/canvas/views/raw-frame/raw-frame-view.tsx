@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+    useCallback, useEffect, useMemo, useRef, useState,
+} from 'react';
 import { shallowEqual, useSelector } from 'react-redux';
 import Spin from 'antd/lib/spin';
 import Text from 'antd/lib/typography/Text';
@@ -29,6 +31,9 @@ function RawFrameView(): JSX.Element {
     const panOriginRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const rafRef = useRef<number | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const contentRef = useRef<HTMLDivElement | null>(null);
+    const zoomRef = useRef<number>(1);
+    const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
     const clampZoom = useCallback((value: number): number => (
         Math.min(3, Math.max(0.5, +value.toFixed(2)))
@@ -46,6 +51,54 @@ function RawFrameView(): JSX.Element {
             cancelAnimationFrame(rafRef.current);
         }
     }, []);
+
+    useEffect(() => {
+        zoomRef.current = zoom;
+    }, [zoom]);
+
+    useEffect(() => {
+        panRef.current = pan;
+    }, [pan]);
+
+    useEffect(() => {
+        const content = contentRef.current;
+        if (!content) {
+            return () => {};
+        }
+
+        const handleWheel = (event: WheelEvent): void => {
+            event.preventDefault();
+            const rect = content.getBoundingClientRect();
+            const pointer = {
+                x: event.clientX - (rect.left + rect.width / 2),
+                y: event.clientY - (rect.top + rect.height / 2),
+            };
+            const currentZoom = zoomRef.current;
+            const currentPan = panRef.current;
+            const delta = event.deltaY > 0 ? -0.15 : 0.15;
+            const nextZoom = clampZoom(currentZoom + delta);
+
+            if (nextZoom === currentZoom) {
+                return;
+            }
+
+            const zoomRatio = nextZoom / currentZoom;
+            const nextPan = {
+                x: pointer.x - (pointer.x - currentPan.x) * zoomRatio,
+                y: pointer.y - (pointer.y - currentPan.y) * zoomRatio,
+            };
+
+            panRef.current = nextPan;
+            zoomRef.current = nextZoom;
+            setPan(nextPan);
+            setZoom(nextZoom);
+        };
+
+        content.addEventListener('wheel', handleWheel, { passive: false });
+        return () => {
+            content.removeEventListener('wheel', handleWheel);
+        };
+    }, [clampZoom]);
 
     useEffect(() => {
         let cancelled = false;
@@ -133,11 +186,7 @@ function RawFrameView(): JSX.Element {
             </div>
             <div
                 className='cvat-raw-frame-view-content'
-                onWheel={(event) => {
-                    event.preventDefault();
-                    const delta = event.deltaY > 0 ? -0.15 : 0.15;
-                    setZoom((value) => clampZoom(value + delta));
-                }}
+                ref={contentRef}
                 onPointerDown={(event) => {
                     event.preventDefault();
                     (event.currentTarget as HTMLDivElement).setPointerCapture(event.pointerId);

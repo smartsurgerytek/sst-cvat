@@ -64,18 +64,16 @@ function RawFrameControl(props: Props): JSX.Element {
         `cvat-raw-frame-control cvat-antd-icon-control${visible ? ' cvat-active-canvas-control' : ''}`;
 
     return (
-        <>
-            <CVATTooltip title='Toggle raw compare' placement='right'>
-                <EyeTwoTone
-                    className={iconClassName}
-                    onClick={() => {
-                        if (!disabled) {
-                            toggleCompare();
-                        }
-                    }}
-                />
-            </CVATTooltip>
-        </>
+        <CVATTooltip title='Toggle raw compare' placement='right'>
+            <EyeTwoTone
+                className={iconClassName}
+                onClick={() => {
+                    if (!disabled) {
+                        toggleCompare();
+                    }
+                }}
+            />
+        </CVATTooltip>
     );
 }
 

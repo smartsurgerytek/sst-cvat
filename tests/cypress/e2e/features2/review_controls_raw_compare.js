@@ -5,6 +5,7 @@
 /// <reference types="cypress" />
 
 context('Review controls: raw compare', () => {
+    const RAW_COMPARE_LISTENER_KEY = '__cvatRawCompareListener';
     let taskID = null;
     let jobID = null;
     const taskName = `Review controls: raw compare ${Date.now()}`;
@@ -55,9 +56,9 @@ context('Review controls: raw compare', () => {
 
     afterEach(() => {
         cy.window().then((win) => {
-            if (win.__cvatRawCompareListener) {
-                win.removeEventListener('cvat.rawCompareToggle', win.__cvatRawCompareListener);
-                delete win.__cvatRawCompareListener;
+            if (win[RAW_COMPARE_LISTENER_KEY]) {
+                win.removeEventListener('cvat.rawCompareToggle', win[RAW_COMPARE_LISTENER_KEY]);
+                delete win[RAW_COMPARE_LISTENER_KEY];
             }
         });
     });
@@ -65,7 +66,7 @@ context('Review controls: raw compare', () => {
     it('toggles and dispatches events', () => {
         cy.window().then((win) => {
             const spy = cy.spy();
-            win.__cvatRawCompareListener = spy;
+            win[RAW_COMPARE_LISTENER_KEY] = spy;
             win.addEventListener('cvat.rawCompareToggle', spy);
             cy.wrap(spy).as('rawCompareToggle');
         });

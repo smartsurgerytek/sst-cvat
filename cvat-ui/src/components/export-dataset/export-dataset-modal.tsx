@@ -48,6 +48,7 @@ const initialValues: FormValues = {
     },
     useProjectTargetStorage: true,
 };
+const EMPTY_SELECTED_IDS: number[] = [];
 
 function ExportDatasetModal(props: Readonly<StateToProps>): JSX.Element {
     const { dumpers, instance } = props;
@@ -83,7 +84,7 @@ function ExportDatasetModal(props: Readonly<StateToProps>): JSX.Element {
                 return state.jobs.selected;
             }
 
-            return [];
+            return EMPTY_SELECTED_IDS;
         };
 
         return {

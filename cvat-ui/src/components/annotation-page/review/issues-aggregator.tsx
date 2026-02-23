@@ -15,9 +15,12 @@ import { commentIssueAsync, resolveIssueAsync, reopenIssueAsync } from 'actions/
 import {
     AnnotationConflict, ConflictSeverity, JobStage, ObjectState, QualityConflict, ShapeType,
 } from 'cvat-core-wrapper';
+import { logError } from 'cvat-logger';
 import { Canvas, CanvasMode } from 'cvat-canvas-wrapper';
 import { highlightConflict, updateActiveControl } from 'actions/annotation-actions';
 import openCVWrapper from 'utils/opencv-wrapper/opencv-wrapper';
+import { ensureError } from 'utils/error-handling';
+import { isLikelyRle } from 'utils/masks';
 import CreateIssueDialog from './create-issue-dialog';
 import HiddenIssueLabel from './hidden-issue-label';
 import IssueDialog from './issue-dialog';
@@ -35,19 +38,6 @@ interface ConflictMappingElement {
 type IssueRegionPoints = number[] | number[][];
 type IssueRegionSet = Record<number, { hidden: boolean; points: IssueRegionPoints }>;
 type IssueBounds = { minX: number; minY: number; maxX: number; maxY: number };
-
-const isLikelyRle = (points: number[]): boolean => {
-    if (!Array.isArray(points) || points.length < 5) return false;
-    const [left, top, right, bottom] = points.slice(-4);
-    if (![left, top, right, bottom].every(Number.isFinite)) return false;
-    const width = right - left + 1;
-    const height = bottom - top + 1;
-    if (width <= 0 || height <= 0) return false;
-    const rle = points.slice(0, -4);
-    if (!rle.length || rle.some((value) => !Number.isFinite(value) || value < 0)) return false;
-    const total = rle.reduce((acc, value) => acc + value, 0);
-    return Math.abs(total - width * height) < 0.001;
-};
 
 const getRleBounds = (points: number[]): IssueBounds | null => {
     if (points.length < 4) return null;
@@ -95,6 +85,9 @@ const getMaskContours = async (points: number[]): Promise<number[][] | null> => 
         } as any);
         return contours.length ? contours : null;
     } catch (error) {
+        logError(ensureError(error), false, {
+            type: 'Issue mask contour extraction failed',
+        });
         return null;
     }
 };
@@ -291,7 +284,7 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
             }
         };
 
-        void buildRegions();
+        buildRegions();
 
         return () => {
             canceled = true;
@@ -449,17 +442,17 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         <>
             {[NewIssueSource.ISSUE_TOOL, NewIssueSource.ISSUE_MASK].includes(newIssueSource as NewIssueSource) &&
             createLeft !== null && createTop !== null ? (
-                <CreateIssueDialog
-                    top={createTop}
-                    left={createLeft}
-                    angle={-geometry.angle}
-                    scale={1 / geometry.scale}
-                    labelTexts={labelTexts}
-                    onCreateIssue={onCreateIssue}
-                    canvasRect={canvasRect}
-                    clientCoordinates={canvasInstance.translateFromSVG([createLeft, createTop]) as [number, number]}
-                />
-            ) : null}
+                    <CreateIssueDialog
+                        top={createTop}
+                        left={createLeft}
+                        angle={-geometry.angle}
+                        scale={1 / geometry.scale}
+                        labelTexts={labelTexts}
+                        onCreateIssue={onCreateIssue}
+                        canvasRect={canvasRect}
+                        clientCoordinates={canvasInstance.translateFromSVG([createLeft, createTop]) as [number, number]}
+                    />
+                ) : null}
             {issueDialogs}
             {issueLabels}
             {conflictLabels}

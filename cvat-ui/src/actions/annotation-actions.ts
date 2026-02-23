@@ -14,7 +14,7 @@ import {
     getCore, MLModel, JobType, Job, QualityConflict,
     ObjectState, ObjectType, ShapeType, JobState, JobValidationLayout,
 } from 'cvat-core-wrapper';
-import logger, { EventScope } from 'cvat-logger';
+import logger, { EventScope, logError } from 'cvat-logger';
 import { getCVATStore } from 'cvat-store';
 
 import {
@@ -27,6 +27,7 @@ import {
     Rotation,
     Workspace,
 } from 'reducers';
+import { ensureError } from 'utils/error-handling';
 import { switchToolsBlockerState } from './settings-actions';
 import { updateJobAsync } from './jobs-actions';
 
@@ -1171,19 +1172,25 @@ export function updateAnnotationsAsync(statesToUpdate: any[]): ThunkAction {
     };
 }
 
-export function createAnnotationsAsync(statesToCreate: any[]): ThunkAction {
-    return async (dispatch: ThunkDispatch): Promise<void> => {
+export function createAnnotationsAsync(statesToCreate: any[]): ThunkAction<Promise<boolean>> {
+    return async (dispatch: ThunkDispatch): Promise<boolean> => {
         try {
             const { jobInstance } = receiveAnnotationsParameters();
             await jobInstance.annotations.put(statesToCreate);
             dispatch(fetchAnnotationsAsync());
+            return true;
         } catch (error) {
+            logError(ensureError(error), false, {
+                type: 'Create annotations failed',
+                count: statesToCreate.length,
+            });
             dispatch({
                 type: AnnotationActionTypes.CREATE_ANNOTATIONS_FAILED,
                 payload: {
                     error,
                 },
             });
+            return false;
         }
     };
 }

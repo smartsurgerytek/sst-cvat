@@ -42,7 +42,7 @@ export default function HiddenIssueLabel(props: Props): ReactPortal | null {
     }, [resolved]);
 
     useEffect(() => {
-        const current = ref.current;
+        const { current } = ref;
         if (!current) {
             return () => {};
         }
