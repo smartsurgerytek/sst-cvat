@@ -8,14 +8,7 @@ import { Row, Col } from 'antd/lib/grid';
 import { MoreOutlined } from '@ant-design/icons';
 import Dropdown from 'antd/lib/dropdown';
 import Text from 'antd/lib/typography/Text';
-<<<<<<< HEAD
-<<<<<<< HEAD
 import Checkbox, { CheckboxChangeEvent } from 'antd/lib/checkbox';
-=======
->>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
-=======
-import Checkbox, { CheckboxChangeEvent } from 'antd/lib/checkbox';
->>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
 
 import { ColorBy } from 'reducers';
 import CVATTooltip from 'components/common/cvat-tooltip';
@@ -39,6 +32,7 @@ interface Props {
     type: string;
     locked: boolean;
     selected: boolean;
+    onSelect?: () => void;
     changeColorShortcut: string;
     copyShortcut: string;
     pasteShortcut: string;
@@ -102,22 +96,14 @@ function ItemTopComponent(props: Props): JSX.Element {
         edit,
         slice,
         jobInstance,
-<<<<<<< HEAD
-<<<<<<< HEAD
         select,
         onSelect,
-=======
->>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
-=======
-        select,
->>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
     } = props;
 
     const [colorPickerVisible, setColorPickerVisible] = useState(false);
 
     const onCheckboxChange = (event: CheckboxChangeEvent): void => {
         event.stopPropagation();
-<<<<<<< HEAD
         if (onSelect) {
             onSelect();
             return;
@@ -125,15 +111,10 @@ function ItemTopComponent(props: Props): JSX.Element {
         const nativeEvent = event.nativeEvent as MouseEvent | KeyboardEvent;
         const withSelectionModifier = Boolean(nativeEvent.ctrlKey || nativeEvent.metaKey);
         select(nativeEvent as unknown as React.MouseEvent, withSelectionModifier);
-=======
-        select(undefined, true);
->>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
     };
 
     return (
         <Row align='middle'>
-<<<<<<< HEAD
-<<<<<<< HEAD
             <Col span={2}>
                 <Checkbox
                     checked={selected}
@@ -145,19 +126,6 @@ function ItemTopComponent(props: Props): JSX.Element {
                 />
             </Col>
             <Col span={7}>
-=======
-            <Col span={10}>
->>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
-=======
-            <Col span={2}>
-                <Checkbox
-                    checked={selected}
-                    onChange={onCheckboxChange}
-                    onClick={(event): void => event.stopPropagation()}
-                />
-            </Col>
-            <Col span={7}>
->>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
                 <Text style={{ fontSize: 12 }}>{clientID}</Text>
                 {isGroundTruth ? <Text style={{ fontSize: 12 }}>&nbsp;GT</Text> : null}
                 <br />
@@ -179,10 +147,7 @@ function ItemTopComponent(props: Props): JSX.Element {
                         onChange={changeLabel}
                         onClick={(event): void => event.stopPropagation()}
                         onMouseDown={(event): void => event.stopPropagation()}
-<<<<<<< HEAD
                         onMouseUp={(event): void => event.stopPropagation()}
-=======
->>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
                         popupClassName='cvat-objects-sidebar-state-item-label-selector-dropdown'
                         className='cvat-objects-sidebar-state-item-label-selector'
                     />

@@ -18,7 +18,7 @@ interface Props {
     normalizedKeyMap: Record<string, string>;
     readonly: boolean;
     activated: boolean;
-    selected: boolean;
+    selected?: boolean;
     objectType: ObjectType;
     shapeType: ShapeType;
     clientID: number;
@@ -48,19 +48,13 @@ interface Props {
     runAnnotationAction(): void;
     edit(): void;
     slice(): void;
+    onSelect?: () => void;
 }
 
 function ObjectItemComponent(props: Props): JSX.Element {
     const {
         activated,
-<<<<<<< HEAD
-<<<<<<< HEAD
         selected,
-=======
->>>>>>> a28b777b0 (MSA-736 : Add Finish Job button in the annotation top bar to save and mark)
-=======
-        selected,
->>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
         readonly,
         objectType,
         shapeType,
@@ -90,6 +84,7 @@ function ObjectItemComponent(props: Props): JSX.Element {
         runAnnotationAction,
         edit,
         slice,
+        onSelect,
         jobInstance,
         workspace,
     } = props;
@@ -109,13 +104,10 @@ function ObjectItemComponent(props: Props): JSX.Element {
     }, []);
 
     const selectState = useCallback((event?: React.MouseEvent) => {
-<<<<<<< HEAD
         if (event?.target instanceof Element &&
             event.target.closest('.ant-checkbox-wrapper, .ant-checkbox, .ant-checkbox-input')) {
             return;
         }
-=======
->>>>>>> 396d2f935 (feat(objects-sidebar): add multi-select bulk label change)
         select(event);
     }, [select]);
 
@@ -145,6 +137,8 @@ function ObjectItemComponent(props: Props): JSX.Element {
                     readonly={readonly}
                     serverID={serverID}
                     clientID={clientID}
+                    selected={selected || false}
+                    onSelect={onSelect}
                     labelID={labelID}
                     labels={labels}
                     shapeType={shapeType}
@@ -153,7 +147,6 @@ function ObjectItemComponent(props: Props): JSX.Element {
                     colorBy={colorBy}
                     type={type}
                     locked={locked}
-                    selected={selected}
                     isGroundTruth={isGroundTruth}
                     copyShortcut={normalizedKeyMap.COPY_SHAPE}
                     pasteShortcut={normalizedKeyMap.PASTE_SHAPE}
