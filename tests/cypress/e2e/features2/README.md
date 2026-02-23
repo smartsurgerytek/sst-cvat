@@ -10,7 +10,10 @@ These tests cover the review workspace controls for:
 
 - Finish button opens the confirmation modal, shows expected text, and can be canceled
 - Raw compare button toggles active state and emits `cvat.rawCompareToggle` with correct `detail.active`
-- Issue mask tool enables brush UI, finishes via `m`, creates an issue from a drawn mask, closes the mask tools after submit, converts the issue into a mask annotation, validates edit/save, and persists after reload
+- Issue mask tool enables brush UI, finishes via `m`, creates an issue
+  from a drawn mask, closes the mask tools after submit, converts the
+  issue into a mask annotation, validates edit/save, and persists after
+  reload
 - Non-mask issues (e.g., rectangle issues) do not show the "Convert to mask" action
 
 ### Specs
