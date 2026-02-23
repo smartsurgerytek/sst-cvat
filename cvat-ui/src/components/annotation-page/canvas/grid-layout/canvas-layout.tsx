@@ -5,7 +5,9 @@
 import './styles.scss';
 import 'react-grid-layout/css/styles.css';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, {
+    useCallback, useEffect, useRef, useState,
+} from 'react';
 import { shallowEqual, useSelector } from 'react-redux';
 import RGL, { WidthProvider } from 'react-grid-layout';
 import PropTypes from 'prop-types';
@@ -33,6 +35,7 @@ import CanvasWrapper3DComponent, {
     FrontViewComponent,
 } from 'components/annotation-page/canvas/views/canvas3d/canvas-wrapper3D';
 import ContextImage from 'components/annotation-page/canvas/views/context-image/context-image';
+import RawFrameView from 'components/annotation-page/canvas/views/raw-frame/raw-frame-view';
 import CVATTooltip from 'components/common/cvat-tooltip';
 import { useUpdateEffect } from 'utils/hooks';
 import defaultLayout, { ItemLayout, ViewType } from './canvas-layout.conf';
@@ -62,6 +65,9 @@ const ViewFabric = (itemLayout: ItemLayout): JSX.Element => {
         case ViewType.CANVAS_3D_TOP:
             component = <TopViewComponent />;
             break;
+        case ViewType.RAW_FRAME:
+            component = <RawFrameView />;
+            break;
         default:
             component = <div> Undefined view </div>;
     }
@@ -74,6 +80,8 @@ const fitLayout = (type: DimensionType, layoutConfig: ItemLayout[]): ItemLayout[
 
     const relatedViews = layoutConfig
         .filter((item: ItemLayout) => item.viewType === ViewType.RELATED_IMAGE);
+    const rawFrameView = layoutConfig
+        .find((item: ItemLayout) => item.viewType === ViewType.RAW_FRAME);
     const relatedViewsCols = relatedViews.length > 6 ? 2 : 1;
     let height = Math.floor(config.CANVAS_WORKSPACE_ROWS / (relatedViews.length / relatedViewsCols));
     height = Math.min(height, config.CANVAS_WORKSPACE_DEFAULT_CONTEXT_HEIGHT);
@@ -95,6 +103,25 @@ const fitLayout = (type: DimensionType, layoutConfig: ItemLayout[]): ItemLayout[
     if (type === DimensionType.DIMENSION_2D) {
         const canvas = layoutConfig
             .find((item: ItemLayout) => item.viewType === ViewType.CANVAS) as ItemLayout;
+
+        if (rawFrameView) {
+            const leftWidth = Math.floor(widthAvail / 2);
+            updatedLayout.push({
+                ...canvas,
+                x: 0,
+                y: 0,
+                w: leftWidth,
+                h: config.CANVAS_WORKSPACE_ROWS,
+            }, {
+                ...rawFrameView,
+                x: leftWidth,
+                y: 0,
+                w: widthAvail - leftWidth,
+                h: config.CANVAS_WORKSPACE_ROWS,
+            });
+            return updatedLayout;
+        }
+
         updatedLayout.push({
             ...canvas,
             x: 0,
@@ -147,11 +174,28 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
         relatedFiles,
         canvasInstance,
         canvasBackgroundColor,
+        dimension,
     } = useSelector((state: CombinedState) => ({
         relatedFiles: state.annotation.player.frame.relatedFiles,
         canvasInstance: state.annotation.canvas.instance,
         canvasBackgroundColor: state.settings.player.canvasBackgroundColor,
+        dimension: state.annotation.job.instance?.dimension,
     }), shallowEqual);
+
+    const resolvedType = type ?? dimension;
+    const hasKnownDimension = Boolean(resolvedType);
+    const layoutType = resolvedType ?? DimensionType.DIMENSION_2D;
+    const [layoutMode, setLayoutMode] = useState<'grid' | 'raw_compare'>('grid');
+    const [rawCompareSwapped, setRawCompareSwapped] = useState<boolean>(() => {
+        try {
+            return JSON.parse(localStorage.getItem(config.RAW_COMPARE_SWAP_STORAGE_KEY) || 'false') === true;
+        } catch (error: unknown) {
+            return false;
+        }
+    });
+    const [layoutConfig, setLayoutConfig] = useState<ItemLayout[]>([]);
+    const gridLayoutRef = useRef<ItemLayout[] | null>(null);
+    const rawCompareRestoreRef = useRef<ItemLayout[] | null>(null);
 
     const computeRowHeight = (): number => {
         const container = window.document.getElementsByClassName('cvat-annotation-header')[0];
@@ -168,13 +212,63 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
         return 0;
     };
 
-    const getLayout = useCallback(() => (
-        defaultLayout[(type as DimensionType).toUpperCase() as '2D' | '3D'][Math.min(relatedFiles, 3)]
-    ), [type, relatedFiles]);
+    const buildDefaultGridLayout = useCallback((): ItemLayout[] => (
+        defaultLayout[(layoutType as DimensionType).toUpperCase() as '2D' | '3D'][Math.min(relatedFiles, 3)]
+    ), [layoutType, relatedFiles]);
 
-    const [layoutConfig, setLayoutConfig] = useState<ItemLayout[]>(getLayout());
+    const buildRawCompareLayout = useCallback((): ItemLayout[] => {
+        const totalWidth = config.CANVAS_WORKSPACE_COLS;
+        const leftWidth = Math.floor(totalWidth / 2);
+        if (rawCompareSwapped) {
+            return [{
+                viewType: ViewType.RAW_FRAME,
+                offset: [0],
+                x: 0,
+                y: 0,
+                w: leftWidth,
+                h: config.CANVAS_WORKSPACE_ROWS,
+            }, {
+                viewType: ViewType.CANVAS,
+                offset: [0],
+                x: leftWidth,
+                y: 0,
+                w: totalWidth - leftWidth,
+                h: config.CANVAS_WORKSPACE_ROWS,
+            }];
+        }
+
+        return [{
+            viewType: ViewType.CANVAS,
+            offset: [0],
+            x: 0,
+            y: 0,
+            w: leftWidth,
+            h: config.CANVAS_WORKSPACE_ROWS,
+        }, {
+            viewType: ViewType.RAW_FRAME,
+            offset: [0],
+            x: leftWidth,
+            y: 0,
+            w: totalWidth - leftWidth,
+            h: config.CANVAS_WORKSPACE_ROWS,
+        }];
+    }, [rawCompareSwapped]);
+
     const [rowHeight, setRowHeight] = useState<number>(Math.floor(computeRowHeight()));
     const [fullscreenKey, setFullscreenKey] = useState<string>('');
+
+    useEffect(() => {
+        if (!hasKnownDimension) return;
+
+        if (resolvedType !== DimensionType.DIMENSION_2D && layoutMode === 'raw_compare') {
+            rawCompareRestoreRef.current = null;
+            setLayoutMode('grid');
+            const next = gridLayoutRef.current ?? buildDefaultGridLayout();
+            gridLayoutRef.current = next;
+            setLayoutConfig(next);
+            window.dispatchEvent(new CustomEvent('cvat.rawCompareToggle', { detail: { active: false } }));
+        }
+    }, [buildDefaultGridLayout, hasKnownDimension, layoutMode, resolvedType]);
 
     const fitCanvas = useCallback(() => {
         if (canvasInstance instanceof Canvas) {
@@ -206,9 +300,109 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
         setRowHeight(computeRowHeight());
     }, []);
 
+    useEffect(() => {
+        const handler = (event: Event): void => {
+            if (!hasKnownDimension) {
+                return;
+            }
+
+            if (resolvedType !== DimensionType.DIMENSION_2D) {
+                return;
+            }
+
+            const detail = (event as CustomEvent).detail || {};
+            const nextActive = Boolean(detail.active);
+            if (nextActive) {
+                if (layoutMode !== 'raw_compare') {
+                    rawCompareRestoreRef.current = layoutConfig;
+                }
+                setLayoutMode('raw_compare');
+                setLayoutConfig(buildRawCompareLayout());
+            } else if (layoutMode === 'raw_compare') {
+                const restore = rawCompareRestoreRef.current;
+                rawCompareRestoreRef.current = null;
+                if (restore) {
+                    setLayoutMode('grid');
+                    setLayoutConfig(restore);
+                    gridLayoutRef.current = restore;
+                } else {
+                    setLayoutMode('grid');
+                    const next = gridLayoutRef.current ?? buildDefaultGridLayout();
+                    gridLayoutRef.current = next;
+                    setLayoutConfig(next);
+                }
+            }
+        };
+        window.addEventListener('cvat.rawCompareToggle', handler as EventListener);
+        return () => window.removeEventListener('cvat.rawCompareToggle', handler as EventListener);
+    }, [buildDefaultGridLayout, buildRawCompareLayout, hasKnownDimension, layoutConfig, layoutMode, resolvedType]);
+
+    useEffect(() => {
+        const handler = (event: Event): void => {
+            const detail = (event as CustomEvent).detail || {};
+            const swapped = Boolean(detail.swapped);
+            setRawCompareSwapped(swapped);
+            localStorage.setItem(config.RAW_COMPARE_SWAP_STORAGE_KEY, JSON.stringify(swapped));
+            if (layoutMode === 'raw_compare') {
+                setLayoutConfig(buildRawCompareLayout());
+            }
+        };
+        window.addEventListener('cvat.rawCompareSwap', handler as EventListener);
+        return () => window.removeEventListener('cvat.rawCompareSwap', handler as EventListener);
+    }, [buildRawCompareLayout, layoutMode]);
+
+    useEffect(() => {
+        const handler = (event: Event): void => {
+            const detail = (event as CustomEvent).detail || {};
+            const action = detail.action as string | undefined;
+            if (!action) return;
+
+            if (action === 'fit') {
+                setLayoutConfig(fitLayout(layoutType as DimensionType, layoutConfig));
+                window.dispatchEvent(new Event('resize'));
+            } else if (action === 'reload') {
+                if (layoutMode === 'raw_compare') {
+                    setLayoutConfig(buildRawCompareLayout());
+                } else {
+                    const next = buildDefaultGridLayout();
+                    gridLayoutRef.current = next;
+                    setLayoutConfig(next);
+                }
+                window.dispatchEvent(new Event('resize'));
+            }
+        };
+
+        window.addEventListener('cvat.canvasLayoutAction', handler as EventListener);
+        return () => window.removeEventListener('cvat.canvasLayoutAction', handler as EventListener);
+    }, [buildDefaultGridLayout, buildRawCompareLayout, layoutConfig, layoutMode, layoutType, resolvedType]);
+
+    useEffect(() => {
+        const next = buildDefaultGridLayout();
+        if (!gridLayoutRef.current) {
+            gridLayoutRef.current = next;
+        }
+
+        if (layoutMode === 'grid') {
+            gridLayoutRef.current = next;
+            setLayoutConfig(next);
+        }
+    }, [buildDefaultGridLayout, layoutMode]);
+
+    useEffect(() => {
+        if (layoutMode === 'raw_compare') {
+            setLayoutConfig(buildRawCompareLayout());
+        } else if (layoutMode === 'grid') {
+            const next = gridLayoutRef.current ?? buildDefaultGridLayout();
+            gridLayoutRef.current = next;
+            setLayoutConfig(next);
+        }
+    }, [buildDefaultGridLayout, buildRawCompareLayout, layoutMode]);
+
     useUpdateEffect(() => {
         window.dispatchEvent(new Event('resize'));
     }, [layoutConfig]);
+
+    const showRawCompare = layoutMode === 'raw_compare';
 
     const children = layoutConfig.map((value: ItemLayout) => ViewFabric(value));
     const layout = layoutConfig.map((value: ItemLayout) => ({
@@ -245,6 +439,9 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
                         }));
 
                         if (!isEqual(layoutConfig, transformedLayout)) {
+                            if (layoutMode === 'grid') {
+                                gridLayoutRef.current = transformedLayout;
+                            }
                             setLayoutConfig(transformedLayout);
                         }
                     }}
@@ -268,8 +465,12 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
                                 <CloseOutlined
                                     className='cvat-grid-item-close-button'
                                     style={{
-                                        pointerEvents: viewType !== ViewType.RELATED_IMAGE ? 'none' : undefined,
-                                        opacity: viewType !== ViewType.RELATED_IMAGE ? 0.2 : undefined,
+                                        pointerEvents:
+                                            viewType !== ViewType.RELATED_IMAGE && viewType !== ViewType.RAW_FRAME ?
+                                                'none' : undefined,
+                                        opacity:
+                                            viewType !== ViewType.RELATED_IMAGE && viewType !== ViewType.RAW_FRAME ?
+                                                0.2 : undefined,
                                     }}
                                     onClick={() => {
                                         if (viewType === ViewType.RELATED_IMAGE) {
@@ -279,6 +480,10 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
                                                         item.viewType === viewType && item.viewIndex === viewIndex
                                                     )),
                                             );
+                                        } else if (viewType === ViewType.RAW_FRAME) {
+                                            window.dispatchEvent(new CustomEvent('cvat.rawCompareToggle', {
+                                                detail: { active: false },
+                                            }));
                                         }
                                     }}
                                 />
@@ -306,63 +511,68 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
                     }) }
                 </ReactGridLayout>
             )}
-            { type === DimensionType.DIMENSION_3D && <CanvasWrapper3DComponent /> }
-            <div className='cvat-grid-layout-common-setups'>
-                <CVATTooltip title='Fit views'>
-                    <PicCenterOutlined
-                        onClick={() => {
-                            setLayoutConfig(fitLayout(type as DimensionType, layoutConfig));
-                            window.dispatchEvent(new Event('resize'));
-                        }}
-                    />
-                </CVATTooltip>
-                <CVATTooltip title='Add context image'>
-                    <PlusOutlined
-                        style={{
-                            pointerEvents: !relatedFiles ? 'none' : undefined,
-                            opacity: !relatedFiles ? 0.2 : undefined,
-                        }}
-                        disabled={!!relatedFiles}
-                        onClick={() => {
-                            const MAXIMUM_RELATED = 12;
-                            const existingRelated = layoutConfig
-                                .filter((configItem: ItemLayout) => configItem.viewType === ViewType.RELATED_IMAGE);
-
-                            if (existingRelated.length >= MAXIMUM_RELATED) {
-                                return;
-                            }
-
-                            if (existingRelated.length === 0) {
-                                setLayoutConfig(defaultLayout[type?.toUpperCase() as '2D' | '3D']['1']);
-                                return;
-                            }
-
-                            const viewIndexes = existingRelated
-                                .map((item: ItemLayout) => +(item.viewIndex as string)).sort();
-                            const max = Math.max(...viewIndexes);
-                            let viewIndex = max + 1;
-                            for (let i = 0; i < max + 1; i++) {
-                                if (!viewIndexes.includes(i)) {
-                                    viewIndex = i;
-                                    break;
+            { resolvedType === DimensionType.DIMENSION_3D && <CanvasWrapper3DComponent /> }
+            {!showRawCompare && (
+                <div className='cvat-grid-layout-common-setups'>
+                    <CVATTooltip title='Fit views'>
+                        <PicCenterOutlined
+                            onClick={() => {
+                                if (showRawCompare) {
+                                    window.dispatchEvent(new CustomEvent('cvat.rawCompareToggle', { detail: { active: false } }));
                                 }
-                            }
+                                setLayoutConfig(fitLayout(layoutType as DimensionType, layoutConfig));
+                                window.dispatchEvent(new Event('resize'));
+                            }}
+                        />
+                    </CVATTooltip>
+                    <CVATTooltip title='Add context image'>
+                        <PlusOutlined
+                            style={{
+                                pointerEvents: !relatedFiles ? 'none' : undefined,
+                                opacity: !relatedFiles ? 0.2 : undefined,
+                            }}
+                            disabled={!!relatedFiles}
+                            onClick={() => {
+                                const MAXIMUM_RELATED = 12;
+                                const existingRelated = layoutConfig
+                                    .filter((configItem: ItemLayout) => configItem.viewType === ViewType.RELATED_IMAGE);
 
-                            const latest = existingRelated[existingRelated.length - 1];
-                            const copy = { ...latest, offset: [0, viewIndex], viewIndex: `${viewIndex}` };
-                            setLayoutConfig(fitLayout(type as DimensionType, [...layoutConfig, copy]));
+                                if (existingRelated.length >= MAXIMUM_RELATED) {
+                                    return;
+                                }
+
+                                if (existingRelated.length === 0) {
+                                    setLayoutConfig(defaultLayout[type?.toUpperCase() as '2D' | '3D']['1']);
+                                    return;
+                                }
+
+                                const viewIndexes = existingRelated
+                                    .map((item: ItemLayout) => +(item.viewIndex as string)).sort();
+                                const max = Math.max(...viewIndexes);
+                                let viewIndex = max + 1;
+                                for (let i = 0; i < max + 1; i++) {
+                                    if (!viewIndexes.includes(i)) {
+                                        viewIndex = i;
+                                        break;
+                                    }
+                                }
+
+                                const latest = existingRelated[existingRelated.length - 1];
+                                const copy = { ...latest, offset: [0, viewIndex], viewIndex: `${viewIndex}` };
+                                setLayoutConfig(fitLayout(type as DimensionType, [...layoutConfig, copy]));
+                                window.dispatchEvent(new Event('resize'));
+                            }}
+                        />
+                    </CVATTooltip>
+                    <CVATTooltip title='Reload layout'>
+                        <ReloadOutlined onClick={() => {
+                            setLayoutConfig([...getLayout()]);
                             window.dispatchEvent(new Event('resize'));
                         }}
-                    />
-                </CVATTooltip>
-                <CVATTooltip title='Reload layout'>
-                    <ReloadOutlined onClick={() => {
-                        setLayoutConfig([...getLayout()]);
-                        window.dispatchEvent(new Event('resize'));
-                    }}
-                    />
-                </CVATTooltip>
-            </div>
+                        />
+                    </CVATTooltip>
+                </div>
+            )}
         </Layout.Content>
     );
 }

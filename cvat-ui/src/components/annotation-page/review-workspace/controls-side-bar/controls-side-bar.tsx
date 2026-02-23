@@ -6,7 +6,6 @@
 import React from 'react';
 import Layout from 'antd/lib/layout';
 
-import { KeyMap } from 'utils/mousetrap-react';
 import { ActiveControl, Rotation } from 'reducers';
 import { Canvas } from 'cvat-canvas-wrapper';
 
@@ -16,11 +15,12 @@ import MoveControl from 'components/annotation-page/standard-workspace/controls-
 import FitControl from 'components/annotation-page/standard-workspace/controls-side-bar/fit-control';
 import ResizeControl from 'components/annotation-page/standard-workspace/controls-side-bar/resize-control';
 import IssueControl from './issue-control';
+import IssueMaskControl from './issue-mask-control';
+import RawFrameControl from './raw-frame-control';
 
 interface Props {
     canvasInstance: Canvas;
     activeControl: ActiveControl;
-    keyMap: KeyMap;
     normalizedKeyMap: Record<string, string>;
     frameIsDeleted: boolean;
     rotateFrame(rotation: Rotation): void;
@@ -47,12 +47,9 @@ export default function ControlsSideBarComponent(props: Props): JSX.Element {
                 clockwiseShortcut={normalizedKeyMap.CLOCKWISE_ROTATION}
                 rotateFrame={rotateFrame}
             />
-
             <hr />
-
             <FitControl canvasInstance={canvasInstance} />
             <ResizeControl canvasInstance={canvasInstance} activeControl={activeControl} />
-
             <hr />
             <IssueControl
                 canvasInstance={canvasInstance}
@@ -60,6 +57,13 @@ export default function ControlsSideBarComponent(props: Props): JSX.Element {
                 updateActiveControl={updateActiveControl}
                 disabled={controlsDisabled}
             />
+            <IssueMaskControl
+                canvasInstance={canvasInstance}
+                activeControl={activeControl}
+                updateActiveControl={updateActiveControl}
+                disabled={controlsDisabled}
+            />
+            <RawFrameControl disabled={controlsDisabled} />
         </Layout.Sider>
     );
 }

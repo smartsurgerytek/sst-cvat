@@ -25,12 +25,13 @@ interface Props {
     blur: () => void;
 }
 
-export default function HiddenIssueLabel(props: Props): ReactPortal {
+export default function HiddenIssueLabel(props: Props): ReactPortal | null {
     const {
         issue, top, left, angle, scale, resolved, onClick, highlight, blur,
     } = props;
 
     const { id, comments } = issue;
+    const message = comments[0]?.message || '';
     const ref = useRef<HTMLElement>(null);
     useEffect(() => {
         if (!resolved) {
@@ -41,29 +42,33 @@ export default function HiddenIssueLabel(props: Props): ReactPortal {
     }, [resolved]);
 
     useEffect(() => {
-        if (ref.current) {
-            const { current } = ref;
-            const listener = (event: WheelEvent): void => {
-                event.stopPropagation();
-                if (event.deltaX > 0) {
-                    current.parentElement?.appendChild(current);
-                } else {
-                    current.parentElement?.prepend(current);
-                }
-            };
-
-            current.addEventListener('wheel', listener);
-            return () => {
-                current.removeEventListener('wheel', listener);
-            };
+        const { current } = ref;
+        if (!current) {
+            return () => {};
         }
 
-        return () => {};
-    }, [ref.current]);
+        const listener = (event: WheelEvent): void => {
+            event.stopPropagation();
+            if (event.deltaX > 0) {
+                current.parentElement?.appendChild(current);
+            } else {
+                current.parentElement?.prepend(current);
+            }
+        };
+
+        current.addEventListener('wheel', listener);
+        return () => {
+            current.removeEventListener('wheel', listener);
+        };
+    }, [ref]);
 
     const elementID = `cvat-hidden-issue-label-${id}`;
+    const portalContainer = window.document.getElementById('cvat_canvas_attachment_board');
+    if (!portalContainer) {
+        return null;
+    }
     return ReactDOM.createPortal(
-        <CVATTooltip title={comments[0]?.message || 'No comments found'}>
+        <CVATTooltip title={message || 'No comments found'}>
             <Tag
                 ref={ref}
                 id={elementID}
@@ -78,9 +83,9 @@ export default function HiddenIssueLabel(props: Props): ReactPortal {
                 ) : (
                     <CloseCircleOutlined className='cvat-hidden-issue-unsolved-indicator' />
                 )}
-                {comments[0]?.message || null}
+                {message || null}
             </Tag>
         </CVATTooltip>,
-        window.document.getElementById('cvat_canvas_attachment_board') as HTMLElement,
+        portalContainer,
     );
 }
