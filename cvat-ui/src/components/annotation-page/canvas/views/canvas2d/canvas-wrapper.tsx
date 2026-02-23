@@ -806,8 +806,10 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
 
     private onCanvasShapeClicked = (e: any): void => {
         const { clientID, parentID } = e.detail.state;
-        const targetStateID = Number.isInteger(parentID) ? parentID : clientID;
-        const sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-${targetStateID}`);
+        const sidebarItem = Number.isInteger(parentID) ?
+            window.document.getElementById(`cvat-objects-sidebar-state-item-element-${clientID}`) ||
+            window.document.getElementById(`cvat-objects-sidebar-state-item-${parentID}`) :
+            window.document.getElementById(`cvat-objects-sidebar-state-item-${clientID}`);
         const withSelectionModifier = Boolean(e.detail.ctrlKey || e.detail.metaKey);
 
         if (sidebarItem) {

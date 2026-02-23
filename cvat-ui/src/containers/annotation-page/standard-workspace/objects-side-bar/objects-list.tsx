@@ -339,7 +339,6 @@ interface State {
 class ObjectsListContainer extends React.PureComponent<Props, State> {
     private pendingBulkLabelSelector: PendingBulkLabelSelectorState | null = null;
     private checkboxModifierSelectionActive = false;
-    private checkboxSingleSelectionActive = false;
 
     private lastPointerPosition = {
         left: 0,
@@ -447,7 +446,6 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         this.pendingBulkLabelSelector = null;
         if (clearSelectedStates) {
             this.checkboxModifierSelectionActive = false;
-            this.checkboxSingleSelectionActive = false;
         }
         this.setState((prevState) => ({
             selectedStatesID: clearSelectedStates ? [] : prevState.selectedStatesID,
@@ -536,7 +534,8 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             event?.target instanceof Element &&
             event.target.closest('.ant-checkbox-wrapper, .ant-checkbox, .ant-checkbox-input'),
         );
-        const withModifierSelection = forceToggle || Boolean(event?.ctrlKey || event?.metaKey);
+        const withModifierSelection = Boolean(event?.ctrlKey || event?.metaKey);
+        const isCheckboxSelection = forceToggle || sourceIsCheckbox;
         const pointerPosition = this.getPointerPosition(event);
 
         this.setState((prevState) => {
@@ -544,17 +543,24 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 selectedStatesID,
             } = prevState;
 
+            if (isCheckboxSelection) {
+                if (!withModifierSelection) {
+                    return {
+                        selectedStatesID: selectedStatesID.includes(stateID) ? [] : [stateID],
+                    };
+                }
+
+                const baseSelectedStateIDs = this.checkboxModifierSelectionActive ? selectedStatesID : [];
+                const nextSelectedStateIDs = baseSelectedStateIDs.includes(stateID) ?
+                    baseSelectedStateIDs.filter((id: number) => id !== stateID) :
+                    [...baseSelectedStateIDs, stateID];
+
+                return {
+                    selectedStatesID: nextSelectedStateIDs,
+                };
+            }
+
             if (withModifierSelection) {
-                if (forceToggle && !this.checkboxModifierSelectionActive) {
-                    return {
-                        selectedStatesID: [stateID],
-                    };
-                }
-                if (!forceToggle && this.checkboxSingleSelectionActive) {
-                    return {
-                        selectedStatesID: [stateID],
-                    };
-                }
                 const nextSelectedStateIDs = selectedStatesID.includes(stateID) ?
                     selectedStatesID.filter((id: number) => id !== stateID) :
                     [...selectedStatesID, stateID];
@@ -570,22 +576,16 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         }, () => {
             const { selectedStatesID } = this.state;
             const selected = selectedStatesID.includes(stateID);
+
             if (selectedStatesID.length === 0) {
                 this.checkboxModifierSelectionActive = false;
-                this.checkboxSingleSelectionActive = false;
-            } else if (forceToggle) {
+            } else if (isCheckboxSelection) {
                 this.checkboxModifierSelectionActive = withModifierSelection;
-                this.checkboxSingleSelectionActive = sourceIsCheckbox && !withModifierSelection;
-            } else if (sourceIsCheckbox && !withModifierSelection) {
-                this.checkboxModifierSelectionActive = false;
-                this.checkboxSingleSelectionActive = true;
             } else if (!withModifierSelection) {
                 this.checkboxModifierSelectionActive = false;
-                this.checkboxSingleSelectionActive = false;
-            } else {
-                this.checkboxSingleSelectionActive = false;
             }
-            if (withModifierSelection && !forceToggle && selected) {
+
+            if (withModifierSelection && !isCheckboxSelection && selected) {
                 this.pendingBulkLabelSelector = {
                     sourceStateID: stateID,
                     ...pointerPosition,
