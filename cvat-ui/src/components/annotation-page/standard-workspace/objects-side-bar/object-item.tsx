@@ -48,7 +48,7 @@ interface Props {
     runAnnotationAction(): void;
     edit(): void;
     slice(): void;
-    onSelect?: () => void;
+    onToggleSelection?: () => void;
 }
 
 function ObjectItemComponent(props: Props): JSX.Element {
@@ -84,7 +84,7 @@ function ObjectItemComponent(props: Props): JSX.Element {
         runAnnotationAction,
         edit,
         slice,
-        onSelect,
+        onToggleSelection,
         jobInstance,
         workspace,
     } = props;
@@ -138,7 +138,7 @@ function ObjectItemComponent(props: Props): JSX.Element {
                     serverID={serverID}
                     clientID={clientID}
                     selected={selected || false}
-                    onSelect={onSelect}
+                    onToggleSelection={onToggleSelection}
                     labelID={labelID}
                     labels={labels}
                     shapeType={shapeType}

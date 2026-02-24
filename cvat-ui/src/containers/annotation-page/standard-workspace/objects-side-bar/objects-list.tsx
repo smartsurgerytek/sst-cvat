@@ -388,7 +388,6 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         window.addEventListener('keyup', this.onModifierKeyUp);
         window.addEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
         this.updateObjects();
-        window.document.addEventListener('cvat.objects.sidebar.toggle-selection', this.onExternalToggleSelection as EventListener);
         window.document.addEventListener('keyup', this.onDocumentKeyUp);
         window.document.addEventListener('keydown', this.onDocumentKeyDown);
         window.document.addEventListener('mousedown', this.onDocumentMouseDown);
@@ -427,7 +426,6 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
     public componentWillUnmount(): void {
         window.removeEventListener('keyup', this.onModifierKeyUp);
         window.removeEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
-        window.document.removeEventListener('cvat.objects.sidebar.toggle-selection', this.onExternalToggleSelection as EventListener);
         window.document.removeEventListener('keyup', this.onDocumentKeyUp);
         window.document.removeEventListener('keydown', this.onDocumentKeyDown);
         window.document.removeEventListener('mousedown', this.onDocumentMouseDown);
@@ -515,6 +513,11 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 selectionSource: null,
             } : {}),
         }));
+    };
+
+    private clearSidebarMultiSelection = (): void => {
+        // Clears checkbox/multi-select state and related bulk UI, but keeps active object unchanged.
+        this.resetBulkLabelSelector(true);
     };
 
     private getPointerPosition = (event?: React.MouseEvent): { left: number; top: number } => {
@@ -835,18 +838,23 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         this.setState({ floatingLabelOpen: false });
     };
 
-    private onExternalToggleSelection = (event: Event): void => {
-        if (this.isValidationMode()) {
+    private toggleSelectionFromSource = (
+        clientID: number,
+        selectionSource: 'canvas' | 'sidebar',
+        floatingLabelPosition: { x: number; y: number } | null,
+    ): void => {
+        const { filteredStates, selectedStateIDs } = this.state;
+        if (!filteredStates.some((state: ObjectState) => state.clientID === clientID)) {
             return;
         }
+
         this.pendingBulkLabelSelector = null;
         this.checkboxModifierSelectionActive = false;
-        const customEvent = event as CustomEvent<{ clientID: number; position: { x: number; y: number } }>;
-        const { clientID, position } = customEvent.detail;
-        const { filteredStates, selectedStateIDs } = this.state;
+
         const nextSelectedStateIDs = selectedStateIDs.includes(clientID) ?
             selectedStateIDs.filter((id: number) => id !== clientID) :
             [...selectedStateIDs, clientID];
+
         if (!nextSelectedStateIDs.length) {
             this.setState({
                 selectedStatesID: [],
@@ -877,9 +885,9 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             },
             selectedStateIDs: nextSelectedStateIDs,
             floatingLabelOpen: false,
-            floatingLabelPosition: position,
+            floatingLabelPosition,
             selectedLabelID,
-            selectionSource: 'canvas',
+            selectionSource,
         });
     };
 
@@ -887,46 +895,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         if (this.isValidationMode()) {
             return;
         }
-        this.pendingBulkLabelSelector = null;
-        this.checkboxModifierSelectionActive = false;
-        const { filteredStates, selectedStateIDs } = this.state;
-        const nextSelectedStateIDs = selectedStateIDs.includes(clientID) ?
-            selectedStateIDs.filter((id: number) => id !== clientID) :
-            [...selectedStateIDs, clientID];
-        if (!nextSelectedStateIDs.length) {
-            this.setState({
-                selectedStatesID: [],
-                bulkLabelSelector: {
-                    visible: false,
-                    sourceStateID: null,
-                    left: 0,
-                    top: 0,
-                },
-                selectedStateIDs: [],
-                floatingLabelOpen: false,
-                floatingLabelPosition: null,
-                selectedLabelID: null,
-                selectionSource: null,
-            });
-            return;
-        }
-
-        const selectedLabelID = filteredStates
-            .find((state: ObjectState) => state.clientID === nextSelectedStateIDs[0])?.label?.id ?? null;
-        this.setState({
-            selectedStatesID: nextSelectedStateIDs,
-            bulkLabelSelector: {
-                visible: false,
-                sourceStateID: null,
-                left: 0,
-                top: 0,
-            },
-            selectedStateIDs: nextSelectedStateIDs,
-            floatingLabelOpen: false,
-            floatingLabelPosition: null,
-            selectedLabelID,
-            selectionSource: 'sidebar',
-        });
+        this.toggleSelectionFromSource(clientID, 'sidebar', null);
     };
 
     private applyLabelToSelection = (label: Label): void => {
@@ -1137,10 +1106,13 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 }
             },
             COPY_SHAPE: () => {
-                if (selectedStateIDs.length) {
+                if (selectedStateIDs.length > 1) {
                     return;
                 }
-                const state = activatedState(true);
+                const state = selectedStateIDs.length === 1 ?
+                    objectStates.find((objectState: ObjectState): boolean => objectState.clientID === selectedStateIDs[0]) ||
+                    null :
+                    activatedState(true);
                 if (state && !readonly) {
                     copyShape(state);
                 }
@@ -1199,6 +1171,8 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     showGroundTruth={showGroundTruth}
                     objectStates={filteredStates}
                     selectState={this.onSelectState}
+                    onToggleSelection={this.onSidebarToggleSelection}
+                    clearMultiSelection={this.clearSidebarMultiSelection}
                     bulkChangeLabel={this.bulkChangeLabel}
                     switchHiddenAllShortcut={normalizedKeyMap.SWITCH_ALL_HIDDEN}
                     switchLockAllShortcut={normalizedKeyMap.SWITCH_ALL_LOCK}

@@ -41,7 +41,8 @@ interface OwnProps {
     selected?: boolean;
     select?(id: number, event?: React.MouseEvent, forceToggle?: boolean): void;
     bulkChangeLabel?(sourceID: number, label: Label): boolean;
-    onSelect?: () => void;
+    onToggleSelection?: () => void;
+    clearMultiSelection?: () => void;
 }
 
 interface StateToProps {
@@ -324,14 +325,16 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
 
     private changeLabel = (label: any): void => {
         const {
-            objectState, readonly, bulkChangeLabel,
+            objectState, readonly, bulkChangeLabel, clearMultiSelection,
         } = this.props;
         if (!readonly) {
             if (bulkChangeLabel && bulkChangeLabel(objectState.clientID as number, label)) {
+                clearMultiSelection?.();
                 return;
             }
             objectState.label = label;
             this.commit();
+            clearMultiSelection?.();
         }
     };
 
@@ -415,7 +418,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
             readonly,
             jobInstance,
             workspace,
-            onSelect,
+            onToggleSelection,
         } = this.props;
 
         return (
@@ -440,6 +443,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 workspace={workspace}
                 activate={this.activate}
                 select={this.select}
+                onToggleSelection={onToggleSelection}
                 remove={this.remove}
                 copy={this.copy}
                 createURL={this.createURL}

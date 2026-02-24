@@ -32,7 +32,7 @@ interface Props {
     type: string;
     locked: boolean;
     selected: boolean;
-    onSelect?: () => void;
+    onToggleSelection?: () => void;
     changeColorShortcut: string;
     copyShortcut: string;
     pasteShortcut: string;
@@ -97,15 +97,15 @@ function ItemTopComponent(props: Props): JSX.Element {
         slice,
         jobInstance,
         select,
-        onSelect,
+        onToggleSelection,
     } = props;
 
     const [colorPickerVisible, setColorPickerVisible] = useState(false);
 
     const onCheckboxChange = (event: CheckboxChangeEvent): void => {
         event.stopPropagation();
-        if (onSelect) {
-            onSelect();
+        if (onToggleSelection) {
+            onToggleSelection();
             return;
         }
         const nativeEvent = event.nativeEvent as MouseEvent | KeyboardEvent;

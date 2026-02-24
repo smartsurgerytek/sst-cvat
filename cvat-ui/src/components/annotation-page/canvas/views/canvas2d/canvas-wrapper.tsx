@@ -812,24 +812,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
 
     private onCanvasShapeClicked = (e: any): void => {
         const { clientID, parentID } = e.detail.state;
-        const { activeControl } = this.props;
-        const lastMouseDown = this.lastCanvasMouseDownEvent;
         const targetID = Number.isInteger(parentID) ? parentID : clientID;
-        const isShiftSelection = activeControl === ActiveControl.CURSOR &&
-            lastMouseDown && lastMouseDown.button === 0 && lastMouseDown.shiftKey;
-
-        if (isShiftSelection) {
-            window.document.dispatchEvent(new CustomEvent('cvat.objects.sidebar.toggle-selection', {
-                detail: {
-                    clientID: targetID,
-                    position: {
-                        x: lastMouseDown.clientX,
-                        y: lastMouseDown.clientY,
-                    },
-                },
-            }));
-            return;
-        }
 
         const selectionSidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-${targetID}`);
         const sidebarItem = Number.isInteger(parentID) ?

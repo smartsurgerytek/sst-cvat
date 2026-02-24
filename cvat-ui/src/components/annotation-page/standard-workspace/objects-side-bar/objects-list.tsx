@@ -26,6 +26,8 @@ interface Props {
     switchHiddenAllShortcut: string;
     showGroundTruth: boolean;
     selectState(id: number, event?: React.MouseEvent, forceToggle?: boolean): void;
+    onToggleSelection(id: number): void;
+    clearMultiSelection(): void;
     bulkChangeLabel(sourceID: number, label: Label): boolean;
     changeStatesOrdering(value: StatesOrdering): void;
     lockAllStates(): void;
@@ -52,6 +54,8 @@ function ObjectListComponent(props: Props): JSX.Element {
         switchHiddenAllShortcut,
         showGroundTruth,
         selectState,
+        onToggleSelection,
+        clearMultiSelection,
         bulkChangeLabel,
         changeStatesOrdering,
         lockAllStates,
@@ -112,6 +116,8 @@ function ObjectListComponent(props: Props): JSX.Element {
                                     clientID={id}
                                     selected={selectedStatesID.includes(id)}
                                     select={selectState}
+                                    onToggleSelection={(): void => onToggleSelection(id)}
+                                    clearMultiSelection={clearMultiSelection}
                                     bulkChangeLabel={bulkChangeLabel}
                                 />
                             </React.Fragment>
