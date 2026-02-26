@@ -18,7 +18,7 @@ import GlobalHotKeys, { KeyMap } from 'utils/mousetrap-react';
 import {
     ColorBy, GridColor, Workspace, ActiveControl, CombinedState,
 } from 'reducers';
-import { EventScope } from 'cvat-logger';
+import { EventScope, logError } from 'cvat-logger';
 import { Canvas, HighlightSeverity, CanvasHint } from 'cvat-canvas-wrapper';
 import { Canvas3d } from 'cvat-canvas3d-wrapper';
 import {
@@ -60,6 +60,7 @@ import { reviewActions } from 'actions/review-actions';
 
 import { filterAnnotations } from 'utils/filter-annotations';
 import { ImageFilter } from 'utils/image-processing';
+import { OBJECTS_SIDEBAR_TOGGLE_MULTI_SELECTION_EVENT } from 'utils/objects-sidebar-multi-select';
 import { ShortcutScope } from 'utils/enums';
 import { registerComponentShortcuts } from 'actions/shortcuts-actions';
 import { subKeyMap } from 'utils/component-subkeymap';
@@ -91,7 +92,7 @@ interface StateToProps {
     gridSize: number;
     gridColor: GridColor;
     gridOpacity: number;
-    activeLabelID: number;
+    activeLabelID: number | null;
     activeObjectType: ObjectType;
     brightnessLevel: number;
     contrastLevel: number;
@@ -211,7 +212,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         canvasInstance,
         jobInstance,
         frameData,
-        frameAngle: frameAngles[frame - jobInstance.startFrame],
+        frameAngle: frameAngles[frame - (jobInstance?.startFrame ?? frame)] ?? 0,
         canvasIsReady,
         frame,
         activatedStateID,
@@ -636,6 +637,31 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         canvasInstance.html().removeEventListener('canvas.message', this.onCanvasMessage as EventListener);
     }
 
+    private resolveSidebarTargetsFromCanvasState = (
+        state: Pick<ObjectState, 'clientID' | 'parentID'>,
+    ): { sidebarItem: HTMLElement | null; targetSidebarStateID: number } => {
+        const { clientID, parentID } = state;
+        const isElement = Number.isInteger(parentID);
+
+        return {
+            targetSidebarStateID: isElement ? (parentID as number) : (clientID as number),
+            sidebarItem: window.document.getElementById(
+                isElement ?
+                    `cvat-objects-sidebar-state-item-element-${clientID}` :
+                    `cvat-objects-sidebar-state-item-${clientID}`,
+            ),
+        };
+    };
+
+    private dispatchSidebarToggleMultiSelection = (clientID: number, x: number, y: number): void => {
+        window.document.dispatchEvent(new CustomEvent(OBJECTS_SIDEBAR_TOGGLE_MULTI_SELECTION_EVENT, {
+            detail: {
+                clientID,
+                position: { x, y },
+            },
+        }));
+    };
+
     private onCanvasErrorOccurrence = (event: any): void => {
         const { exception, domain } = event.detail;
         if (domain === 'data fetching') {
@@ -811,11 +837,20 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     };
 
     private onCanvasShapeClicked = (e: any): void => {
-        const { clientID, parentID } = e.detail.state; let sidebarItem = null;
-        if (Number.isInteger(parentID)) {
-            sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-element-${clientID}`);
-        } else {
-            sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-${clientID}`);
+        const { workspace } = this.props;
+        const {
+            state, ctrlKey, metaKey, clientX, clientY,
+        } = e.detail;
+        const { sidebarItem, targetSidebarStateID } = this.resolveSidebarTargetsFromCanvasState(state);
+
+        if (
+            workspace === Workspace.STANDARD &&
+            (ctrlKey || metaKey) &&
+            Number.isInteger(targetSidebarStateID) &&
+            Number.isFinite(clientX) &&
+            Number.isFinite(clientY)
+        ) {
+            this.dispatchSidebarToggleMultiSelection(targetSidebarStateID, clientX, clientY);
         }
 
         if (sidebarItem) {
@@ -1012,6 +1047,11 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                                         imageData: newImageBitmap,
                                     };
                                 } catch (error: any) {
+                                    logError(error, false, {
+                                        type: 'canvas_image_processing_error',
+                                        frame,
+                                        filters_count: imageFilters.length,
+                                    });
                                     notification.error({
                                         description: error.toString(),
                                         message: 'Image processing error occurred',

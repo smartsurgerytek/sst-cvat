@@ -5,11 +5,14 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
+import ReactDOM from 'react-dom';
 
 import { connect } from 'react-redux';
 import GlobalHotKeys, { KeyMap } from 'utils/mousetrap-react';
+import message from 'antd/lib/message';
 
 import ObjectsListComponent from 'components/annotation-page/standard-workspace/objects-side-bar/objects-list';
+import LabelSelector from 'components/label-selector/label-selector';
 import {
     updateAnnotationsAsync,
     changeFrameAsync,
@@ -20,17 +23,26 @@ import {
     removeObject as removeObjectAction,
     fetchAnnotationsAsync,
     changeHideActiveObjectAsync,
+    activateObject as activateObjectAction,
 } from 'actions/annotation-actions';
 import {
     changeShowGroundTruth as changeShowGroundTruthAction,
 } from 'actions/settings-actions';
 import isAbleToChangeFrame from 'utils/is-able-to-change-frame';
+import logger, { EventScope, logError } from 'cvat-logger';
 import {
     CombinedState, StatesOrdering, ColorBy, Workspace,
     ActiveControl,
 } from 'reducers';
-import { ObjectState, ObjectType, ShapeType } from 'cvat-core-wrapper';
+import {
+    Label, LabelType, ObjectState, ObjectType, ShapeType,
+} from 'cvat-core-wrapper';
 import { filterAnnotations } from 'utils/filter-annotations';
+import { filterApplicableLabels } from 'utils/filter-applicable-labels';
+import {
+    OBJECTS_SIDEBAR_TOGGLE_MULTI_SELECTION_EVENT,
+    ObjectsSidebarToggleMultiSelectionEventDetail,
+} from 'utils/objects-sidebar-multi-select';
 import { registerComponentShortcuts } from 'actions/shortcuts-actions';
 import { ShortcutScope } from 'utils/enums';
 import { subKeyMap } from 'utils/component-subkeymap';
@@ -42,6 +54,7 @@ interface OwnProps {
 
 interface StateToProps {
     jobInstance: any;
+    labels: Label[];
     frameNumber: any;
     statesHidden: boolean;
     statesLocked: boolean;
@@ -74,6 +87,7 @@ interface DispatchToProps {
     changeGroupColor(group: number, color: string): void;
     changeShowGroundTruth(value: boolean): void;
     changeHideEditedState(value: boolean): void;
+    activateObject(activatedStateID: number | null, activatedElementID: number | null): void;
 }
 
 const componentShortcuts = {
@@ -195,7 +209,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
                 activatedElementID,
                 zLayer: { min: minZLayer, max: maxZLayer },
             },
-            job: { instance: jobInstance },
+            job: { instance: jobInstance, labels },
             player: {
                 frame: { number: frameNumber },
             },
@@ -239,6 +253,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         objectStates,
         frameNumber,
         jobInstance,
+        labels,
         annotationsFilters,
         colors,
         colorBy,
@@ -286,6 +301,9 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         changeHideEditedState(value: boolean): void {
             dispatch(changeHideActiveObjectAsync(value));
         },
+        activateObject(activatedStateID: number | null, activatedElementID: number | null): void {
+            dispatch(activateObjectAction(activatedStateID, activatedElementID, null));
+        },
     };
 }
 
@@ -306,14 +324,36 @@ function sortAndMap(objectStates: ObjectState[], ordering: StatesOrdering): numb
 
 type Props = StateToProps & DispatchToProps & OwnProps;
 
+interface BulkLabelSelectorState {
+    visible: boolean;
+    sourceStateID: number | null;
+    left: number;
+    top: number;
+}
+
+interface PendingBulkLabelSelectorState {
+    sourceStateID: number;
+    left: number;
+    top: number;
+}
+
 interface State {
     statesOrdering: StatesOrdering;
     objectStates: ObjectState[];
     filteredStates: ObjectState[];
     sortedStatesID: number[];
+    selectedStateIDs: number[];
+    bulkLabelSelector: BulkLabelSelectorState;
 }
 
 class ObjectsListContainer extends React.PureComponent<Props, State> {
+    private pendingBulkLabelSelector: PendingBulkLabelSelectorState | null = null;
+
+    private lastPointerPosition = {
+        left: 0,
+        top: 0,
+    };
+
     static propTypes = {
         readonly: PropTypes.bool,
     };
@@ -329,34 +369,135 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             objectStates: [],
             filteredStates: [],
             sortedStatesID: [],
+            selectedStateIDs: [],
+            bulkLabelSelector: this.hiddenBulkLabelSelector(),
         };
     }
 
     public componentDidMount(): void {
+        window.addEventListener('keyup', this.onModifierKeyUp);
+        window.addEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
+        window.addEventListener('blur', this.onWindowBlur);
+        window.document.addEventListener(
+            OBJECTS_SIDEBAR_TOGGLE_MULTI_SELECTION_EVENT,
+            this.onCanvasToggleSelection as EventListener,
+        );
         this.updateObjects();
     }
 
-    public componentDidUpdate(): void {
-        const { objectStates } = this.props;
+    public componentDidUpdate(prevProps: Props): void {
+        const {
+            objectStates, workspace, readonly, frameNumber,
+        } = this.props;
         const { objectStates: prevObjectStates } = this.state;
-        if (objectStates !== prevObjectStates) {
+        if (
+            objectStates !== prevObjectStates ||
+            prevProps.frameNumber !== frameNumber ||
+            prevProps.workspace !== workspace
+        ) {
             this.updateObjects();
         }
+
+        if ((prevProps.workspace !== workspace || prevProps.readonly !== readonly) && !this.isMultiSelectEnabled()) {
+            this.resetBulkLabelSelector(true);
+        }
     }
+
+    public componentWillUnmount(): void {
+        window.removeEventListener('keyup', this.onModifierKeyUp);
+        window.removeEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
+        window.removeEventListener('blur', this.onWindowBlur);
+        window.document.removeEventListener(
+            OBJECTS_SIDEBAR_TOGGLE_MULTI_SELECTION_EVENT,
+            this.onCanvasToggleSelection as EventListener,
+        );
+    }
+
+    private hiddenBulkLabelSelector = (): BulkLabelSelectorState => ({
+        visible: false,
+        sourceStateID: null,
+        left: 0,
+        top: 0,
+    });
+
+    private isSelectionModifierKey = (key: string): boolean => key === 'Control' || key === 'Meta';
+
+    private logInternal = (type: string, payload: Record<string, unknown> = {}): void => {
+        const { jobInstance } = this.props;
+        const targetLogger = jobInstance?.logger?.log ? jobInstance.logger : logger;
+        const eventPayload = {
+            type,
+            source: 'objects_sidebar_multi_select',
+            ...payload,
+        };
+
+        try {
+            targetLogger.log(EventScope.debugInfo, eventPayload, false)
+                .catch((error: unknown) => {
+                    logError(error, false, {
+                        type: 'objects_sidebar_internal_log_failed',
+                        source_type: type,
+                    });
+                });
+        } catch (error: unknown) {
+            logError(error, false, {
+                type: 'objects_sidebar_internal_log_failed_sync',
+                source_type: type,
+            });
+        }
+    };
+
+    private isMultiSelectEnabled = (): boolean => {
+        const { workspace, readonly } = this.props;
+        return workspace === Workspace.STANDARD && !readonly;
+    };
+
+    private getPointerPosition = (
+        event?: Pick<MouseEvent, 'clientX' | 'clientY'> | Pick<React.MouseEvent, 'clientX' | 'clientY'>,
+    ): { left: number; top: number } => {
+        if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+            this.lastPointerPosition = {
+                left: event.clientX,
+                top: event.clientY,
+            };
+        }
+
+        return this.lastPointerPosition;
+    };
 
     private updateObjects = (): void => {
         const {
             objectStates, frameNumber, workspace,
         } = this.props;
-        const { statesOrdering } = this.state;
         const filteredStates = filterAnnotations(objectStates, {
             frame: frameNumber,
             workspace,
         });
-        this.setState({
-            objectStates,
-            filteredStates,
-            sortedStatesID: sortAndMap(filteredStates, statesOrdering),
+        this.setState((prevState) => {
+            const sortedStatesID = sortAndMap(filteredStates, prevState.statesOrdering);
+            const availableStateIDs = new Set(sortedStatesID);
+            const selectedStateIDs = prevState.selectedStateIDs
+                .filter((id: number): boolean => availableStateIDs.has(id));
+            const bulkLabelSelectorValid = Boolean(
+                prevState.bulkLabelSelector.visible &&
+                prevState.bulkLabelSelector.sourceStateID !== null &&
+                selectedStateIDs.includes(prevState.bulkLabelSelector.sourceStateID) &&
+                availableStateIDs.has(prevState.bulkLabelSelector.sourceStateID),
+            );
+
+            if (!bulkLabelSelectorValid) {
+                this.pendingBulkLabelSelector = null;
+            }
+
+            return {
+                objectStates,
+                filteredStates,
+                sortedStatesID,
+                selectedStateIDs,
+                bulkLabelSelector: bulkLabelSelectorValid ?
+                    prevState.bulkLabelSelector :
+                    this.hiddenBulkLabelSelector(),
+            };
         });
     };
 
@@ -366,6 +507,227 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             statesOrdering,
             sortedStatesID: sortAndMap(filteredStates, statesOrdering),
         });
+    };
+
+    private resetBulkLabelSelector = (clearSelectedStateIDs = false): void => {
+        this.pendingBulkLabelSelector = null;
+        this.setState((prevState) => ({
+            selectedStateIDs: clearSelectedStateIDs ? [] : prevState.selectedStateIDs,
+            bulkLabelSelector: this.hiddenBulkLabelSelector(),
+        }));
+    };
+
+    private clearAllSelectionState = (): void => {
+        const { activateObject } = this.props;
+        this.resetBulkLabelSelector(true);
+        activateObject(null, null);
+    };
+
+    private onWindowBlur = (): void => {
+        this.pendingBulkLabelSelector = null;
+    };
+
+    private onModifierKeyUp = (event: KeyboardEvent): void => {
+        if (!this.isMultiSelectEnabled()) {
+            this.pendingBulkLabelSelector = null;
+            return;
+        }
+
+        if (!this.isSelectionModifierKey(event.key) || !this.pendingBulkLabelSelector) {
+            return;
+        }
+
+        const pending = this.pendingBulkLabelSelector;
+        this.pendingBulkLabelSelector = null;
+
+        this.setState((prevState) => {
+            if (prevState.selectedStateIDs.length < 2 || !prevState.selectedStateIDs.includes(pending.sourceStateID)) {
+                return {
+                    bulkLabelSelector: this.hiddenBulkLabelSelector(),
+                };
+            }
+
+            return {
+                bulkLabelSelector: {
+                    visible: true,
+                    sourceStateID: pending.sourceStateID,
+                    left: pending.left,
+                    top: pending.top,
+                },
+            };
+        });
+    };
+
+    private onOutsideBulkLabelSelectorClick = (event: MouseEvent): void => {
+        const {
+            bulkLabelSelector: { visible },
+        } = this.state;
+
+        if (!visible || !(event.target instanceof Element)) {
+            return;
+        }
+
+        if (
+            event.target.closest('.cvat-objects-sidebar-bulk-label-selector-anchor') ||
+            event.target.closest('.cvat-objects-sidebar-bulk-label-selector-dropdown')
+        ) {
+            return;
+        }
+
+        this.resetBulkLabelSelector(false);
+    };
+
+    private toggleMultiSelection = (
+        clientID: number,
+        pointerPosition: { left: number; top: number },
+        deferBulkLabelOpen: boolean,
+    ): void => {
+        if (!this.isMultiSelectEnabled()) {
+            return;
+        }
+
+        this.setState((prevState) => {
+            if (!prevState.filteredStates.some((state: ObjectState): boolean => state.clientID === clientID)) {
+                this.logInternal('objects_sidebar_toggle_multi_select_state_not_found', {
+                    clientID,
+                    deferBulkLabelOpen,
+                    filteredStatesCount: prevState.filteredStates.length,
+                });
+                return null;
+            }
+
+            const nextSelectedStateIDs = prevState.selectedStateIDs.includes(clientID) ?
+                prevState.selectedStateIDs.filter((id: number): boolean => id !== clientID) :
+                [...prevState.selectedStateIDs, clientID];
+
+            const nextBulkLabelSelector = this.hiddenBulkLabelSelector();
+
+            return {
+                selectedStateIDs: nextSelectedStateIDs,
+                bulkLabelSelector: nextBulkLabelSelector,
+            };
+        }, () => {
+            const { selectedStateIDs } = this.state;
+            if (!selectedStateIDs.length) {
+                this.pendingBulkLabelSelector = null;
+                return;
+            }
+
+            if (deferBulkLabelOpen && selectedStateIDs.length >= 2 && selectedStateIDs.includes(clientID)) {
+                this.pendingBulkLabelSelector = {
+                    sourceStateID: clientID,
+                    left: pointerPosition.left,
+                    top: pointerPosition.top,
+                };
+            } else {
+                this.pendingBulkLabelSelector = null;
+            }
+        });
+    };
+
+    private onSidebarToggleSelection = (clientID: number, event?: MouseEvent): void => {
+        const pointerPosition = this.getPointerPosition(event);
+        this.toggleMultiSelection(clientID, pointerPosition, false);
+    };
+
+    private onCanvasToggleSelection = (event: Event): void => {
+        if (!this.isMultiSelectEnabled()) {
+            return;
+        }
+
+        const customEvent = event as CustomEvent<ObjectsSidebarToggleMultiSelectionEventDetail>;
+        const { detail } = customEvent;
+        if (!detail || typeof detail !== 'object') {
+            this.logInternal('objects_sidebar_canvas_multi_select_invalid_payload', {
+                reason: 'detail_is_not_object',
+            });
+            return;
+        }
+
+        const { clientID, position } = detail;
+        if (
+            !Number.isInteger(clientID) ||
+            !position ||
+            typeof position !== 'object' ||
+            !Number.isFinite(position.x) ||
+            !Number.isFinite(position.y)
+        ) {
+            this.logInternal('objects_sidebar_canvas_multi_select_invalid_payload', {
+                reason: 'detail_fields_invalid',
+                clientIDIsInteger: Number.isInteger(clientID),
+                hasPosition: Boolean(position && typeof position === 'object'),
+                positionXIsFinite: Number.isFinite(position?.x),
+                positionYIsFinite: Number.isFinite(position?.y),
+            });
+            return;
+        }
+
+        const pointerPosition = this.getPointerPosition({
+            clientX: position.x,
+            clientY: position.y,
+        });
+        this.toggleMultiSelection(clientID, pointerPosition, true);
+    };
+
+    private onBulkLabelSelectorChange = (label: Label): void => {
+        const {
+            bulkLabelSelector: { sourceStateID },
+        } = this.state;
+
+        if (sourceStateID !== null) {
+            this.bulkChangeLabel(sourceStateID, label);
+        }
+        this.clearAllSelectionState();
+    };
+
+    private bulkChangeLabel = (sourceStateID: number, label: Label): boolean => {
+        const { updateAnnotations } = this.props;
+        const { objectStates, selectedStateIDs } = this.state;
+
+        if (!this.isMultiSelectEnabled() || selectedStateIDs.length < 2 || !selectedStateIDs.includes(sourceStateID)) {
+            return false;
+        }
+
+        const selectedSet = new Set(selectedStateIDs);
+        const selectedStates = objectStates.filter(
+            (state: ObjectState): boolean => selectedSet.has(state.clientID as number),
+        );
+        const updatedStates: ObjectState[] = [];
+
+        for (const state of selectedStates) {
+            const bothAreTags = state.objectType === ObjectType.TAG && label.type === LabelType.TAG;
+            const matchingShapeLabelType = label.type as unknown as ShapeType;
+            const labelIsApplicable = (
+                label.type === LabelType.ANY ||
+                (state.shapeType === matchingShapeLabelType && state.shapeType !== ShapeType.SKELETON) ||
+                bothAreTags
+            ) && state.shapeType !== ShapeType.SKELETON;
+
+            if (!state.lock && labelIsApplicable) {
+                state.label = label;
+                updatedStates.push(state);
+            }
+        }
+
+        if (updatedStates.length) {
+            updateAnnotations(updatedStates);
+        }
+
+        const skipped = selectedStates.length - updatedStates.length;
+        if (skipped > 0) {
+            this.logInternal('objects_sidebar_batch_label_partial_skip', {
+                sourceStateID,
+                selectedCount: selectedStates.length,
+                updatedCount: updatedStates.length,
+                skippedCount: skipped,
+                labelID: label.id,
+            });
+            message.warning(
+                `Updated ${updatedStates.length} object(s). Skipped ${skipped} incompatible or locked object(s).`,
+            );
+        }
+
+        return updatedStates.length > 0;
     };
 
     private onLockAllStates = (): void => {
@@ -443,6 +805,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             keyMap,
             normalizedKeyMap,
             colors,
+            labels,
             colorBy,
             readonly,
             statesCollapsedAll,
@@ -456,8 +819,20 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             workspace,
         } = this.props;
         const {
-            objectStates, sortedStatesID, statesOrdering, filteredStates,
+            objectStates, sortedStatesID, statesOrdering, filteredStates, selectedStateIDs, bulkLabelSelector,
         } = this.state;
+        const multiSelectEnabled = this.isMultiSelectEnabled();
+        const sourceState = bulkLabelSelector.sourceStateID !== null ?
+            objectStates.find(
+                (state: ObjectState): boolean => state.clientID === bulkLabelSelector.sourceStateID,
+            ) || null :
+            null;
+        const labelSelectorLabels = sourceState && sourceState.shapeType !== ShapeType.SKELETON ?
+            filterApplicableLabels(sourceState, labels) :
+            [];
+        const shouldRenderBulkLabelSelector = Boolean(
+            multiSelectEnabled && bulkLabelSelector.visible && sourceState && labelSelectorLabels.length,
+        );
 
         const preventDefault = (event: KeyboardEvent | undefined): void => {
             if (event) {
@@ -645,8 +1020,13 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     workspace={workspace}
                     statesOrdering={statesOrdering}
                     sortedStatesID={sortedStatesID}
+                    selectedStateIDs={selectedStateIDs}
+                    multiSelectEnabled={multiSelectEnabled}
                     showGroundTruth={showGroundTruth}
                     objectStates={filteredStates}
+                    onToggleSelection={multiSelectEnabled ? this.onSidebarToggleSelection : undefined}
+                    clearAllSelectionState={multiSelectEnabled ? this.clearAllSelectionState : undefined}
+                    bulkChangeLabel={multiSelectEnabled ? this.bulkChangeLabel : undefined}
                     switchHiddenAllShortcut={normalizedKeyMap.SWITCH_ALL_HIDDEN}
                     switchLockAllShortcut={normalizedKeyMap.SWITCH_ALL_LOCK}
                     changeStatesOrdering={this.onChangeStatesOrdering}
@@ -658,6 +1038,32 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     showAllStates={this.onShowAllStates}
                     changeShowGroundTruth={this.changeShowGroundTruth}
                 />
+                {shouldRenderBulkLabelSelector && ReactDOM.createPortal(
+                    <div
+                        className='cvat-objects-sidebar-bulk-label-selector-anchor'
+                        style={{
+                            left: bulkLabelSelector.left,
+                            top: bulkLabelSelector.top,
+                        }}
+                    >
+                        <LabelSelector
+                            autoFocus
+                            open
+                            size='middle'
+                            labels={labelSelectorLabels}
+                            value={sourceState?.label?.id ?? null}
+                            popupClassName='cvat-objects-sidebar-bulk-label-selector-dropdown'
+                            className='cvat-objects-sidebar-bulk-label-selector'
+                            onChange={this.onBulkLabelSelectorChange}
+                            onDropdownVisibleChange={(open: boolean): void => {
+                                if (!open) {
+                                    this.resetBulkLabelSelector(false);
+                                }
+                            }}
+                        />
+                    </div>,
+                    window.document.body,
+                )}
             </>
         );
     }
@@ -665,4 +1071,4 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
 
 export default connect<StateToProps, DispatchToProps, OwnProps, CombinedState>(
     mapStateToProps, mapDispatchToProps,
-)(ObjectsListContainer);
+)(ObjectsListContainer as React.ComponentType<any>);

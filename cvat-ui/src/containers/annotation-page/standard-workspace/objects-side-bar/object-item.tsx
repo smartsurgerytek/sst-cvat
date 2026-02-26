@@ -38,6 +38,11 @@ interface OwnProps {
     readonly: boolean;
     clientID: number;
     objectStates: ObjectState[];
+    selected?: boolean;
+    multiSelectEnabled?: boolean;
+    onToggleSelection?: (event?: MouseEvent) => void;
+    bulkChangeLabel?: (sourceStateID: number, label: Label) => boolean;
+    clearAllSelectionState?: () => void;
 }
 
 interface StateToProps {
@@ -317,10 +322,21 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
     };
 
     private changeLabel = (label: any): void => {
-        const { objectState, readonly } = this.props;
+        const {
+            objectState,
+            readonly,
+            bulkChangeLabel,
+            clearAllSelectionState,
+        } = this.props;
         if (!readonly) {
+            const appliedToSelection = bulkChangeLabel?.(objectState.clientID as number, label) || false;
+            if (appliedToSelection) {
+                clearAllSelectionState?.();
+                return;
+            }
             objectState.label = label;
             this.commit();
+            clearAllSelectionState?.();
         }
     };
 
@@ -396,6 +412,9 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
             readonly,
             jobInstance,
             workspace,
+            selected,
+            multiSelectEnabled,
+            onToggleSelection,
         } = this.props;
 
         return (
@@ -403,6 +422,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 jobInstance={jobInstance}
                 readonly={readonly}
                 activated={activated}
+                selected={selected}
                 objectType={objectState.objectType}
                 shapeType={objectState.shapeType}
                 clientID={objectState.clientID as number}
@@ -417,6 +437,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 labels={labels}
                 colorBy={colorBy}
                 workspace={workspace}
+                multiSelectEnabled={multiSelectEnabled}
                 activate={this.activate}
                 remove={this.remove}
                 copy={this.copy}
@@ -431,6 +452,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 slice={this.slice}
                 resetCuboidPerspective={this.resetCuboidPerspective}
                 runAnnotationAction={this.runAnnotationAction}
+                onToggleSelection={onToggleSelection}
             />
         );
     }

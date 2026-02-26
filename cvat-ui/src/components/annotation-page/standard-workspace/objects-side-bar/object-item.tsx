@@ -18,6 +18,7 @@ interface Props {
     normalizedKeyMap: Record<string, string>;
     readonly: boolean;
     activated: boolean;
+    selected?: boolean;
     objectType: ObjectType;
     shapeType: ShapeType;
     clientID: number;
@@ -32,6 +33,7 @@ interface Props {
     attributes: any[];
     jobInstance: any;
     workspace: Workspace;
+    multiSelectEnabled?: boolean;
     activate(activeElementID?: number): void;
     copy(): void;
     propagate(): void;
@@ -46,11 +48,13 @@ interface Props {
     runAnnotationAction(): void;
     edit(): void;
     slice(): void;
+    onToggleSelection?: (event?: MouseEvent) => void;
 }
 
 function ObjectItemComponent(props: Props): JSX.Element {
     const {
         activated,
+        selected,
         readonly,
         objectType,
         shapeType,
@@ -81,6 +85,8 @@ function ObjectItemComponent(props: Props): JSX.Element {
         slice,
         jobInstance,
         workspace,
+        multiSelectEnabled,
+        onToggleSelection,
     } = props;
 
     const type =
@@ -88,9 +94,11 @@ function ObjectItemComponent(props: Props): JSX.Element {
             ObjectType.TAG.toUpperCase() :
             `${shapeType.toUpperCase()} ${objectType.toUpperCase()}`;
 
-    const className = !activated ?
-        'cvat-objects-sidebar-state-item' :
-        'cvat-objects-sidebar-state-item cvat-objects-sidebar-state-active-item';
+    const className = [
+        'cvat-objects-sidebar-state-item',
+        activated ? 'cvat-objects-sidebar-state-active-item' : '',
+        selected ? 'cvat-objects-sidebar-state-multi-selected-item' : '',
+    ].filter(Boolean).join(' ');
 
     const activateState = useCallback(() => {
         activate();
@@ -119,6 +127,9 @@ function ObjectItemComponent(props: Props): JSX.Element {
                     colorBy={colorBy}
                     type={type}
                     locked={locked}
+                    selected={selected}
+                    multiSelectEnabled={multiSelectEnabled}
+                    onToggleSelection={onToggleSelection}
                     isGroundTruth={isGroundTruth}
                     copyShortcut={normalizedKeyMap.COPY_SHAPE}
                     pasteShortcut={normalizedKeyMap.PASTE_SHAPE}

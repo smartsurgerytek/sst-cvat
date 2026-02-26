@@ -131,6 +131,22 @@ export class CanvasViewImpl implements CanvasView, Listener {
         );
     };
 
+    private dispatchCanvasClicked = (state: DrawnState, event?: MouseEvent): void => {
+        this.canvas.dispatchEvent(
+            new CustomEvent('canvas.clicked', {
+                bubbles: false,
+                cancelable: true,
+                detail: {
+                    state,
+                    ctrlKey: Boolean(event?.ctrlKey),
+                    metaKey: Boolean(event?.metaKey),
+                    clientX: event?.clientX ?? null,
+                    clientY: event?.clientY ?? null,
+                },
+            }),
+        );
+    };
+
     private stateIsLocked(state: any): boolean {
         const { configuration } = this.controller;
         return state.lock || configuration.forceDisableEditing;
@@ -1817,7 +1833,8 @@ export class CanvasViewImpl implements CanvasView, Listener {
             this.controller.drag(e.clientX, e.clientY);
 
             if (this.mode !== Mode.IDLE) return;
-            if (e.ctrlKey || e.altKey) return;
+            if (e.altKey) return;
+            if (this.configuration.forceDisableEditing && (e.ctrlKey || e.metaKey)) return;
 
             if (!this.isImageLoading) {
                 const { offset } = this.controller.geometry;
@@ -2706,16 +2723,8 @@ export class CanvasViewImpl implements CanvasView, Listener {
                 }
             }
 
-            this.svgShapes[state.clientID].on('click.canvas', (): void => {
-                this.canvas.dispatchEvent(
-                    new CustomEvent('canvas.clicked', {
-                        bubbles: false,
-                        cancelable: true,
-                        detail: {
-                            state,
-                        },
-                    }),
-                );
+            this.svgShapes[state.clientID].on('click.canvas', (event?: MouseEvent): void => {
+                this.dispatchCanvasClicked(state, event);
             });
 
             if (displayAllText) {
@@ -3538,15 +3547,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
 
                 const click = (e: MouseEvent): void => {
                     e.stopPropagation();
-                    this.canvas.dispatchEvent(
-                        new CustomEvent('canvas.clicked', {
-                            bubbles: false,
-                            cancelable: true,
-                            detail: {
-                                state: element,
-                            },
-                        }),
-                    );
+                    this.dispatchCanvasClicked(element, e);
                 };
 
                 circle.on('mouseover', mouseover);

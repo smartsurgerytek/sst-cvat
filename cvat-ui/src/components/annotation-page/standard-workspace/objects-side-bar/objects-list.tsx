@@ -21,6 +21,8 @@ interface Props {
     statesOrdering: StatesOrdering;
     sortedStatesID: number[];
     objectStates: any[];
+    selectedStateIDs?: number[];
+    multiSelectEnabled?: boolean;
     switchLockAllShortcut: string;
     switchHiddenAllShortcut: string;
     showGroundTruth: boolean;
@@ -32,6 +34,9 @@ interface Props {
     hideAllStates(): void;
     showAllStates(): void;
     changeShowGroundTruth(): void;
+    onToggleSelection?(id: number, event?: MouseEvent): void;
+    bulkChangeLabel?(sourceStateID: number, label: any): boolean;
+    clearAllSelectionState?(): void;
 }
 
 function ObjectListComponent(props: Props): JSX.Element {
@@ -44,6 +49,8 @@ function ObjectListComponent(props: Props): JSX.Element {
         statesOrdering,
         sortedStatesID,
         objectStates,
+        selectedStateIDs = [],
+        multiSelectEnabled = false,
         switchLockAllShortcut,
         switchHiddenAllShortcut,
         showGroundTruth,
@@ -55,6 +62,9 @@ function ObjectListComponent(props: Props): JSX.Element {
         hideAllStates,
         showAllStates,
         changeShowGroundTruth,
+        onToggleSelection,
+        bulkChangeLabel,
+        clearAllSelectionState,
     } = props;
 
     let latestZOrder: number | null = null;
@@ -104,6 +114,13 @@ function ObjectListComponent(props: Props): JSX.Element {
                                     readonly={readonly}
                                     objectStates={objectStates}
                                     clientID={id}
+                                    selected={selectedStateIDs.includes(id)}
+                                    multiSelectEnabled={multiSelectEnabled}
+                                    onToggleSelection={onToggleSelection ?
+                                        (event?: MouseEvent): void => onToggleSelection(id, event) :
+                                        undefined}
+                                    bulkChangeLabel={bulkChangeLabel}
+                                    clearAllSelectionState={clearAllSelectionState}
                                 />
                             </React.Fragment>
                         );

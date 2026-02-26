@@ -223,6 +223,10 @@
     border: 1px solid $object-item-border-color;
 }
 
+.cvat-objects-sidebar-state-item.cvat-objects-sidebar-state-multi-selected-item {
+    border: 1px dashed $object-item-border-color;
+}
+
 .cvat-objects-sidebar-state-item {
     width: 100%;
     background-color: rgba(var(--state-item-background), 1);
@@ -263,6 +267,38 @@
             @extend .cvat-object-sidebar-icon;
         }
     }
+}
+
+.cvat-objects-sidebar-state-item-label-selector {
+    .ant-select-selector {
+        min-height: 24px;
+        height: auto !important;
+        align-items: flex-start;
+    }
+
+    .ant-select-selection-item {
+        white-space: normal;
+        text-overflow: unset;
+        overflow: visible;
+        line-height: 1.2;
+    }
+}
+
+.cvat-objects-sidebar-state-item-label-selector-dropdown,
+.cvat-objects-sidebar-bulk-label-selector-dropdown {
+    .ant-select-item-option-content {
+        white-space: normal;
+    }
+}
+
+.cvat-objects-sidebar-bulk-label-selector-anchor {
+    position: fixed;
+    width: 220px;
+    z-index: 1100;
+}
+
+.cvat-objects-sidebar-bulk-label-selector {
+    width: 100%;
 }
 
 .cvat-objects-sidebar-state-item-collapse,
