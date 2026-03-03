@@ -326,7 +326,7 @@
 #           echo "2. If tests pass, create PR to \`sst-main\`" >> $GITHUB_STEP_SUMMARY
 
 
-name: Deploy to PRO (AWS)
+name: AWS - INT Deployment
 
 on:
   workflow_dispatch:
