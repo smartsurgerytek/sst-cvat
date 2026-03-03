@@ -27,354 +27,134 @@
 #
 # =============================================================================
 
-name: Deploy to INT
+
+name: deploy-prod-aws.yml
 
 on:
   workflow_dispatch:
-    inputs:
-      skip_backup:
-        description: 'Skip backup before deployment'
-        required: false
-        type: boolean
-        default: false
-
-# Prevent duplicate runs for the same branch
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  REGISTRY: us-central1-docker.pkg.dev
-  REPO_NAME: cvat-repo
-  DEPLOY_PATH: /opt/sst-cvat-int
 
 jobs:
-  # ============================================
-  # Job 1: Build Images (reusable workflow)
-  # ============================================
-  # Generate short SHA for consistent image tagging
+
+  # -----------------------------------
+  # 1️⃣ Prepare Build Parameters
+  # -----------------------------------
   prepare:
     name: Prepare Build Parameters
     runs-on: ubuntu-latest
+
     outputs:
       image_tag: ${{ steps.vars.outputs.image_tag }}
-    steps:
-      - name: Generate image tag with short SHA
-        id: vars
-        run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          BRANCH_TAG=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
-          IMAGE_TAG="${BRANCH_TAG}-${SHORT_SHA}"
-          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-
-  build:
-    name: Build Images
-    needs: prepare
-    uses: ./.github/workflows/build-images.yml
-    with:
-      ref: ${{ github.ref }}
-      image_tag: ${{ needs.prepare.outputs.image_tag }}
-      push_latest: false
-      env_label: INT
-    secrets: inherit
-
-  # ============================================
-  # Job 2: Deploy to INT
-  # ============================================
-  deploy:
-    name: Deploy to INT Environment
-    runs-on: ubuntu-latest
-    needs: [prepare, build]
 
     steps:
-      - name: Set deployment variables
-        id: vars
-        run: |
-          echo "image_tag=${{ needs.prepare.outputs.image_tag }}" >> $GITHUB_OUTPUT
-          echo "branch_name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-
-      - name: Deployment Info
-        run: |
-          echo "============================================"
-          echo "Deploying to INT Environment"
-          echo "============================================"
-          echo "Branch:       ${{ steps.vars.outputs.branch_name }}"
-          echo "Image Tag:    ${{ steps.vars.outputs.image_tag }}"
-          echo "Skip Backup:  ${{ github.event.inputs.skip_backup }}"
-          echo "Triggered by: ${{ github.actor }}"
-          echo "============================================"
-
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
+      - name: Set image tag
+        id: vars
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          IMAGE_TAG="prod-${SHORT_SHA}"
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+  # -----------------------------------
+  # 2️⃣ Build & Push Images to US ECR
+  # -----------------------------------
+  build:
+    name: Build and Push Images to ECR
+    runs-on: ubuntu-latest
+    needs: prepare
+
+    env:
+      AWS_REGION: us-east-1
+      ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+      IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
-      - name: Setup gcloud CLI
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Clean OS Login Keys (prevent 32KB limit, keep last 5)
+      - name: Login to Amazon ECR (US-East-1)
         run: |
-          echo "Cleaning old OS Login SSH keys to prevent profile size limit (keeping last 5)..."
-          FPS=$(gcloud compute os-login describe-profile --format="yaml" 2>/dev/null | grep "fingerprint:" | awk '{print $2}' || true)
+          aws ecr get-login-password --region us-east-1 \
+          | docker login --username AWS --password-stdin $ECR_REGISTRY
 
-          if [ -z "$FPS" ]; then
-            echo "No existing keys found."
-            exit 0
-          fi
-
-          COUNT=$(echo "$FPS" | wc -l)
-          echo "Found $COUNT SSH key(s)."
-
-          if [ "$COUNT" -gt 5 ]; then
-            REMOVE_COUNT=$((COUNT - 5))
-            echo "Removing oldest $REMOVE_COUNT key(s), keeping last 5..."
-            echo "$FPS" | head -n "$REMOVE_COUNT" | while read fp; do
-              gcloud compute os-login ssh-keys remove --key="$fp" --quiet || true
-            done
-            echo "Cleanup complete, 5 keys remaining."
-          else
-            echo "Only $COUNT key(s) found, no cleanup needed."
-          fi
-
-      - name: Prepare deployment files
-        id: prepare
+      - name: Build CVAT Server
         run: |
-          IMAGE_TAG="${{ steps.vars.outputs.image_tag }}"
-          REGISTRY="${{ env.REGISTRY }}"
-          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
-          REPO_NAME="${{ env.REPO_NAME }}"
-          CVAT_HOST="${{ secrets.INT_CVAT_HOST }}"
+          docker build -t $ECR_REGISTRY/cvat-server:$IMAGE_TAG .
 
-          # Create .env file
-          cat > .env << EOF
-          # CVAT Environment Configuration
-          # Generated by GitHub Actions deployment
-          CVAT_HOST=${CVAT_HOST}
-          CVAT_SERVER_IMAGE=${REGISTRY}/${PROJECT_ID}/${REPO_NAME}/cvat-server:${IMAGE_TAG}
-          CVAT_UI_IMAGE=${REGISTRY}/${PROJECT_ID}/${REPO_NAME}/cvat-ui:${IMAGE_TAG}
-          EOF
-
-          echo "Created .env file:"
-          cat .env
-
-      - name: Prepare VM deployment directory
+      - name: Build CVAT UI
         run: |
-          # Create deployment directory on VM (persistent location in /opt)
-          # IMPORTANT: chown to current user so scp can set permissions without sudo
-          # OS Login UIDs vary between sessions, so we use $(id -u):$(id -g) dynamically
-          # Note: Directory persists across deployments for volume mounts (Grafana dashboards, etc.)
-          gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
-            --zone=${{ secrets.INT_GCP_ZONE }} \
-            --tunnel-through-iap \
-            --command="
-              sudo mkdir -p ${{ env.DEPLOY_PATH }}
-              sudo chown \$(id -u):\$(id -g) ${{ env.DEPLOY_PATH }}
-              sudo chmod 755 ${{ env.DEPLOY_PATH }}
-            "
+          docker build -t $ECR_REGISTRY/cvat-ui:$IMAGE_TAG ./cvat-ui
 
-      - name: Copy deployment files to VM
+      - name: Push CVAT Server
+        run: docker push $ECR_REGISTRY/cvat-server:$IMAGE_TAG
+
+      - name: Push CVAT UI
+        run: docker push $ECR_REGISTRY/cvat-ui:$IMAGE_TAG
+
+      - name: Build Summary
         run: |
-          # Copy docker-compose files and .env to VM
-          gcloud compute scp \
-            docker-compose.yml \
-            docker-compose.int.yml \
-            .env \
-            ${{ secrets.INT_VM_NAME }}:${{ env.DEPLOY_PATH }}/ \
-            --zone=${{ secrets.INT_GCP_ZONE }} \
-            --tunnel-through-iap
-
-          # Copy components directory (contains config files mounted by docker-compose)
-          gcloud compute scp --recurse \
-            components \
-            ${{ secrets.INT_VM_NAME }}:${{ env.DEPLOY_PATH }}/ \
-            --zone=${{ secrets.INT_GCP_ZONE }} \
-            --tunnel-through-iap
-
-          # Fix file permissions so containers (Grafana, etc.) can read mounted files
-          # Files copied via scp have restrictive permissions (600), but containers run as different users
-          # Use sudo because /opt directory is owned by root
-          gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
-            --zone=${{ secrets.INT_GCP_ZONE }} \
-            --tunnel-through-iap \
-            --command="sudo chmod -R a+rX ${{ env.DEPLOY_PATH }}"
-
-          echo "Deployment files copied to VM:${{ env.DEPLOY_PATH }}/"
-
-      - name: Deploy to INT VM
-        run: |
-          IMAGE_TAG="${{ steps.vars.outputs.image_tag }}"
-          BRANCH_NAME="${{ steps.vars.outputs.branch_name }}"
-          REGISTRY="${{ env.REGISTRY }}"
-          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
-          REPO_NAME="${{ env.REPO_NAME }}"
-          DEPLOY_PATH="${{ env.DEPLOY_PATH }}"
-          SKIP_BACKUP="${{ github.event.inputs.skip_backup }}"
-
-          # Get access token on GitHub runner
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-
-          gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
-            --zone=${{ secrets.INT_GCP_ZONE }} \
-            --tunnel-through-iap \
-            --command="
-              set -e
-
-              # Force Docker to use project-specific config dir (isolated from other deployments)
-              # Use sudo to clean up any leftover from previous runs (different OS Login UIDs)
-              export DOCKER_CONFIG=/tmp/sst-cvat/.docker
-              sudo rm -rf /tmp/sst-cvat 2>/dev/null || true
-              mkdir -p \${DOCKER_CONFIG}
-
-              echo '============================================'
-              echo 'Starting deployment on INT VM'
-              echo '============================================'
-
-              # Configure Docker for Artifact Registry
-              echo 'Logging into Docker via Access Token...'
-              echo '${ACCESS_TOKEN}' | docker login -u oauth2accesstoken --password-stdin https://${REGISTRY}
-
-              cd ${DEPLOY_PATH}
-
-              echo 'Deployment directory: '${DEPLOY_PATH}
-              echo ''
-              echo 'Files in deployment directory:'
-              ls -la
-
-              # Create backup (unless skipped)
-              if [ '${SKIP_BACKUP}' != 'true' ]; then
-                echo ''
-                echo 'Creating backup of current state...'
-                BACKUP_TAG=\$(date +%Y%m%d_%H%M%S)
-                docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' > /tmp/cvat_backup_\${BACKUP_TAG}.txt 2>/dev/null || true
-                echo \"Backup saved to /tmp/cvat_backup_\${BACKUP_TAG}.txt\"
-              fi
-
-              echo ''
-              echo '.env file contents:'
-              cat .env
-
-              # Pull images
-              CVAT_SERVER_IMAGE='${REGISTRY}/${PROJECT_ID}/${REPO_NAME}/cvat-server:${IMAGE_TAG}'
-              CVAT_UI_IMAGE='${REGISTRY}/${PROJECT_ID}/${REPO_NAME}/cvat-ui:${IMAGE_TAG}'
-
-              echo ''
-              echo 'Pulling new images...'
-              echo \"  Server: \${CVAT_SERVER_IMAGE}\"
-              echo \"  UI:     \${CVAT_UI_IMAGE}\"
-
-              docker pull \${CVAT_SERVER_IMAGE}
-              docker pull \${CVAT_UI_IMAGE}
-
-              echo 'Stopping current containers...'
-              docker compose -f docker-compose.yml -f docker-compose.int.yml -f components/serverless/docker-compose.serverless.yml down --remove-orphans || true
-
-              echo 'Starting containers with new images (with serverless support)...'
-              docker compose -f docker-compose.yml -f docker-compose.int.yml -f components/serverless/docker-compose.serverless.yml up -d
-
-              echo 'Waiting for services to start...'
-              sleep 10
-
-              echo 'Checking container status...'
-              docker compose -f docker-compose.yml -f docker-compose.int.yml -f components/serverless/docker-compose.serverless.yml ps
-
-              echo '============================================'
-              echo 'Deployment complete!'
-              echo 'Branch:    ${BRANCH_NAME}'
-              echo 'Image tag: ${IMAGE_TAG}'
-              echo '============================================'
-            "
-
-      - name: Health Check
-        run: |
-          echo "Running health check..."
-          sleep 20
-
-          gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
-            --zone=${{ secrets.INT_GCP_ZONE }} \
-            --tunnel-through-iap \
-            --command="
-              # Set Docker config to avoid permission issues with default config location
-              export DOCKER_CONFIG=/tmp/sst-cvat/.docker
-
-              cd ${{ env.DEPLOY_PATH }}
-
-              echo 'Container Status:'
-              docker compose -f docker-compose.yml -f docker-compose.int.yml -f components/serverless/docker-compose.serverless.yml ps
-
-              FAILED=0
-
-              for SERVICE in cvat_server cvat_ui cvat_db nuclio; do
-                STATUS=\$(docker compose -f docker-compose.yml -f docker-compose.int.yml -f components/serverless/docker-compose.serverless.yml ps \${SERVICE} --format '{{.Status}}' 2>/dev/null || echo 'not found')
-                if [[ \"\${STATUS}\" == *'Up'* ]]; then
-                  echo \"✓ \${SERVICE}: Running\"
-                else
-                  echo \"✗ \${SERVICE}: \${STATUS}\"
-                  FAILED=1
-                fi
-              done
-
-              if [ \${FAILED} -eq 1 ]; then
-                echo ''
-                echo 'Some services failed to start. Check logs with:'
-                echo '  docker compose logs <service_name>'
-                exit 1
-              fi
-
-              echo ''
-              echo 'All critical services are running!'
-            "
-
-      - name: Cleanup temp directories
-        if: always()
-        run: |
-          echo "Cleaning up temp docker config on VM..."
-          # SAFE TO REMOVE (not needed for container restart):
-          #   - /tmp/sst-cvat/.docker: Docker registry credentials (only needed during image pull)
-          #
-          # DO NOT REMOVE (required for container restart):
-          #   - /opt/sst-cvat-int/: Deployment files (docker-compose, .env, components/)
-          #     Contains volume mounts for Grafana dashboards, analytics configs, etc.
-          #   - Docker image cache: Containers restart using locally cached images
-          gcloud compute ssh ${{ secrets.INT_VM_NAME }} \
-            --zone=${{ secrets.INT_GCP_ZONE }} \
-            --tunnel-through-iap \
-            --command="sudo rm -rf /tmp/sst-cvat" || true
-
-          echo "Cleanup completed."
-
-      - name: Clean up OS Login SSH keys (keep last 5)
-        if: always()
-        run: |
-          # Only remove old SSH keys, keep last 5 to prevent interrupting other workflows
-          FPS=$(gcloud compute os-login describe-profile --format="yaml" 2>/dev/null | grep "fingerprint:" | awk '{print $2}' || true)
-          if [ -n "$FPS" ]; then
-            COUNT=$(echo "$FPS" | wc -l)
-            if [ "$COUNT" -gt 5 ]; then
-              REMOVE_COUNT=$((COUNT - 5))
-              echo "$FPS" | head -n "$REMOVE_COUNT" | while read fp; do
-                gcloud compute os-login ssh-keys remove --key="$fp" --quiet || true
-              done
-            fi
-          fi
-
-      - name: Deployment Summary
-        if: always()
-        run: |
-          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Complete!" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | **INT** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Branch | \`${{ steps.vars.outputs.branch_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image Tag | \`${{ steps.vars.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| VM | \`${{ secrets.INT_VM_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| CVAT Host | \`${{ secrets.INT_CVAT_HOST }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Triggered By | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "1. Test on INT environment" >> $GITHUB_STEP_SUMMARY
-          echo "2. If tests pass, create PR to \`sst-main\`" >> $GITHUB_STEP_SUMMARY
+          echo "| Ref | $GITHUB_REF |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | $IMAGE_TAG |" >> $GITHUB_STEP_SUMMARY
+          echo "| Env Label | PROD |" >> $GITHUB_STEP_SUMMARY
+
+  # -----------------------------------
+  # 3️⃣ Deploy to Production
+  # -----------------------------------
+  deploy:
+    name: Deploy to PROD Environment
+    runs-on: ubuntu-latest
+    needs: build
+
+    env:
+      IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+      ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/prod_key.pem
+          chmod 600 ~/.ssh/prod_key.pem
+
+      - name: Deploy via SSH
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/prod_key.pem ubuntu@${{ secrets.PROD_EC2_HOST }} << EOF
+
+          export CVAT_HOST=${{ secrets.PROD_CVAT_HOST }}
+          export IMAGE_TAG=${IMAGE_TAG}
+          export ECR_REGISTRY=${ECR_REGISTRY}
+
+          cd ~/cvat/sst-cvat
+
+          echo "Login to ECR..."
+          aws ecr get-login-password --region us-east-1 \
+          | docker login --username AWS --password-stdin \$ECR_REGISTRY
+
+          echo "Pull images..."
+          docker pull \$ECR_REGISTRY/cvat-server:\$IMAGE_TAG
+          docker pull \$ECR_REGISTRY/cvat-ui:\$IMAGE_TAG
+
+          echo "Restart containers..."
+          docker compose down
+
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.stg.yml \
+            -f docker-compose.https.yml \
+            -f components/serverless/docker-compose.serverless.yml \
+            up -d
+
+          docker compose ps
+
+          EOF
