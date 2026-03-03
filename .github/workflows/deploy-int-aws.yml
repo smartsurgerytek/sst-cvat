@@ -327,97 +327,125 @@
 
 
 name: Deploy to PRO (AWS)
+
 on:
-  push:
-    branches:
-      - feature/aws-migration   # change if needed
+  workflow_dispatch:
 
 jobs:
-  deploy-prod:
-    name: Build & Deploy to Production
+
+  # -----------------------------------
+  # 1️⃣ Prepare Build Parameters
+  # -----------------------------------
+  prepare:
+    name: Prepare Build Parameters
     runs-on: ubuntu-latest
+
+    outputs:
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: vars
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          IMAGE_TAG="prod-${SHORT_SHA}"
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+  # -----------------------------------
+  # 2️⃣ Build & Push Images to US ECR
+  # -----------------------------------
+  build:
+    name: Build and Push Images to ECR
+    runs-on: ubuntu-latest
+    needs: prepare
 
     env:
       AWS_REGION: us-east-1
       ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
-      CVAT_HOST: ${{ secrets.PROD_CVAT_HOST }}
+      IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ---------------------------
-      # Configure AWS credentials
-      # ---------------------------
-      - name: Configure AWS credentials
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # ---------------------------
-      # Login to ECR (US-East-1)
-      # ---------------------------
-      - name: Login to Amazon ECR
+      - name: Login to Amazon ECR (US-East-1)
         run: |
           aws ecr get-login-password --region us-east-1 \
           | docker login --username AWS --password-stdin $ECR_REGISTRY
 
-      # ---------------------------
-      # Build Images
-      # ---------------------------
-      - name: Build CVAT Server Image
+      - name: Build CVAT Server
         run: |
-          docker build -t $ECR_REGISTRY/cvat-server:latest .
+          docker build -t $ECR_REGISTRY/cvat-server:$IMAGE_TAG .
 
-      - name: Build CVAT UI Image
+      - name: Build CVAT UI
         run: |
-          docker build -t $ECR_REGISTRY/cvat-ui:latest ./cvat-ui
+          docker build -t $ECR_REGISTRY/cvat-ui:$IMAGE_TAG ./cvat-ui
 
-      # ---------------------------
-      # Push Images
-      # ---------------------------
-      - name: Push CVAT Server Image
-        run: docker push $ECR_REGISTRY/cvat-server:latest
+      - name: Push CVAT Server
+        run: docker push $ECR_REGISTRY/cvat-server:$IMAGE_TAG
 
-      - name: Push CVAT UI Image
-        run: docker push $ECR_REGISTRY/cvat-ui:latest
+      - name: Push CVAT UI
+        run: docker push $ECR_REGISTRY/cvat-ui:$IMAGE_TAG
 
-      # ---------------------------
-      # Setup SSH
-      # ---------------------------
+      - name: Build Summary
+        run: |
+          echo "## Build Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Ref | $GITHUB_REF |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | $IMAGE_TAG |" >> $GITHUB_STEP_SUMMARY
+          echo "| Env Label | PROD |" >> $GITHUB_STEP_SUMMARY
+
+  # -----------------------------------
+  # 3️⃣ Deploy to Production
+  # -----------------------------------
+  deploy:
+    name: Deploy to PROD Environment
+    runs-on: ubuntu-latest
+    needs: build
+
+    env:
+      IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+      ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+    steps:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/prod_key.pem
           chmod 600 ~/.ssh/prod_key.pem
 
-      # ---------------------------
-      # Deploy on EC2
-      # ---------------------------
-      - name: Deploy on Production EC2
+      - name: Deploy via SSH
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/prod_key.pem ubuntu@${{ secrets.PROD_EC2_HOST }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/prod_key.pem ubuntu@${{ secrets.PROD_EC2_HOST }} << EOF
 
           export CVAT_HOST=${{ secrets.PROD_CVAT_HOST }}
-          export AWS_REGION=us-east-1
-          export ECR_REGISTRY=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+          export IMAGE_TAG=${IMAGE_TAG}
+          export ECR_REGISTRY=${ECR_REGISTRY}
 
           cd ~/cvat/sst-cvat
 
-          echo "Logging into ECR..."
+          echo "Login to ECR..."
           aws ecr get-login-password --region us-east-1 \
-          | docker login --username AWS --password-stdin $ECR_REGISTRY
+          | docker login --username AWS --password-stdin \$ECR_REGISTRY
 
-          echo "Pulling latest images..."
-          docker pull $ECR_REGISTRY/cvat-server:latest
-          docker pull $ECR_REGISTRY/cvat-ui:latest
+          echo "Pull images..."
+          docker pull \$ECR_REGISTRY/cvat-server:\$IMAGE_TAG
+          docker pull \$ECR_REGISTRY/cvat-ui:\$IMAGE_TAG
 
-          echo "Stopping existing containers..."
+          echo "Restart containers..."
           docker compose down
 
-          echo "Starting updated containers..."
           docker compose \
             -f docker-compose.yml \
             -f docker-compose.stg.yml \
