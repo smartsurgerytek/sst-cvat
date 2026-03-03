@@ -87,11 +87,11 @@ jobs:
 
       - name: Build CVAT Server
         run: |
-          docker build -t $ECR_REGISTRY/cvat-server:$IMAGE_TAG .
+          docker build -f Dockerfile -t $ECR_REGISTRY/cvat-server:$IMAGE_TAG .
 
       - name: Build CVAT UI
         run: |
-          docker build -t $ECR_REGISTRY/cvat-ui:$IMAGE_TAG ./cvat-ui
+          docker build -f Dockerfile.ui -t $ECR_REGISTRY/cvat-ui:$IMAGE_TAG .
 
       - name: Push CVAT Server
         run: docker push $ECR_REGISTRY/cvat-server:$IMAGE_TAG
