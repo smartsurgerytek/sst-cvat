@@ -1,328 +1,356 @@
 # =============================================================================
-# STG Workflow: Build and Deploy to AWS STG Environment
+# STG Workflow: Build and Deploy to STG Environment
 # =============================================================================
 #
-# This workflow builds CVAT images and deploys them to AWS STG for testing.
-# Triggered manually for testing, will be auto-triggered on PR merge later.
+# This workflow builds CVAT images and deploys them to STG (Production).
+# Triggered automatically when code is merged to sst-main.
 #
-# Flow:
-#   1. Developer creates PR to sst-main
-#   2. After PR approval and merge to sst-main
-#   3. This workflow auto-builds and deploys to STG
-#   4. Team tests on STG before production deployment
-#
-# Usage (Manual Testing):
-#   1. Go to Actions tab in GitHub
-#   2. Select "Deploy to STG" workflow
-#   3. Click "Run workflow"
-#   4. Select your branch from dropdown
-#   5. Click "Run workflow" button
+# Triggers:
+#   - Auto: Push to sst-main (after PR merge)
+#   - Manual: workflow_dispatch
 #
 # Prerequisites (GitHub Secrets):
-#   - AWS_ACCESS_KEY_ID:     AWS access key
-#   - AWS_SECRET_ACCESS_KEY: AWS secret key
-#   - AWS_ACCOUNT_ID:        AWS account ID (587128718062)
-#   - STG_EC2_HOST:          STG EC2 domain (cvat-stg.getsmartsurgery.net)
-#   - STG_SSH_KEY:           SSH private key for STG EC2 access
+#   - GCP_SA_KEY:      Service Account JSON key
+#   - GCP_PROJECT_ID:  GCP Project ID
+#   - STG_GCP_ZONE:    STG VM zone (e.g., us-central1-b)
+#   - STG_VM_NAME:     STG VM instance name
+#   - STG_CVAT_HOST:   CVAT hostname for STG (IP or domain)
 #
 # =============================================================================
 
 name: Deploy to STG
 
 on:
-  # Manual trigger (for testing)
+  # Auto-trigger on push to sst-main (after PR merge)
+  push:
+    branches:
+      - sst-main
+
+  # Manual trigger
   workflow_dispatch:
     inputs:
-      skip_backup:
-        description: 'Skip backup before deployment'
-        required: false
-        type: boolean
-        default: false
-
-  # Auto-trigger on push to sst-main (enable this later after testing)
-  # push:
-  #   branches:
-  #     - sst-main
+      image_tag:
+        description: 'Image tag to deploy (default: latest)'
+        type: string
+        default: 'latest'
 
 # Prevent duplicate runs
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-stg
+  cancel-in-progress: false  # Don't cancel ongoing deployments
 
 env:
-  AWS_REGION: ap-northeast-1
-  DEPLOY_PATH: /home/ubuntu/cvat/sst-cvat
+  REGISTRY: us-central1-docker.pkg.dev
+  REPO_NAME: cvat-repo
+  DEPLOY_PATH: /opt/sst-cvat-stg
 
 jobs:
   # ============================================
-  # Job 1: Prepare Build Parameters
-  # ============================================
-  prepare:
-    name: Prepare Build Parameters
-    runs-on: ubuntu-latest
-    outputs:
-      image_tag: ${{ steps.vars.outputs.image_tag }}
-    steps:
-      - name: Generate image tag with short SHA
-        id: vars
-        run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          BRANCH_TAG=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
-          IMAGE_TAG="${BRANCH_TAG}-${SHORT_SHA}"
-          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-
-  # ============================================
-  # Job 2: Build Images (reusable workflow)
+  # Job 1: Build Images (reusable workflow)
+  # Only run for push events (not manual with custom tag)
   # ============================================
   build:
     name: Build Images
-    needs: prepare
-    uses: ./.github/workflows/build-images-aws.yml
+    if: github.event_name == 'push' || github.event.inputs.image_tag == 'latest'
+    uses: ./.github/workflows/build-images.yml
     with:
-      ref: ${{ github.ref }}
-      image_tag: ${{ needs.prepare.outputs.image_tag }}
-      push_latest: false
+      ref: sst-main
+      image_tag: sst-main-${{ github.sha }}
+      push_latest: true
       env_label: STG
     secrets: inherit
 
   # ============================================
-  # Job 3: Deploy to AWS STG
+  # Job 2: Deploy to STG
   # ============================================
   deploy:
     name: Deploy to STG Environment
     runs-on: ubuntu-latest
-    needs: [prepare, build]
+    needs: build
+    # Run even if build was skipped (manual trigger with custom tag)
+    if: always() && (needs.build.result == 'success' || needs.build.result == 'skipped')
 
     steps:
-      - name: Set deployment variables
-        id: vars
+      - name: Determine image tag
+        id: params
         run: |
-          echo "image_tag=${{ needs.prepare.outputs.image_tag }}" >> $GITHUB_OUTPUT
-          echo "branch_name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.image_tag }}" != "latest" ]; then
+            IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+          else
+            IMAGE_TAG="latest"
+          fi
 
-      - name: Deployment Info
-        run: |
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
           echo "============================================"
-          echo "Deploying to AWS STG Environment"
+          echo "Deployment Parameters"
           echo "============================================"
-          echo "Branch:       ${{ steps.vars.outputs.branch_name }}"
-          echo "Image Tag:    ${{ steps.vars.outputs.image_tag }}"
-          echo "Skip Backup:  ${{ github.event.inputs.skip_backup }}"
+          echo "Event:        ${{ github.event_name }}"
+          echo "Image Tag:    ${IMAGE_TAG}"
           echo "Triggered by: ${{ github.actor }}"
           echo "============================================"
 
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          ref: sst-main
 
-      - name: Setup SSH
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Clean OS Login Keys (prevent 32KB limit, keep last 5)
         run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          # Use printf to preserve multiline SSH key correctly
-          printf "%s" "${{ secrets.STG_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          # Add host key (non-fatal if it fails)
-          ssh-keyscan -H "${{ secrets.STG_EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          echo "Cleaning old OS Login SSH keys to prevent profile size limit (keeping last 5)..."
+          FPS=$(gcloud compute os-login describe-profile --format="yaml" 2>/dev/null | grep "fingerprint:" | awk '{print $2}' || true)
+
+          if [ -z "$FPS" ]; then
+            echo "No existing keys found."
+            exit 0
+          fi
+
+          COUNT=$(echo "$FPS" | wc -l)
+          echo "Found $COUNT SSH key(s)."
+
+          if [ "$COUNT" -gt 5 ]; then
+            REMOVE_COUNT=$((COUNT - 5))
+            echo "Removing oldest $REMOVE_COUNT key(s), keeping last 5..."
+            echo "$FPS" | head -n "$REMOVE_COUNT" | while read fp; do
+              gcloud compute os-login ssh-keys remove --key="$fp" --quiet || true
+            done
+            echo "Cleanup complete, 5 keys remaining."
+          else
+            echo "Only $COUNT key(s) found, no cleanup needed."
+          fi
 
       - name: Prepare deployment files
         id: prepare
         run: |
-          IMAGE_TAG="${{ steps.vars.outputs.image_tag }}"
-          ECR_REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
-          CVAT_HOST="cvat-stg.getsmartsurgery.net"
+          IMAGE_TAG="${{ steps.params.outputs.image_tag }}"
+          REGISTRY="${{ env.REGISTRY }}"
+          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
+          REPO_NAME="${{ env.REPO_NAME }}"
+          CVAT_HOST="${{ secrets.STG_CVAT_HOST }}"
 
           # Create .env file
           cat > .env << EOF
           # CVAT Environment Configuration
           # Generated by GitHub Actions deployment
           CVAT_HOST=${CVAT_HOST}
-          CVAT_SERVER_IMAGE=${ECR_REGISTRY}/cvat-server:${IMAGE_TAG}
-          CVAT_UI_IMAGE=${ECR_REGISTRY}/cvat-ui:${IMAGE_TAG}
-          ACME_EMAIL=krishtopher.rathod@faciletechnolab.com
+          CVAT_SERVER_IMAGE=${REGISTRY}/${PROJECT_ID}/${REPO_NAME}/cvat-server:${IMAGE_TAG}
+          CVAT_UI_IMAGE=${REGISTRY}/${PROJECT_ID}/${REPO_NAME}/cvat-ui:${IMAGE_TAG}
           EOF
 
           echo "Created .env file:"
           cat .env
 
-      - name: Copy deployment files to EC2
+      - name: Prepare VM deployment directory
         run: |
-          # Copy docker-compose files and .env to EC2
-          scp -i ~/.ssh/id_rsa \
+          # Create deployment directory on VM (persistent location in /opt)
+          # IMPORTANT: chown to current user so scp can set permissions without sudo
+          # OS Login UIDs vary between sessions, so we use $(id -u):$(id -g) dynamically
+          # Note: Directory persists across deployments for volume mounts (Grafana dashboards, etc.)
+          gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
+            --zone=${{ secrets.STG_GCP_ZONE }} \
+            --tunnel-through-iap \
+            --command="
+              sudo mkdir -p ${{ env.DEPLOY_PATH }}
+              sudo chown \$(id -u):\$(id -g) ${{ env.DEPLOY_PATH }}
+              sudo chmod 755 ${{ env.DEPLOY_PATH }}
+            "
+
+      - name: Copy deployment files to VM
+        run: |
+          # Copy docker-compose files and .env to VM
+          gcloud compute scp \
             docker-compose.yml \
             docker-compose.stg.yml \
-            docker-compose.https.yml \
             .env \
-            ubuntu@${{ secrets.STG_EC2_HOST }}:${{ env.DEPLOY_PATH }}/
+            ${{ secrets.STG_VM_NAME }}:${{ env.DEPLOY_PATH }}/ \
+            --zone=${{ secrets.STG_GCP_ZONE }} \
+            --tunnel-through-iap
 
           # Copy components directory (contains config files mounted by docker-compose)
-          scp -r -i ~/.ssh/id_rsa \
+          gcloud compute scp --recurse \
             components \
-            ubuntu@${{ secrets.STG_EC2_HOST }}:${{ env.DEPLOY_PATH }}/
+            ${{ secrets.STG_VM_NAME }}:${{ env.DEPLOY_PATH }}/ \
+            --zone=${{ secrets.STG_GCP_ZONE }} \
+            --tunnel-through-iap
 
-          echo "Deployment files copied to EC2:${{ env.DEPLOY_PATH }}/"
+          # Fix file permissions so containers (Grafana, etc.) can read mounted files
+          # Files copied via scp have restrictive permissions (600), but containers run as different users
+          # Use sudo because /opt directory is owned by root
+          gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
+            --zone=${{ secrets.STG_GCP_ZONE }} \
+            --tunnel-through-iap \
+            --command="sudo chmod -R a+rX ${{ env.DEPLOY_PATH }}"
 
-      - name: Deploy to STG EC2
+          echo "Deployment files copied to VM:${{ env.DEPLOY_PATH }}/"
+
+      - name: Deploy to STG VM
         run: |
-          IMAGE_TAG="${{ steps.vars.outputs.image_tag }}"
-          BRANCH_NAME="${{ steps.vars.outputs.branch_name }}"
+          IMAGE_TAG="${{ steps.params.outputs.image_tag }}"
+          REGISTRY="${{ env.REGISTRY }}"
+          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
+          REPO_NAME="${{ env.REPO_NAME }}"
           DEPLOY_PATH="${{ env.DEPLOY_PATH }}"
-          SKIP_BACKUP="${{ github.event.inputs.skip_backup }}"
-          ECR_REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
 
-          ssh -i ~/.ssh/id_rsa ubuntu@${{ secrets.STG_EC2_HOST }} << ENDSSH
-            set -e
+          # Get access token on GitHub runner
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
 
-            echo '============================================'
-            echo 'Starting deployment on AWS STG EC2'
-            echo '============================================'
+          gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
+            --zone=${{ secrets.STG_GCP_ZONE }} \
+            --tunnel-through-iap \
+            --command="
+              set -e
 
-            # Configure AWS CLI for ECR login
-            export AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}"
-            export AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-            export AWS_DEFAULT_REGION="${{ env.AWS_REGION }}"
+              # Force Docker to use project-specific config dir (isolated from other deployments)
+              # Use sudo to clean up any leftover from previous runs (different OS Login UIDs)
+              export DOCKER_CONFIG=/tmp/sst-cvat/.docker
+              sudo rm -rf /tmp/sst-cvat 2>/dev/null || true
+              mkdir -p \${DOCKER_CONFIG}
 
-            # Login to ECR
-            echo 'Logging into Amazon ECR...'
-            aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
-              docker login --username AWS --password-stdin ${ECR_REGISTRY}
+              echo '============================================'
+              echo 'Deploying to STG Environment'
+              echo '============================================'
 
-            cd ${DEPLOY_PATH}
+              # Configure Docker for Artifact Registry
+              echo 'Logging into Docker via Access Token...'
+              echo '${ACCESS_TOKEN}' | docker login -u oauth2accesstoken --password-stdin https://${REGISTRY}
 
-            echo 'Deployment directory: ${DEPLOY_PATH}'
-            echo ''
-            echo 'Files in deployment directory:'
-            ls -la
+              cd ${DEPLOY_PATH}
 
-            # Create backup (unless skipped)
-            if [ '${SKIP_BACKUP}' != 'true' ]; then
+              echo 'Deployment directory: '${DEPLOY_PATH}
               echo ''
-              echo 'Creating backup of current state...'
-              BACKUP_TAG=\$(date +%Y%m%d_%H%M%S)
-              docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' > /tmp/cvat_backup_\${BACKUP_TAG}.txt 2>/dev/null || true
-              echo "Backup saved to /tmp/cvat_backup_\${BACKUP_TAG}.txt"
-            fi
+              echo 'Files in deployment directory:'
+              ls -la
 
-            echo ''
-            echo '.env file contents:'
-            cat .env
+              echo ''
+              echo '.env file contents:'
+              cat .env
 
-            # Source .env to get image names
-            export \$(cat .env | grep -v '^#' | xargs)
+              # Pull images
+              CVAT_SERVER_IMAGE='${REGISTRY}/${PROJECT_ID}/${REPO_NAME}/cvat-server:${IMAGE_TAG}'
+              CVAT_UI_IMAGE='${REGISTRY}/${PROJECT_ID}/${REPO_NAME}/cvat-ui:${IMAGE_TAG}'
 
-            echo ''
-            echo 'Pulling new images...'
-            echo "  Server: \${CVAT_SERVER_IMAGE}"
-            echo "  UI:     \${CVAT_UI_IMAGE}"
+              echo ''
+              echo 'Pulling new images...'
+              echo \"  Server: \${CVAT_SERVER_IMAGE}\"
+              echo \"  UI:     \${CVAT_UI_IMAGE}\"
 
-            docker pull \${CVAT_SERVER_IMAGE}
-            docker pull \${CVAT_UI_IMAGE}
+              docker pull \${CVAT_SERVER_IMAGE}
+              docker pull \${CVAT_UI_IMAGE}
 
-            echo 'Stopping current containers...'
-            docker compose \
-              -f docker-compose.yml \
-              -f docker-compose.stg.yml \
-              -f docker-compose.https.yml \
-              -f components/serverless/docker-compose.serverless.yml \
-              down --remove-orphans || true
+              echo ''
+              echo 'Images pulled successfully!'
 
-            echo 'Starting containers with new images (with HTTPS and serverless support)...'
-            docker compose \
-              -f docker-compose.yml \
-              -f docker-compose.stg.yml \
-              -f docker-compose.https.yml \
-              -f components/serverless/docker-compose.serverless.yml \
-              up -d
+              # Deploy
+              echo ''
+              echo 'Stopping current containers...'
+              docker compose -f docker-compose.yml -f docker-compose.stg.yml -f components/serverless/docker-compose.serverless.yml down --remove-orphans || true
 
-            echo 'Waiting for services to start...'
-            sleep 15
+              echo 'Starting containers with new images (with serverless support)...'
+              docker compose -f docker-compose.yml -f docker-compose.stg.yml -f components/serverless/docker-compose.serverless.yml up -d
 
-            echo 'Checking container status...'
-            docker compose \
-              -f docker-compose.yml \
-              -f docker-compose.stg.yml \
-              -f docker-compose.https.yml \
-              -f components/serverless/docker-compose.serverless.yml \
-              ps
+              echo 'Waiting for services to start...'
+              sleep 10
 
-            echo '============================================'
-            echo 'Deployment complete!'
-            echo 'Branch:    ${BRANCH_NAME}'
-            echo 'Image tag: ${IMAGE_TAG}'
-            echo '============================================'
-          ENDSSH
+              echo 'Checking container status...'
+              docker compose -f docker-compose.yml -f docker-compose.stg.yml -f components/serverless/docker-compose.serverless.yml ps
+
+              echo '============================================'
+              echo 'Deployment complete!'
+              echo 'Image tag: ${IMAGE_TAG}'
+              echo '============================================'
+            "
 
       - name: Health Check
         run: |
           echo "Running health check..."
           sleep 20
 
-          ssh -i ~/.ssh/id_rsa ubuntu@${{ secrets.STG_EC2_HOST }} << 'ENDSSH'
-            cd ${{ env.DEPLOY_PATH }}
+          gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
+            --zone=${{ secrets.STG_GCP_ZONE }} \
+            --tunnel-through-iap \
+            --command="
+              # Set Docker config to avoid permission issues with default config location
+              export DOCKER_CONFIG=/tmp/sst-cvat/.docker
 
-            echo 'Container Status:'
-            docker compose \
-              -f docker-compose.yml \
-              -f docker-compose.stg.yml \
-              -f docker-compose.https.yml \
-              -f components/serverless/docker-compose.serverless.yml \
-              ps
+              cd ${{ env.DEPLOY_PATH }}
 
-            FAILED=0
+              echo 'Container Status:'
+              docker compose -f docker-compose.yml -f docker-compose.stg.yml -f components/serverless/docker-compose.serverless.yml ps
 
-            for SERVICE in cvat_server cvat_ui cvat_db nuclio traefik; do
-              STATUS=$(docker compose \
-                -f docker-compose.yml \
-                -f docker-compose.stg.yml \
-                -f docker-compose.https.yml \
-                -f components/serverless/docker-compose.serverless.yml \
-                ps ${SERVICE} --format '{{.Status}}' 2>/dev/null || echo 'not found')
+              FAILED=0
 
-              if [[ "${STATUS}" == *'Up'* ]]; then
-                echo "✓ ${SERVICE}: Running"
-              else
-                echo "✗ ${SERVICE}: ${STATUS}"
-                FAILED=1
+              for SERVICE in cvat_server cvat_ui cvat_db nuclio; do
+                STATUS=\$(docker compose -f docker-compose.yml -f docker-compose.stg.yml -f components/serverless/docker-compose.serverless.yml ps \${SERVICE} --format '{{.Status}}' 2>/dev/null || echo 'not found')
+                if [[ \"\${STATUS}\" == *'Up'* ]]; then
+                  echo \"✓ \${SERVICE}: Running\"
+                else
+                  echo \"✗ \${SERVICE}: \${STATUS}\"
+                  FAILED=1
+                fi
+              done
+
+              if [ \${FAILED} -eq 1 ]; then
+                echo ''
+                echo 'Some services failed to start. Check logs with:'
+                echo '  docker compose logs <service_name>'
+                exit 1
               fi
-            done
 
-            if [ ${FAILED} -eq 1 ]; then
               echo ''
-              echo 'Some services failed to start. Check logs with:'
-              echo '  docker compose logs <service_name>'
-              exit 1
-            fi
+              echo 'All critical services are running!'
+            "
 
-            echo ''
-            echo 'All critical services are running!'
-          ENDSSH
-
-      - name: Cleanup SSH keys
+      - name: Cleanup temp directories
         if: always()
         run: |
-          rm -f ~/.ssh/id_rsa
+          echo "Cleaning up temp docker config on VM..."
+          # SAFE TO REMOVE (not needed for container restart):
+          #   - /tmp/sst-cvat/.docker: Docker registry credentials (only needed during image pull)
+          #
+          # DO NOT REMOVE (required for container restart):
+          #   - /opt/sst-cvat-stg/: Deployment files (docker-compose, .env, components/)
+          #     Contains volume mounts for Grafana dashboards, analytics configs, etc.
+          #   - Docker image cache: Containers restart using locally cached images
+          gcloud compute ssh ${{ secrets.STG_VM_NAME }} \
+            --zone=${{ secrets.STG_GCP_ZONE }} \
+            --tunnel-through-iap \
+            --command="sudo rm -rf /tmp/sst-cvat" || true
+
+          echo "Cleanup completed."
+
+      - name: Clean up OS Login SSH keys (keep last 5)
+        if: always()
+        run: |
+          # Only remove old SSH keys, keep last 5 to prevent interrupting other workflows
+          FPS=$(gcloud compute os-login describe-profile --format="yaml" 2>/dev/null | grep "fingerprint:" | awk '{print $2}' || true)
+          if [ -n "$FPS" ]; then
+            COUNT=$(echo "$FPS" | wc -l)
+            if [ "$COUNT" -gt 5 ]; then
+              REMOVE_COUNT=$((COUNT - 5))
+              echo "$FPS" | head -n "$REMOVE_COUNT" | while read fp; do
+                gcloud compute os-login ssh-keys remove --key="$fp" --quiet || true
+              done
+            fi
+          fi
 
       - name: Deployment Summary
         if: always()
         run: |
-          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## STG Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | **STG (AWS)** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Branch | \`${{ steps.vars.outputs.branch_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image Tag | \`${{ steps.vars.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| EC2 Host | \`${{ secrets.STG_EC2_HOST }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| CVAT URL | https://cvat-stg.getsmartsurgery.net |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | **STG** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | \`${{ steps.params.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| VM | \`${{ secrets.STG_VM_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| CVAT Host | \`${{ secrets.STG_CVAT_HOST }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered By | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "1. Test on STG environment: https://cvat-stg.getsmartsurgery.net" >> $GITHUB_STEP_SUMMARY
-          echo "2. If tests pass, deploy to Production" >> $GITHUB_STEP_SUMMARY
