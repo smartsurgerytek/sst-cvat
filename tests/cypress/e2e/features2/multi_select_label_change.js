@@ -59,6 +59,16 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
         secondY: 280,
     };
 
+    const rectangleC = {
+        points: 'By 2 Points',
+        type: 'Shape',
+        labelName: firstLabelName,
+        firstX: 420,
+        firstY: 180,
+        secondX: 520,
+        secondY: 280,
+    };
+
     function sidebarRow(id) {
         return `#cvat-objects-sidebar-state-item-${id}`;
     }
@@ -156,6 +166,17 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
         });
     }
 
+    function triggerModifierKeyDownOnWindow(key = modifierKey) {
+        cy.window().then((win) => {
+            win.dispatchEvent(new win.KeyboardEvent('keydown', {
+                key,
+                bubbles: true,
+                cancelable: true,
+                repeat: false,
+            }));
+        });
+    }
+
     before(() => {
         cy.visit('/auth/login');
         cy.login();
@@ -213,6 +234,67 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
 
             cy.get(sidebarCheckbox(firstShapeID)).should('be.checked');
             cy.get(sidebarCheckbox(secondShapeID)).should('be.checked');
+            cy.get(bulkLabelSelectorAnchor).should('not.exist');
+        });
+
+        triggerModifierKeyUpOnWindow();
+        cy.get(bulkLabelSelectorAnchor).should('exist');
+
+        cy.get('body').click(10, 10);
+        cy.get(bulkLabelSelectorAnchor).should('not.exist');
+    });
+
+    it('clears single canvas ctrl/cmd selection when modifier key is pressed again', () => {
+        cy.get(bulkLabelSelectorAnchor).should('not.exist');
+
+        withCreatedShapeIDs(([firstShapeID]) => {
+            cy.get(canvasShape(firstShapeID)).click({ ...modifierClickOption, force: true });
+            cy.get(sidebarCheckbox(firstShapeID)).should('be.checked');
+            cy.get(bulkLabelSelectorAnchor).should('not.exist');
+        });
+
+        triggerModifierKeyDownOnWindow();
+
+        withCreatedShapeIDs(([firstShapeID]) => {
+            cy.get(sidebarCheckbox(firstShapeID)).should('not.be.checked');
+        });
+        cy.get('.cvat-objects-sidebar-state-multi-selected-item').should('not.exist');
+        cy.get(bulkLabelSelectorAnchor).should('not.exist');
+    });
+
+    it('shows floating dropdown when ctrl/cmd deselection leaves exactly two selected canvas objects', () => {
+        cy.get(bulkLabelSelectorAnchor).should('not.exist');
+        cy.createRectangle(rectangleC);
+        cy.document().then((doc) => {
+            createdShapeIDs = Array.from(
+                doc.querySelectorAll('.cvat-objects-sidebar-state-item[id^="cvat-objects-sidebar-state-item-"]'),
+            )
+                .map((rowElement) => {
+                    const matchResult = rowElement.id.match(/\d+$/);
+                    return Number(matchResult ? matchResult[0] : NaN);
+                })
+                .filter((id) => Number.isInteger(id))
+                .sort((firstID, secondID) => firstID - secondID)
+                .slice(-3);
+            expect(createdShapeIDs).to.have.length(3);
+        });
+
+        cy.then(() => {
+            const [firstShapeID, secondShapeID, thirdShapeID] = createdShapeIDs;
+
+            cy.get(canvasShape(firstShapeID)).click({ ...modifierClickOption, force: true });
+            cy.get(canvasShape(secondShapeID)).click({ ...modifierClickOption, force: true });
+            cy.get(canvasShape(thirdShapeID)).click({ ...modifierClickOption, force: true });
+
+            cy.get(sidebarCheckbox(firstShapeID)).should('be.checked');
+            cy.get(sidebarCheckbox(secondShapeID)).should('be.checked');
+            cy.get(sidebarCheckbox(thirdShapeID)).should('be.checked');
+            cy.get(bulkLabelSelectorAnchor).should('not.exist');
+
+            cy.get(canvasShape(thirdShapeID)).click({ ...modifierClickOption, force: true });
+            cy.get(sidebarCheckbox(firstShapeID)).should('be.checked');
+            cy.get(sidebarCheckbox(secondShapeID)).should('be.checked');
+            cy.get(sidebarCheckbox(thirdShapeID)).should('not.be.checked');
             cy.get(bulkLabelSelectorAnchor).should('not.exist');
         });
 

@@ -348,6 +348,7 @@ interface State {
 
 class ObjectsListContainer extends React.PureComponent<Props, State> {
     private pendingBulkLabelSelector: PendingBulkLabelSelectorState | null = null;
+    private lastMultiSelectSource: 'canvas' | null = null;
 
     private lastPointerPosition = {
         left: 0,
@@ -375,6 +376,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
     }
 
     public componentDidMount(): void {
+        window.addEventListener('keydown', this.onModifierKeyDown);
         window.addEventListener('keyup', this.onModifierKeyUp);
         window.addEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
         window.addEventListener('blur', this.onWindowBlur);
@@ -404,6 +406,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
     }
 
     public componentWillUnmount(): void {
+        window.removeEventListener('keydown', this.onModifierKeyDown);
         window.removeEventListener('keyup', this.onModifierKeyUp);
         window.removeEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
         window.removeEventListener('blur', this.onWindowBlur);
@@ -484,8 +487,14 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 selectedStateIDs.includes(prevState.bulkLabelSelector.sourceStateID) &&
                 availableStateIDs.has(prevState.bulkLabelSelector.sourceStateID),
             );
+            const pendingBulkLabelSelectorValid = Boolean(
+                this.pendingBulkLabelSelector &&
+                selectedStateIDs.length >= 2 &&
+                selectedStateIDs.includes(this.pendingBulkLabelSelector.sourceStateID) &&
+                availableStateIDs.has(this.pendingBulkLabelSelector.sourceStateID),
+            );
 
-            if (!bulkLabelSelectorValid) {
+            if (!pendingBulkLabelSelectorValid) {
                 this.pendingBulkLabelSelector = null;
             }
 
@@ -511,6 +520,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
 
     private resetBulkLabelSelector = (clearSelectedStateIDs = false): void => {
         this.pendingBulkLabelSelector = null;
+        this.lastMultiSelectSource = null;
         this.setState((prevState) => ({
             selectedStateIDs: clearSelectedStateIDs ? [] : prevState.selectedStateIDs,
             bulkLabelSelector: this.hiddenBulkLabelSelector(),
@@ -525,23 +535,56 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
 
     private onWindowBlur = (): void => {
         this.pendingBulkLabelSelector = null;
+        this.lastMultiSelectSource = null;
+    };
+
+    private onModifierKeyDown = (event: KeyboardEvent): void => {
+        if (!this.isMultiSelectEnabled()) {
+            this.pendingBulkLabelSelector = null;
+            this.lastMultiSelectSource = null;
+            return;
+        }
+
+        if (!this.isSelectionModifierKey(event.key) || event.repeat) {
+            return;
+        }
+
+        const { selectedStateIDs } = this.state;
+        if (!selectedStateIDs.length) {
+            return;
+        }
+
+        this.clearAllSelectionState();
     };
 
     private onModifierKeyUp = (event: KeyboardEvent): void => {
         if (!this.isMultiSelectEnabled()) {
             this.pendingBulkLabelSelector = null;
+            this.lastMultiSelectSource = null;
             return;
         }
 
-        if (!this.isSelectionModifierKey(event.key) || !this.pendingBulkLabelSelector) {
+        if (!this.isSelectionModifierKey(event.key) || this.lastMultiSelectSource !== 'canvas') {
             return;
         }
 
         const pending = this.pendingBulkLabelSelector;
         this.pendingBulkLabelSelector = null;
+        this.lastMultiSelectSource = null;
 
         this.setState((prevState) => {
-            if (prevState.selectedStateIDs.length < 2 || !prevState.selectedStateIDs.includes(pending.sourceStateID)) {
+            if (prevState.selectedStateIDs.length < 2) {
+                return {
+                    bulkLabelSelector: this.hiddenBulkLabelSelector(),
+                };
+            }
+
+            const fallbackSourceStateID = prevState.selectedStateIDs[prevState.selectedStateIDs.length - 1] ?? null;
+            const sourceStateID = pending && prevState.selectedStateIDs.includes(pending.sourceStateID) ?
+                pending.sourceStateID :
+                fallbackSourceStateID;
+
+            if (sourceStateID === null) {
                 return {
                     bulkLabelSelector: this.hiddenBulkLabelSelector(),
                 };
@@ -550,9 +593,9 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             return {
                 bulkLabelSelector: {
                     visible: true,
-                    sourceStateID: pending.sourceStateID,
-                    left: pending.left,
-                    top: pending.top,
+                    sourceStateID,
+                    left: pending?.left ?? this.lastPointerPosition.left,
+                    top: pending?.top ?? this.lastPointerPosition.top,
                 },
             };
         });
@@ -583,6 +626,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         deferBulkLabelOpen: boolean,
     ): void => {
         if (!this.isMultiSelectEnabled()) {
+            this.lastMultiSelectSource = null;
             return;
         }
 
@@ -610,17 +654,36 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             const { selectedStateIDs } = this.state;
             if (!selectedStateIDs.length) {
                 this.pendingBulkLabelSelector = null;
+                this.lastMultiSelectSource = null;
                 return;
             }
 
-            if (deferBulkLabelOpen && selectedStateIDs.length >= 2 && selectedStateIDs.includes(clientID)) {
+            if (deferBulkLabelOpen && selectedStateIDs.length >= 2) {
+                this.lastMultiSelectSource = 'canvas';
+                const previousPendingSourceID = this.pendingBulkLabelSelector?.sourceStateID;
+                let sourceStateID = clientID;
+
+                if (!selectedStateIDs.includes(clientID)) {
+                    if (
+                        typeof previousPendingSourceID === 'number' &&
+                        selectedStateIDs.includes(previousPendingSourceID)
+                    ) {
+                        sourceStateID = previousPendingSourceID;
+                    } else {
+                        sourceStateID = selectedStateIDs[selectedStateIDs.length - 1]!;
+                    }
+                }
+
                 this.pendingBulkLabelSelector = {
-                    sourceStateID: clientID,
+                    sourceStateID,
                     left: pointerPosition.left,
                     top: pointerPosition.top,
                 };
             } else {
                 this.pendingBulkLabelSelector = null;
+                if (deferBulkLabelOpen) {
+                    this.lastMultiSelectSource = 'canvas';
+                }
             }
         });
     };
