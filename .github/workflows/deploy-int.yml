@@ -1,30 +1,6 @@
-# =============================================================================
-# PROD Workflow: Build and Deploy to AWS Production Environment
-# =============================================================================
-#
-# This workflow builds CVAT images and deploys them to AWS Production.
-# Triggered manually only (no auto-deploy to production).
-#
-# Usage:
-#   1. Go to Actions tab in GitHub
-#   2. Select "Deploy to PROD" workflow
-#   3. Click "Run workflow"
-#   4. Select your branch from dropdown
-#   5. Click "Run workflow" button
-#
-# Prerequisites (GitHub Secrets):
-#   - AWS_ACCESS_KEY_ID:     AWS access key
-#   - AWS_SECRET_ACCESS_KEY: AWS secret key
-#   - AWS_ACCOUNT_ID:        AWS account ID (587128718062)
-#   - PROD_EC2_HOST:         PROD EC2 domain (cvat.getsmartsurgery.net or 3.224.187.219)
-#   - PROD_SSH_KEY:          SSH private key for PROD EC2 access
-#
-# =============================================================================
-
-name: Deploy to PROD AWS
+name: Deploy to INT
 
 on:
-  # Manual trigger only (production should never auto-deploy)
   workflow_dispatch:
     inputs:
       skip_backup:
@@ -33,14 +9,14 @@ on:
         type: boolean
         default: false
 
-# Prevent duplicate runs
+# Prevent duplicate runs for the same branch
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   AWS_REGION: us-east-1
-  DEPLOY_PATH: /home/ubuntu/cvat/sst-cvat
+  DEPLOY_PATH: /home/ubuntu/sst-cvat
 
 jobs:
   # ============================================
@@ -66,70 +42,19 @@ jobs:
   build:
     name: Build Images
     needs: prepare
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR (US East 1)
-        id: login-ecr
-        run: |
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
-            docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
-
-      - name: Build Info
-        run: |
-          echo "============================================"
-          echo "Building CVAT Images for PROD"
-          echo "============================================"
-          echo "Branch:       ${{ github.ref_name }}"
-          echo "Image Tag:    ${{ needs.prepare.outputs.image_tag }}"
-          echo "ECR Registry: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
-          echo "Region:       ${{ env.AWS_REGION }}"
-          echo "============================================"
-
-      - name: Build and push CVAT Server
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/cvat-server:${{ needs.prepare.outputs.image_tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            CVAT_VERSION=${{ github.sha }}
-
-      - name: Build and push CVAT UI
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.ui
-          push: true
-          tags: |
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/cvat-ui:${{ needs.prepare.outputs.image_tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            CVAT_ENV_LABEL=PROD
+    uses: ./.github/workflows/build-images-aws.yml
+    with:
+      ref: ${{ github.ref }}
+      image_tag: ${{ needs.prepare.outputs.image_tag }}
+      push_latest: false
+      env_label: INT
+    secrets: inherit
 
   # ============================================
-  # Job 3: Deploy to AWS Production
+  # Job 3: Deploy to AWS INT
   # ============================================
   deploy:
-    name: Deploy to PROD Environment
+    name: Deploy to INT Environment
     runs-on: ubuntu-latest
     needs: [prepare, build]
 
@@ -143,13 +68,12 @@ jobs:
       - name: Deployment Info
         run: |
           echo "============================================"
-          echo "Deploying to AWS PROD Environment"
+          echo "Deploying to AWS INT Environment"
           echo "============================================"
           echo "Branch:       ${{ steps.vars.outputs.branch_name }}"
           echo "Image Tag:    ${{ steps.vars.outputs.image_tag }}"
           echo "Skip Backup:  ${{ github.event.inputs.skip_backup }}"
           echo "Triggered by: ${{ github.actor }}"
-          echo "Region:       ${{ env.AWS_REGION }}"
           echo "============================================"
 
       - name: Checkout code
@@ -166,18 +90,21 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          # Use printf to preserve multiline SSH key correctly
-          printf "%s" "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_rsa
+          printf "%s" "${{ secrets.INT_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          # Add host key (non-fatal if it fails)
-          ssh-keyscan -H "${{ secrets.PROD_EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H "${{ secrets.INT_EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Install Session Manager Plugin
+        run: |
+          curl "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" -o "session-manager-plugin.deb"
+          sudo dpkg -i session-manager-plugin.deb
 
       - name: Prepare deployment files
         id: prepare
         run: |
           IMAGE_TAG="${{ steps.vars.outputs.image_tag }}"
           ECR_REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
-          CVAT_HOST="cvat.getsmartsurgery.net"
+          CVAT_HOST="cvat-int.getsmartsurgery.net"
 
           # Create .env file
           cat > .env << EOF
@@ -197,19 +124,19 @@ jobs:
           # Copy docker-compose files and .env to EC2
           scp -i ~/.ssh/id_rsa \
             docker-compose.yml \
-            docker-compose.stg.yml \
+            docker-compose.int.yml \
             docker-compose.https.yml \
             .env \
-            ubuntu@${{ secrets.PROD_EC2_HOST }}:${{ env.DEPLOY_PATH }}/
+            ubuntu@${{ secrets.INT_EC2_HOST }}:${{ env.DEPLOY_PATH }}/
 
           # Copy components directory (contains config files mounted by docker-compose)
           scp -r -i ~/.ssh/id_rsa \
             components \
-            ubuntu@${{ secrets.PROD_EC2_HOST }}:${{ env.DEPLOY_PATH }}/
+            ubuntu@${{ secrets.INT_EC2_HOST }}:${{ env.DEPLOY_PATH }}/
 
           echo "Deployment files copied to EC2:${{ env.DEPLOY_PATH }}/"
 
-      - name: Deploy to PROD EC2
+      - name: Deploy to INT EC2
         run: |
           IMAGE_TAG="${{ steps.vars.outputs.image_tag }}"
           BRANCH_NAME="${{ steps.vars.outputs.branch_name }}"
@@ -217,11 +144,11 @@ jobs:
           SKIP_BACKUP="${{ github.event.inputs.skip_backup }}"
           ECR_REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
 
-          ssh -i ~/.ssh/id_rsa ubuntu@${{ secrets.PROD_EC2_HOST }} << ENDSSH
+          ssh -i ~/.ssh/id_rsa ubuntu@${{ secrets.INT_EC2_HOST }} << ENDSSH
             set -e
 
             echo '============================================'
-            echo 'Starting deployment on AWS PROD EC2'
+            echo 'Starting deployment on AWS INT EC2'
             echo '============================================'
 
             # Configure AWS CLI for ECR login
@@ -229,8 +156,8 @@ jobs:
             export AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
             export AWS_DEFAULT_REGION="${{ env.AWS_REGION }}"
 
-            # Login to ECR (US East 1)
-            echo 'Logging into Amazon ECR (US East 1)...'
+            # Login to ECR
+            echo 'Logging into Amazon ECR...'
             aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
               docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
@@ -268,7 +195,7 @@ jobs:
             echo 'Stopping current containers...'
             docker compose \
               -f docker-compose.yml \
-              -f docker-compose.stg.yml \
+              -f docker-compose.int.yml \
               -f docker-compose.https.yml \
               -f components/serverless/docker-compose.serverless.yml \
               down --remove-orphans || true
@@ -276,7 +203,7 @@ jobs:
             echo 'Starting containers with new images (with HTTPS and serverless support)...'
             docker compose \
               -f docker-compose.yml \
-              -f docker-compose.stg.yml \
+              -f docker-compose.int.yml \
               -f docker-compose.https.yml \
               -f components/serverless/docker-compose.serverless.yml \
               up -d
@@ -287,7 +214,7 @@ jobs:
             echo 'Checking container status...'
             docker compose \
               -f docker-compose.yml \
-              -f docker-compose.stg.yml \
+              -f docker-compose.int.yml \
               -f docker-compose.https.yml \
               -f components/serverless/docker-compose.serverless.yml \
               ps
@@ -304,13 +231,13 @@ jobs:
           echo "Running health check..."
           sleep 20
 
-          ssh -i ~/.ssh/id_rsa ubuntu@${{ secrets.PROD_EC2_HOST }} << 'ENDSSH'
+          ssh -i ~/.ssh/id_rsa ubuntu@${{ secrets.INT_EC2_HOST }} << 'ENDSSH'
             cd ${{ env.DEPLOY_PATH }}
 
             echo 'Container Status:'
             docker compose \
               -f docker-compose.yml \
-              -f docker-compose.stg.yml \
+              -f docker-compose.int.yml \
               -f docker-compose.https.yml \
               -f components/serverless/docker-compose.serverless.yml \
               ps
@@ -320,7 +247,7 @@ jobs:
             for SERVICE in cvat_server cvat_ui cvat_db nuclio traefik; do
               STATUS=$(docker compose \
                 -f docker-compose.yml \
-                -f docker-compose.stg.yml \
+                -f docker-compose.int.yml \
                 -f docker-compose.https.yml \
                 -f components/serverless/docker-compose.serverless.yml \
                 ps ${SERVICE} --format '{{.Status}}' 2>/dev/null || echo 'not found')
@@ -356,14 +283,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | **PROD (AWS)** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | **INT (AWS)** |" >> $GITHUB_STEP_SUMMARY
           echo "| Branch | \`${{ steps.vars.outputs.branch_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Image Tag | \`${{ steps.vars.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| EC2 Host | \`${{ secrets.PROD_EC2_HOST }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| CVAT URL | https://cvat.getsmartsurgery.net |" >> $GITHUB_STEP_SUMMARY
+          echo "| EC2 Host | \`${{ secrets.INT_EC2_HOST }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| CVAT URL | https://cvat-int.getsmartsurgery.net |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered By | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "1. Test on PROD environment: https://cvat.getsmartsurgery.net" >> $GITHUB_STEP_SUMMARY
-          echo "2. Monitor for any issues" >> $GITHUB_STEP_SUMMARY
+          echo "1. Test on INT environment: https://cvat-int.getsmartsurgery.net" >> $GITHUB_STEP_SUMMARY
+          echo "2. If tests pass, create PR to \`sst-main\`" >> $GITHUB_STEP_SUMMARY

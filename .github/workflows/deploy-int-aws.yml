@@ -1,34 +1,4 @@
-# =============================================================================
-# INT Workflow: Build and Deploy to AWS INT Environment
-# =============================================================================
-#
-# This workflow builds CVAT images and deploys them to AWS INT for testing.
-# Use this BEFORE creating a PR - for PM/annotation team to do pre-check.
-#
-# Flow:
-#   1. Developer works on feature branch
-#   2. Manually trigger this workflow -> Build + Deploy to INT
-#   3. PM/annotation team tests on INT
-#   4. If tests pass -> Create PR to sst-main
-#
-# Usage:
-#   1. Go to Actions tab in GitHub
-#   2. Select "Deploy to INT (AWS)" workflow
-#   3. Click "Run workflow"
-#   4. Select your branch from dropdown
-#   5. Click "Run workflow" button
-#
-# Prerequisites (GitHub Secrets):
-#   - AWS_ACCESS_KEY_ID:     AWS access key
-#   - AWS_SECRET_ACCESS_KEY: AWS secret key
-#   - AWS_ACCOUNT_ID:        AWS account ID (587128718062)
-#   - INT_EC2_HOST:          INT EC2 domain (cvat-int.getsmartsurgery.net)
-#   - INT_SSH_KEY:           SSH private key for EC2 access
-#   - INT_CVAT_HOST:         CVAT hostname for INT (cvat-int.getsmartsurgery.net)
-#
-# =============================================================================
-
-name: Deploy to INT (AWS)
+name: Deploy to INT
 
 on:
   workflow_dispatch:
@@ -45,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AWS_REGION: ap-northeast-1
-  DEPLOY_PATH: /home/ubuntu/cvat/sst-cvat
+  AWS_REGION: us-east-1
+  DEPLOY_PATH: /home/ubuntu/sst-cvat
 
 jobs:
   # ============================================

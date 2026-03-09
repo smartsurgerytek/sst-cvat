@@ -1,32 +1,3 @@
-# =============================================================================
-# STG Workflow: Build and Deploy to AWS STG Environment
-# =============================================================================
-#
-# This workflow builds CVAT images and deploys them to AWS STG for testing.
-# Triggered manually for testing, will be auto-triggered on PR merge later.
-#
-# Flow:
-#   1. Developer creates PR to sst-main
-#   2. After PR approval and merge to sst-main
-#   3. This workflow auto-builds and deploys to STG
-#   4. Team tests on STG before production deployment
-#
-# Usage (Manual Testing):
-#   1. Go to Actions tab in GitHub
-#   2. Select "Deploy to STG" workflow
-#   3. Click "Run workflow"
-#   4. Select your branch from dropdown
-#   5. Click "Run workflow" button
-#
-# Prerequisites (GitHub Secrets):
-#   - AWS_ACCESS_KEY_ID:     AWS access key
-#   - AWS_SECRET_ACCESS_KEY: AWS secret key
-#   - AWS_ACCOUNT_ID:        AWS account ID (587128718062)
-#   - STG_EC2_HOST:          STG EC2 domain (cvat-stg.getsmartsurgery.net)
-#   - STG_SSH_KEY:           SSH private key for STG EC2 access
-#
-# =============================================================================
-
 name: Deploy to STG
 
 on:
