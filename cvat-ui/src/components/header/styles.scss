@@ -27,7 +27,7 @@
 .cvat-logo-icon {
     width: max-content;
     height: $grid-unit-size * 4;
-    max-width: $grid-unit-size * 16;
+    max-width: $grid-unit-size * 20;
     overflow: hidden;
     display: flex;
     justify-content: center;
@@ -35,8 +35,9 @@
 
     img {
         object-fit: contain;
+        height: 100%;
+        width: auto;
         max-width: 100%;
-        max-height: 100%;
     }
 }
 

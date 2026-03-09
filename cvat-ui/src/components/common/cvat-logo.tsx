@@ -6,12 +6,16 @@ import React from 'react';
 import { useSelector } from 'react-redux';
 import { CombinedState } from 'reducers';
 
+const FALLBACK_LOGO_PATH = '/static/logo.svg';
+
 function CVATLogo(): JSX.Element {
-    const logo = useSelector((state: CombinedState) => state.about.server.logoURL);
+    const src = useSelector(
+        (state: CombinedState) => state.about.server.logoURL || FALLBACK_LOGO_PATH,
+    );
 
     return (
         <div className='cvat-logo-icon'>
-            <img src={logo} alt='CVAT Logo' />
+            <img src={src} alt='iLabel Logo' />
         </div>
     );
 }
