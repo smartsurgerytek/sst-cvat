@@ -10,7 +10,7 @@ import Layout from 'antd/lib/layout';
 import { Col, Row } from 'antd/lib/grid';
 import Title from 'antd/lib/typography/Title';
 import CVATLogo from 'components/common/cvat-logo';
-import SVGSigningBackground from '../../assets/signing-background.svg';
+import signingBackground from '../../assets/signing-background.png';
 
 interface SignInLayoutComponentProps {
     children: JSX.Element | JSX.Element[];
@@ -72,9 +72,9 @@ function SignInLayout(props: SignInLayoutComponentProps): JSX.Element {
     };
     return (
         <Layout>
-            <SVGSigningBackground className='cvat-signing-background' />
+            <img className='cvat-signing-background' src={signingBackground} alt='' aria-hidden='true' />
             <Header className='cvat-signing-header'>
-                <Row className='cvat-signing-header-logo-wrapper' justify='center' align='middle'>
+                <Row className='cvat-signing-header-logo-wrapper' align='middle'>
                     <Col {...logoSizes}>
                         <CVATLogo />
                     </Col>
