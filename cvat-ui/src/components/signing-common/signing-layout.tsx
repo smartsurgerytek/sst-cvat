@@ -53,6 +53,17 @@ function SignInLayout(props: SignInLayoutComponentProps): JSX.Element {
     const { children } = props;
     const { Content, Header } = Layout;
     const subtitle = useSelector((state: CombinedState) => state.about.server.subtitle);
+    const signingBackgroundStyle = {
+        backgroundColor: '#05111f',
+        backgroundImage: `
+            radial-gradient(circle at 30% 32%, rgba(25, 160, 194, 0.45) 0%, rgba(25, 160, 194, 0) 28%),
+            radial-gradient(circle at 78% 46%, rgba(21, 121, 91, 0.35) 0%, rgba(21, 121, 91, 0) 34%),
+            url(${signingBackground})
+        `,
+        backgroundPosition: 'center center',
+        backgroundSize: 'cover',
+        backgroundRepeat: 'no-repeat',
+    };
 
     const titleSizes = {
         xs: { span: 0 },
@@ -71,8 +82,7 @@ function SignInLayout(props: SignInLayoutComponentProps): JSX.Element {
         xxl: { span: 22 },
     };
     return (
-        <Layout>
-            <img className='cvat-signing-background' src={signingBackground} alt='' aria-hidden='true' />
+        <Layout className='cvat-signing-screen' style={signingBackgroundStyle}>
             <Header className='cvat-signing-header'>
                 <Row className='cvat-signing-header-logo-wrapper' align='middle'>
                     <Col {...logoSizes}>
