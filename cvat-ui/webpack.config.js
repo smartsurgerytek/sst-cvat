@@ -204,6 +204,10 @@ module.exports = (env) => {
                         to  : 'assets/[name][ext]',
                     },
                     {
+                        from: 'src/assets/signing-background.png',
+                        to  : 'assets/[name][ext]',
+                    },
+                    {
                         from: 'plugins/**/assets/*.(onnx|js)',
                         to  : 'assets/[name][ext]',
                     }

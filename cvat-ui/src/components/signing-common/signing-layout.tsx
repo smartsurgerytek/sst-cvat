@@ -10,7 +10,6 @@ import Layout from 'antd/lib/layout';
 import { Col, Row } from 'antd/lib/grid';
 import Title from 'antd/lib/typography/Title';
 import CVATLogo from 'components/common/cvat-logo';
-import signingBackground from '../../assets/signing-background.png';
 
 interface SignInLayoutComponentProps {
     children: JSX.Element | JSX.Element[];
@@ -54,15 +53,7 @@ function SignInLayout(props: SignInLayoutComponentProps): JSX.Element {
     const { Content, Header } = Layout;
     const subtitle = useSelector((state: CombinedState) => state.about.server.subtitle);
     const signingBackgroundStyle = {
-        backgroundColor: '#05111f',
-        backgroundImage: `
-            radial-gradient(circle at 30% 32%, rgba(25, 160, 194, 0.45) 0%, rgba(25, 160, 194, 0) 28%),
-            radial-gradient(circle at 78% 46%, rgba(21, 121, 91, 0.35) 0%, rgba(21, 121, 91, 0) 34%),
-            url(${signingBackground})
-        `,
-        backgroundPosition: 'center center',
-        backgroundSize: 'cover',
-        backgroundRepeat: 'no-repeat',
+        background: 'url("/assets/signing-background.png") center center / cover no-repeat',
     };
 
     const titleSizes = {
