@@ -189,11 +189,6 @@ class ServerViewSet(viewsets.ViewSet):
     )
     def about(request: ExtendedRequest):
         from cvat import __version__ as cvat_version
-        logo_url = storages["staticfiles"].url(settings.LOGO_FILENAME)
-        with suppress(OSError, NotImplementedError, ValueError):
-            logo_version = int(storages["staticfiles"].get_modified_time(settings.LOGO_FILENAME).timestamp())
-            separator = '&' if '?' in logo_url else '?'
-            logo_url = f'{logo_url}{separator}v={logo_version}'
 
         about = {
             "name": "Computer Vision Annotation Tool",
@@ -206,7 +201,7 @@ class ServerViewSet(viewsets.ViewSet):
                 "and UX decisions are based on feedbacks from professional data " +
                 "annotation team.",
             "version": cvat_version,
-            "logo_url": request.build_absolute_uri(logo_url),
+            "logo_url": request.build_absolute_uri(storages["staticfiles"].url(settings.LOGO_FILENAME)),
         }
         serializer = AboutSerializer(data=about)
         if serializer.is_valid(raise_exception=True):

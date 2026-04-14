@@ -19,39 +19,7 @@
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400;8..144,500;8..144,600;8..144,700;8..144,800&family=Sora&display=swap" rel="stylesheet">
-        <style>
-            html, body {
-                width: 100%;
-                height: 100%;
-                margin: 0;
-            }
-
-            body {
-                min-height: 100%;
-            }
-        </style>
-        <script>
-            (() => {
-                const signingRoutes = new Set([
-                    '/auth/login',
-                    '/auth/register',
-                    '/auth/password/reset',
-                ]);
-
-                if (!signingRoutes.has(window.location.pathname)) {
-                    return;
-                }
-
-                const preloadLink = document.createElement('link');
-                preloadLink.rel = 'preload';
-                preloadLink.as = 'image';
-                preloadLink.href = '/assets/signing-background.png';
-                preloadLink.setAttribute('fetchpriority', 'high');
-
-                document.head.appendChild(preloadLink);
-            })();
-        </script>
-        <title>Computer Vision Annotation Tool</title>
+        <title>Smart Surgery Annotation Tool</title>
     </head>
     <body translate="no">
         <div id="root"></div>

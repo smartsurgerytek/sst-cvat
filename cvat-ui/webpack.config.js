@@ -200,11 +200,7 @@ module.exports = (env) => {
                         to  : 'assets/opencv_4.8.0.js',
                     },
                     {
-                        from: 'src/assets/paid-feature.png',
-                        to  : 'assets/[name][ext]',
-                    },
-                    {
-                        from: 'src/assets/signing-background.png',
+                        from: 'src/assets/*.png',
                         to  : 'assets/[name][ext]',
                     },
                     {
