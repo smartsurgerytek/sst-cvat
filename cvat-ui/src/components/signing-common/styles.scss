@@ -16,6 +16,7 @@ $base-transition: all 0.8s ease;
 $input-transition: all 0.3s ease;
 $social-google-background: #4286f5;
 
+
 .cvat-signing-layout {
     font-family: $signing-font;
 }
@@ -36,16 +37,19 @@ $social-google-background: #4286f5;
 
 .cvat-signing-header-logo-wrapper {
     height: 100%;
+    justify-content: flex-start;
+    padding-inline-start: $grid-unit-size * 10;
 }
 
 .cvat-signing-header {
     background: transparent;
     position: fixed;
-    padding: $grid-unit-size * 2 0 0 0;
+    padding: $grid-unit-size * 4 0 0 0;
     width: 100%;
 
     .cvat-logo-icon {
-        filter: brightness(0) invert(1);
+        height: $grid-unit-size * 4;
+        max-width: $grid-unit-size * 24;
     }
 }
 
@@ -54,6 +58,19 @@ $social-google-background: #4286f5;
     width: 100%;
     height: 100%;
     min-width: $grid-unit-size * 128;
+}
+
+@media (width >= 1200px) {
+    .cvat-signing-header-logo-wrapper {
+        padding-inline-start: $grid-unit-size * 10;
+    }
+
+    .cvat-signing-header {
+        .cvat-logo-icon {
+            height: $grid-unit-size * 4;
+            max-width: $grid-unit-size * 24;
+        }
+    }
 }
 
 .cvat-credentials-link {

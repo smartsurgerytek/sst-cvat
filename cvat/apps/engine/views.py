@@ -189,6 +189,7 @@ class ServerViewSet(viewsets.ViewSet):
     )
     def about(request: ExtendedRequest):
         from cvat import __version__ as cvat_version
+
         about = {
             "name": "Computer Vision Annotation Tool",
             "subtitle": settings.ABOUT_INFO["subtitle"],
