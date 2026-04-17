@@ -1,7 +1,7 @@
 # ADR-001: CVAT Infrastructure Migration from GCP to AWS
 
 | Field | Detail |
-|---|---|
+| --- | --- |
 | **ADR Number** | ADR-001 |
 | **Title** | CVAT Infrastructure Migration from GCP to AWS |
 | **Project** | sst-cvat |
@@ -14,7 +14,9 @@
 
 ## Context
 
-The SmartSurgeryTek CVAT annotation platform was previously hosted on Google Cloud Platform (GCP). As part of infrastructure standardization and cost optimization, the decision was made to migrate all three CVAT environments (INT, STG, PROD) to Amazon Web Services (AWS).
+The SmartSurgeryTek CVAT annotation platform was previously hosted on Google Cloud Platform
+(GCP). As part of infrastructure standardization and cost optimization, the decision was made
+to migrate all three CVAT environments (INT, STG, PROD) to Amazon Web Services (AWS).
 
 The migration required rebuilding all environments from scratch due to:
 - GCP Marketplace AMI restrictions preventing instance type changes
@@ -25,14 +27,16 @@ The migration required rebuilding all environments from scratch due to:
 
 ## Decision
 
-Migrate all three CVAT environments to AWS `us-east-1` (Virginia) region using GPU-enabled EC2 instances with the `Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.9 (Ubuntu 24.04)` base image.
+Migrate all three CVAT environments to AWS `us-east-1` (Virginia) region using GPU-enabled
+EC2 instances with the `Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.9 (Ubuntu 24.04)`
+base image.
 
 ---
 
 ## Environments
 
 | Environment | Instance ID | Instance Type | Region | Elastic IP | Domain |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | INT | i-051eeed5792b570a5 | g6.xlarge | us-east-1 | 54.209.14.130 | cvat-int.getsmartsurgery.net |
 | STG | i-0a88f11eb5a1008f7 | g6.xlarge | us-east-1 | 184.72.100.245 | cvat-stg.getsmartsurgery.net |
 | PROD | i-0375d00a684ba7327 | g6.4xlarge | us-east-1 | 3.224.187.219 | cvat.getsmartsurgery.net |
@@ -98,7 +102,7 @@ docker compose -f docker-compose.yml -f docker-compose.int.yml -f docker-compose
 Updated the following files in the `feature/aws-migration` branch:
 
 | File | Change |
-|---|---|
+| --- | --- |
 | `.github/workflows/deploy-stg.yml` | `AWS_REGION` → `us-east-1`, `DEPLOY_PATH` → `/home/ubuntu/sst-cvat` |
 | `.github/workflows/deploy-int.yml` | Same as above |
 | `.github/workflows/build-images-aws.yml` | `AWS_REGION` → `us-east-1` |
@@ -119,7 +123,8 @@ docker exec -it cvat_db psql -U root -d cvat -c \
   "ALTER TABLE engine_labeledshape DROP COLUMN IF EXISTS score;"
 ```
 
-**Root cause:** Old GCP data exports contained a `score` column that does not exist in the new CVAT schema, causing `IntegrityError` on data import.
+**Root cause:** Old GCP data exports contained a `score` column that does not exist in the
+new CVAT schema, causing `IntegrityError` on data import.
 
 ### 6. Nuclio FDI Segmentation Functions
 
@@ -143,12 +148,14 @@ bash ~/deploy-fdi-functions.sh <HUGGINGFACE_TOKEN>
 **Functions deployed:**
 
 | Function | Port | Description |
-|---|---|---|
+| --- | --- | --- |
 | `pth-facebookresearch-sam-vit-h` | 32768 | SAM segmentation model |
 | `dentistry-pano-fdi-segmentation-2512` | 32793 | FDI panoramic segmentation |
 | `dentistry-pano-fdi-segmentation-2512_flip` | 32794 | FDI panoramic segmentation (flipped) |
 
-**Key fix:** HuggingFace token must be passed as `--env HUGGINGFACE_TOKEN` directly in the `nuctl deploy` command. The `credential.yaml` approach does not work because the container reads from a relative path (`./conf/`) inside `/opt/nuclio`, not from the host filesystem.
+**Key fix:** HuggingFace token must be passed as `--env HUGGINGFACE_TOKEN` directly in the
+`nuctl deploy` command. The `credential.yaml` approach does not work because the container
+reads from a relative path (`./conf/`) inside `/opt/nuclio`, not from the host filesystem.
 
 **Port fix (Bo-An, 11 Mar 2026):** Added `"publishMode": "hostPort"` to platform config for consistent port mapping:
 ```bash
@@ -159,7 +166,8 @@ bash ~/deploy-fdi-functions.sh <HUGGINGFACE_TOKEN>
 
 ## Deployment Script
 
-A single-command deployment script was created for Nuclio FDI functions to avoid CI/CD complexity due to the `dentistry-inference-core` repo branch strategy:
+A single-command deployment script was created for Nuclio FDI functions to avoid CI/CD
+complexity due to the `dentistry-inference-core` repo branch strategy:
 
 ```bash
 # Location on each VM
@@ -178,7 +186,7 @@ Script performs: repo clone/pull → nuctl verify → directory setup → deploy
 Key files location: `D:\Krishtopher\connect\`
 
 | Environment | Key File | Host |
-|---|---|---|
+| --- | --- | --- |
 | INT | `sst-int-cvat-virginia-key.pem` | 54.209.14.130 |
 | STG | `sst-stg-cvat-virginia-key.pem` | 184.72.100.245 |
 | PROD | `sst-cvat-key.pem` | 3.224.187.219 |
