@@ -42,7 +42,7 @@ interface OwnProps {
     multiSelectEnabled?: boolean;
     onToggleSelection?: (event?: MouseEvent) => void;
     bulkChangeLabel?: (sourceStateID: number, label: Label) => boolean;
-    clearAllSelectionState?: () => void;
+    clearMultiSelectionState?: () => void;
 }
 
 interface StateToProps {
@@ -326,17 +326,16 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
             objectState,
             readonly,
             bulkChangeLabel,
-            clearAllSelectionState,
+            clearMultiSelectionState,
         } = this.props;
         if (!readonly) {
             const appliedToSelection = bulkChangeLabel?.(objectState.clientID as number, label) || false;
             if (appliedToSelection) {
-                clearAllSelectionState?.();
+                clearMultiSelectionState?.();
                 return;
             }
             objectState.label = label;
             this.commit();
-            clearAllSelectionState?.();
         }
     };
 

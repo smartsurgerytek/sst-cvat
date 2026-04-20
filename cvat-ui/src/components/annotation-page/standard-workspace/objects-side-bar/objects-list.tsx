@@ -36,7 +36,7 @@ interface Props {
     changeShowGroundTruth(): void;
     onToggleSelection?(id: number, event?: MouseEvent): void;
     bulkChangeLabel?(sourceStateID: number, label: any): boolean;
-    clearAllSelectionState?(): void;
+    clearMultiSelectionState?(): void;
 }
 
 function ObjectListComponent(props: Props): JSX.Element {
@@ -64,7 +64,7 @@ function ObjectListComponent(props: Props): JSX.Element {
         changeShowGroundTruth,
         onToggleSelection,
         bulkChangeLabel,
-        clearAllSelectionState,
+        clearMultiSelectionState,
     } = props;
 
     let latestZOrder: number | null = null;
@@ -120,7 +120,7 @@ function ObjectListComponent(props: Props): JSX.Element {
                                         (event?: MouseEvent): void => onToggleSelection(id, event) :
                                         undefined}
                                     bulkChangeLabel={bulkChangeLabel}
-                                    clearAllSelectionState={clearAllSelectionState}
+                                    clearMultiSelectionState={clearMultiSelectionState}
                                 />
                             </React.Fragment>
                         );

@@ -146,6 +146,8 @@ function ItemTopComponent(props: Props): JSX.Element {
                             value={labelID}
                             onChange={changeLabel}
                             className='cvat-objects-sidebar-state-item-label-selector'
+                            popupClassName='cvat-objects-sidebar-state-item-label-selector-dropdown'
+                            popupMatchSelectWidth={false}
                         />
                     </div>
                 </CVATTooltip>

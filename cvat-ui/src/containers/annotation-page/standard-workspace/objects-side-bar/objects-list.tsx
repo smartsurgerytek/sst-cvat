@@ -4,10 +4,9 @@
 // SPDX-License-Identifier: MIT
 
 import React from 'react';
-import PropTypes from 'prop-types';
 import ReactDOM from 'react-dom';
 
-import { connect } from 'react-redux';
+import { connect, ConnectedProps } from 'react-redux';
 import GlobalHotKeys, { KeyMap } from 'utils/mousetrap-react';
 import message from 'antd/lib/message';
 
@@ -23,7 +22,6 @@ import {
     removeObject as removeObjectAction,
     fetchAnnotationsAsync,
     changeHideActiveObjectAsync,
-    activateObject as activateObjectAction,
 } from 'actions/annotation-actions';
 import {
     changeShowGroundTruth as changeShowGroundTruthAction,
@@ -87,7 +85,6 @@ interface DispatchToProps {
     changeGroupColor(group: number, color: string): void;
     changeShowGroundTruth(value: boolean): void;
     changeHideEditedState(value: boolean): void;
-    activateObject(activatedStateID: number | null, activatedElementID: number | null): void;
 }
 
 const componentShortcuts = {
@@ -301,9 +298,6 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         changeHideEditedState(value: boolean): void {
             dispatch(changeHideActiveObjectAsync(value));
         },
-        activateObject(activatedStateID: number | null, activatedElementID: number | null): void {
-            dispatch(activateObjectAction(activatedStateID, activatedElementID, null));
-        },
     };
 }
 
@@ -321,8 +315,6 @@ function sortAndMap(objectStates: ObjectState[], ordering: StatesOrdering): numb
 
     return sorted.map((state: any) => state.clientID);
 }
-
-type Props = StateToProps & DispatchToProps & OwnProps;
 
 interface BulkLabelSelectorState {
     visible: boolean;
@@ -346,6 +338,11 @@ interface State {
     bulkLabelSelector: BulkLabelSelectorState;
 }
 
+const connector = connect(mapStateToProps, mapDispatchToProps);
+
+type PropsFromRedux = ConnectedProps<typeof connector>;
+type Props = PropsFromRedux & OwnProps;
+
 class ObjectsListContainer extends React.PureComponent<Props, State> {
     private pendingBulkLabelSelector: PendingBulkLabelSelectorState | null = null;
     private lastMultiSelectSource: 'canvas' | null = null;
@@ -353,14 +350,6 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
     private lastPointerPosition = {
         left: 0,
         top: 0,
-    };
-
-    static propTypes = {
-        readonly: PropTypes.bool,
-    };
-
-    static defaultProps = {
-        readonly: false,
     };
 
     public constructor(props: Props) {
@@ -527,10 +516,8 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         }));
     };
 
-    private clearAllSelectionState = (): void => {
-        const { activateObject } = this.props;
+    private clearMultiSelectionState = (): void => {
         this.resetBulkLabelSelector(true);
-        activateObject(null, null);
     };
 
     private onWindowBlur = (): void => {
@@ -550,11 +537,9 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         }
 
         const { selectedStateIDs } = this.state;
-        if (!selectedStateIDs.length) {
-            return;
+        if (selectedStateIDs.length) {
+            this.clearMultiSelectionState();
         }
-
-        this.clearAllSelectionState();
     };
 
     private onModifierKeyUp = (event: KeyboardEvent): void => {
@@ -681,9 +666,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 };
             } else {
                 this.pendingBulkLabelSelector = null;
-                if (deferBulkLabelOpen) {
-                    this.lastMultiSelectSource = 'canvas';
-                }
+                this.lastMultiSelectSource = deferBulkLabelOpen ? 'canvas' : null;
             }
         });
     };
@@ -740,7 +723,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         if (sourceStateID !== null) {
             this.bulkChangeLabel(sourceStateID, label);
         }
-        this.clearAllSelectionState();
+        this.clearMultiSelectionState();
     };
 
     private bulkChangeLabel = (sourceStateID: number, label: Label): boolean => {
@@ -1088,7 +1071,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     showGroundTruth={showGroundTruth}
                     objectStates={filteredStates}
                     onToggleSelection={multiSelectEnabled ? this.onSidebarToggleSelection : undefined}
-                    clearAllSelectionState={multiSelectEnabled ? this.clearAllSelectionState : undefined}
+                    clearMultiSelectionState={multiSelectEnabled ? this.clearMultiSelectionState : undefined}
                     bulkChangeLabel={multiSelectEnabled ? this.bulkChangeLabel : undefined}
                     switchHiddenAllShortcut={normalizedKeyMap.SWITCH_ALL_HIDDEN}
                     switchLockAllShortcut={normalizedKeyMap.SWITCH_ALL_LOCK}
@@ -1132,6 +1115,4 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
     }
 }
 
-export default connect<StateToProps, DispatchToProps, OwnProps, CombinedState>(
-    mapStateToProps, mapDispatchToProps,
-)(ObjectsListContainer as React.ComponentType<any>);
+export default connector(ObjectsListContainer);

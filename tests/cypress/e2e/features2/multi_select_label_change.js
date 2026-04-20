@@ -211,6 +211,8 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
             cy.get(sidebarCheckbox(firstShapeID)).should('be.checked');
             cy.get(sidebarCheckboxControl(secondShapeID)).click({ force: true });
             cy.get(sidebarCheckbox(secondShapeID)).should('be.checked');
+            cy.get(sidebarRow(firstShapeID)).trigger('mouseenter');
+            cy.get(sidebarRow(firstShapeID)).should('have.class', 'cvat-objects-sidebar-state-active-item');
 
             cy.get(bulkLabelSelectorAnchor).should('not.exist');
 
@@ -218,9 +220,44 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
 
             cy.get(rowLabelSelector(firstShapeID)).should('contain.text', secondLabelName);
             cy.get(rowLabelSelector(secondShapeID)).should('contain.text', secondLabelName);
+            cy.get(sidebarRow(firstShapeID)).should('have.class', 'cvat-objects-sidebar-state-active-item');
             cy.get(sidebarCheckbox(firstShapeID)).should('not.be.checked');
             cy.get(sidebarCheckbox(secondShapeID)).should('not.be.checked');
             cy.get('.cvat-objects-sidebar-state-multi-selected-item').should('not.exist');
+        });
+    });
+
+    it('keeps existing multi-selection when changing label on an unselected row', () => {
+        cy.createRectangle(rectangleC);
+        cy.document().then((doc) => {
+            createdShapeIDs = Array.from(
+                doc.querySelectorAll('.cvat-objects-sidebar-state-item[id^="cvat-objects-sidebar-state-item-"]'),
+            )
+                .map((rowElement) => {
+                    const matchResult = rowElement.id.match(/\d+$/);
+                    return Number(matchResult ? matchResult[0] : NaN);
+                })
+                .filter((id) => Number.isInteger(id))
+                .sort((firstID, secondID) => firstID - secondID)
+                .slice(-3);
+            expect(createdShapeIDs).to.have.length(3);
+        });
+
+        cy.then(() => {
+            const [firstShapeID, secondShapeID, thirdShapeID] = createdShapeIDs;
+
+            cy.get(sidebarCheckboxControl(firstShapeID)).click({ force: true });
+            cy.get(sidebarCheckboxControl(secondShapeID)).click({ force: true });
+            cy.get(sidebarCheckbox(firstShapeID)).should('be.checked');
+            cy.get(sidebarCheckbox(secondShapeID)).should('be.checked');
+            cy.get(sidebarCheckbox(thirdShapeID)).should('not.be.checked');
+
+            chooseRowLabel(thirdShapeID, secondLabelName);
+
+            cy.get(rowLabelSelector(thirdShapeID)).should('contain.text', secondLabelName);
+            cy.get(sidebarCheckbox(firstShapeID)).should('be.checked');
+            cy.get(sidebarCheckbox(secondShapeID)).should('be.checked');
+            cy.get(sidebarCheckbox(thirdShapeID)).should('not.be.checked');
         });
     });
 
@@ -242,6 +279,43 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
 
         cy.get('body').click(10, 10);
         cy.get(bulkLabelSelectorAnchor).should('not.exist');
+    });
+
+    it('clears existing canvas multi-selection when ctrl/cmd is pressed again', () => {
+        cy.get(bulkLabelSelectorAnchor).should('not.exist');
+        cy.createRectangle(rectangleC);
+        cy.document().then((doc) => {
+            createdShapeIDs = Array.from(
+                doc.querySelectorAll('.cvat-objects-sidebar-state-item[id^="cvat-objects-sidebar-state-item-"]'),
+            )
+                .map((rowElement) => {
+                    const matchResult = rowElement.id.match(/\d+$/);
+                    return Number(matchResult ? matchResult[0] : NaN);
+                })
+                .filter((id) => Number.isInteger(id))
+                .sort((firstID, secondID) => firstID - secondID)
+                .slice(-3);
+            expect(createdShapeIDs).to.have.length(3);
+        });
+
+        cy.then(() => {
+            const [firstShapeID, secondShapeID, thirdShapeID] = createdShapeIDs;
+
+            cy.get(canvasShape(firstShapeID)).click({ ...modifierClickOption, force: true });
+            cy.get(canvasShape(secondShapeID)).click({ ...modifierClickOption, force: true });
+            triggerModifierKeyUpOnWindow();
+
+            cy.get(bulkLabelSelectorAnchor).should('exist');
+            cy.get('body').click(10, 10);
+            cy.get(bulkLabelSelectorAnchor).should('not.exist');
+
+            triggerModifierKeyDownOnWindow();
+            cy.get(sidebarCheckbox(firstShapeID)).should('not.be.checked');
+            cy.get(sidebarCheckbox(secondShapeID)).should('not.be.checked');
+            cy.get(sidebarCheckbox(thirdShapeID)).should('not.be.checked');
+            cy.get('.cvat-objects-sidebar-state-multi-selected-item').should('not.exist');
+            cy.get(bulkLabelSelectorAnchor).should('not.exist');
+        });
     });
 
     it('clears single canvas ctrl/cmd selection when modifier key is pressed again', () => {

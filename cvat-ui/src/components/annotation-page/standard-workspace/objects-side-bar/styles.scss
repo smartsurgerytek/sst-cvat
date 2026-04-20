@@ -284,10 +284,32 @@
     }
 }
 
-.cvat-objects-sidebar-state-item-label-selector-dropdown,
+.cvat-objects-sidebar-state-item-label-selector-dropdown {
+    width: 150px !important;
+    max-width: calc(100vw - 32px);
+
+    .ant-select-item {
+        max-width: 100%;
+    }
+
+    .ant-select-item-option-content {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+}
+
 .cvat-objects-sidebar-bulk-label-selector-dropdown {
+    width: max-content !important;
+    max-width: min(420px, calc(100vw - 32px));
+
+    .ant-select-item {
+        max-width: 100%;
+    }
+
     .ant-select-item-option-content {
         white-space: normal;
+        overflow-wrap: anywhere;
     }
 }
 
