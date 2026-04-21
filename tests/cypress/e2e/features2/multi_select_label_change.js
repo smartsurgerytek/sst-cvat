@@ -192,7 +192,7 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
             cy.get(sidebarCheckbox(firstShapeID)).should('be.checked');
             cy.get(sidebarCheckboxControl(secondShapeID)).click({ force: true });
             cy.get(sidebarCheckbox(secondShapeID)).should('be.checked');
-            cy.get(sidebarRow(firstShapeID)).trigger('mouseenter');
+            cy.get(sidebarRow(firstShapeID)).trigger('mouseover');
             cy.get(sidebarRow(firstShapeID)).should('have.class', 'cvat-objects-sidebar-state-active-item');
 
             cy.get(bulkLabelSelectorAnchor).should('not.exist');
