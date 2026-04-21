@@ -34,8 +34,8 @@ interface Props {
     hideAllStates(): void;
     showAllStates(): void;
     changeShowGroundTruth(): void;
-    onToggleSelection?(id: number, event?: MouseEvent): void;
-    bulkChangeLabel?(sourceStateID: number, label: any): boolean;
+    onToggleSelection?(id: number): void;
+    bulkChangeLabel?(label: any): boolean;
     clearMultiSelectionState?(): void;
 }
 
@@ -117,7 +117,7 @@ function ObjectListComponent(props: Props): JSX.Element {
                                     selected={selectedStateIDs.includes(id)}
                                     multiSelectEnabled={multiSelectEnabled}
                                     onToggleSelection={onToggleSelection ?
-                                        (event?: MouseEvent): void => onToggleSelection(id, event) :
+                                        (): void => onToggleSelection(id) :
                                         undefined}
                                     bulkChangeLabel={bulkChangeLabel}
                                     clearMultiSelectionState={clearMultiSelectionState}

@@ -92,6 +92,15 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
     function createTwoRectangles() {
         cy.createRectangle(rectangleA);
         cy.createRectangle(rectangleB);
+        collectLatestShapeIDs(2);
+        cy.then(() => {
+            createdShapeIDs.forEach((id) => {
+                cy.get(canvasShape(id)).should('exist').and('be.visible');
+            });
+        });
+    }
+
+    function collectLatestShapeIDs(count) {
         cy.document().then((doc) => {
             createdShapeIDs = Array.from(
                 doc.querySelectorAll('.cvat-objects-sidebar-state-item[id^="cvat-objects-sidebar-state-item-"]'),
@@ -102,13 +111,8 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
                 })
                 .filter((id) => Number.isInteger(id))
                 .sort((firstID, secondID) => firstID - secondID)
-                .slice(-2);
-            expect(createdShapeIDs).to.have.length(2);
-        });
-        cy.then(() => {
-            createdShapeIDs.forEach((id) => {
-                cy.get(canvasShape(id)).should('exist').and('be.visible');
-            });
+                .slice(-count);
+            expect(createdShapeIDs).to.have.length(count);
         });
     }
 
@@ -128,32 +132,6 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
             .within(() => {
                 cy.get(`.ant-select-item-option[title="${labelName}"]`).click();
             });
-    }
-
-    function debugSidebarSelectionUI(tag = 'debug') {
-        cy.get('.cvat-workspace-selector').invoke('text').then((workspaceText) => {
-            Cypress.log({
-                name: 'workspace',
-                message: `[${tag}] ${workspaceText.trim()}`,
-            });
-        });
-
-        cy.document().then((doc) => {
-            const sidebarRows = Array.from(
-                doc.querySelectorAll('.cvat-objects-sidebar-state-item[id^="cvat-objects-sidebar-state-item-"]'),
-            );
-            const rowIDs = sidebarRows
-                .map((rowElement) => rowElement.id)
-                .slice(0, 8);
-            const checkboxCount = doc.querySelectorAll(
-                '.cvat-objects-sidebar-state-item .ant-checkbox-input',
-            ).length;
-
-            Cypress.log({
-                name: 'sidebar',
-                message: `[${tag}] rows=${sidebarRows.length}, checkboxes=${checkboxCount}, ids=${rowIDs.join(', ')}`,
-            });
-        });
     }
 
     function triggerModifierKeyUpOnWindow(key = modifierKey) {
@@ -206,12 +184,10 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
         cy.changeWorkspace('Standard');
         cy.get('.cvat-workspace-selector').should('contain.text', 'Standard');
         createTwoRectangles();
-        debugSidebarSelectionUI('beforeEach');
     });
 
     it('does not show floating dropdown for checkbox multi-select and applies batch label via row label selector', () => {
         withCreatedShapeIDs(([firstShapeID, secondShapeID]) => {
-            debugSidebarSelectionUI('checkbox-test-start');
             cy.get(sidebarCheckboxControl(firstShapeID)).click({ force: true });
             cy.get(sidebarCheckbox(firstShapeID)).should('be.checked');
             cy.get(sidebarCheckboxControl(secondShapeID)).click({ force: true });
@@ -234,19 +210,7 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
 
     it('keeps existing multi-selection when changing label on an unselected row', () => {
         cy.createRectangle(rectangleC);
-        cy.document().then((doc) => {
-            createdShapeIDs = Array.from(
-                doc.querySelectorAll('.cvat-objects-sidebar-state-item[id^="cvat-objects-sidebar-state-item-"]'),
-            )
-                .map((rowElement) => {
-                    const matchResult = rowElement.id.match(/\d+$/);
-                    return Number(matchResult ? matchResult[0] : NaN);
-                })
-                .filter((id) => Number.isInteger(id))
-                .sort((firstID, secondID) => firstID - secondID)
-                .slice(-3);
-            expect(createdShapeIDs).to.have.length(3);
-        });
+        collectLatestShapeIDs(3);
 
         cy.then(() => {
             const [firstShapeID, secondShapeID, thirdShapeID] = createdShapeIDs;
@@ -266,11 +230,25 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
         });
     });
 
+    it('clears checkbox multi-selection when ctrl/cmd is pressed again', () => {
+        withCreatedShapeIDs(([firstShapeID, secondShapeID]) => {
+            cy.get(sidebarCheckboxControl(firstShapeID)).click({ force: true });
+            cy.get(sidebarCheckboxControl(secondShapeID)).click({ force: true });
+            cy.get(sidebarCheckbox(firstShapeID)).should('be.checked');
+            cy.get(sidebarCheckbox(secondShapeID)).should('be.checked');
+
+            triggerModifierKeyDownOnWindow();
+
+            cy.get(sidebarCheckbox(firstShapeID)).should('not.be.checked');
+            cy.get(sidebarCheckbox(secondShapeID)).should('not.be.checked');
+            assertNoMultiSelectionUI();
+        });
+    });
+
     it('shows floating dropdown only for canvas ctrl/cmd multi-select after modifier release', () => {
         cy.get(bulkLabelSelectorAnchor).should('not.exist');
 
         withCreatedShapeIDs(([firstShapeID, secondShapeID]) => {
-            debugSidebarSelectionUI('canvas-test-start');
             cy.get(canvasShape(firstShapeID)).click({ ...modifierClickOption, force: true });
             cy.get(canvasShape(secondShapeID)).click({ ...modifierClickOption, force: true });
 
@@ -286,22 +264,26 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
         cy.get(bulkLabelSelectorAnchor).should('not.exist');
     });
 
+    it('closes floating dropdown when window loses focus', () => {
+        withCreatedShapeIDs(([firstShapeID, secondShapeID]) => {
+            cy.get(canvasShape(firstShapeID)).click({ ...modifierClickOption, force: true });
+            cy.get(canvasShape(secondShapeID)).click({ ...modifierClickOption, force: true });
+        });
+
+        triggerModifierKeyUpOnWindow();
+        cy.get(bulkLabelSelectorAnchor).should('exist');
+
+        cy.window().then((win) => {
+            win.dispatchEvent(new win.Event('blur'));
+        });
+
+        cy.get(bulkLabelSelectorAnchor).should('not.exist');
+    });
+
     it('clears existing canvas multi-selection when ctrl/cmd is pressed again', () => {
         cy.get(bulkLabelSelectorAnchor).should('not.exist');
         cy.createRectangle(rectangleC);
-        cy.document().then((doc) => {
-            createdShapeIDs = Array.from(
-                doc.querySelectorAll('.cvat-objects-sidebar-state-item[id^="cvat-objects-sidebar-state-item-"]'),
-            )
-                .map((rowElement) => {
-                    const matchResult = rowElement.id.match(/\d+$/);
-                    return Number(matchResult ? matchResult[0] : NaN);
-                })
-                .filter((id) => Number.isInteger(id))
-                .sort((firstID, secondID) => firstID - secondID)
-                .slice(-3);
-            expect(createdShapeIDs).to.have.length(3);
-        });
+        collectLatestShapeIDs(3);
 
         cy.then(() => {
             const [firstShapeID, secondShapeID, thirdShapeID] = createdShapeIDs;
@@ -344,19 +326,7 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
     it('shows floating dropdown when ctrl/cmd deselection leaves exactly two selected canvas objects', () => {
         cy.get(bulkLabelSelectorAnchor).should('not.exist');
         cy.createRectangle(rectangleC);
-        cy.document().then((doc) => {
-            createdShapeIDs = Array.from(
-                doc.querySelectorAll('.cvat-objects-sidebar-state-item[id^="cvat-objects-sidebar-state-item-"]'),
-            )
-                .map((rowElement) => {
-                    const matchResult = rowElement.id.match(/\d+$/);
-                    return Number(matchResult ? matchResult[0] : NaN);
-                })
-                .filter((id) => Number.isInteger(id))
-                .sort((firstID, secondID) => firstID - secondID)
-                .slice(-3);
-            expect(createdShapeIDs).to.have.length(3);
-        });
+        collectLatestShapeIDs(3);
 
         cy.then(() => {
             const [firstShapeID, secondShapeID, thirdShapeID] = createdShapeIDs;

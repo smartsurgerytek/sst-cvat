@@ -60,7 +60,10 @@ import { reviewActions } from 'actions/review-actions';
 
 import { filterAnnotations } from 'utils/filter-annotations';
 import { ImageFilter } from 'utils/image-processing';
-import { OBJECTS_SIDEBAR_TOGGLE_MULTI_SELECTION_EVENT } from 'utils/objects-sidebar-multi-select';
+import {
+    dispatchObjectsSidebarToggleMultiSelection,
+    getObjectsSidebarItem,
+} from 'utils/objects-sidebar-multi-select';
 import { ShortcutScope } from 'utils/enums';
 import { registerComponentShortcuts } from 'actions/shortcuts-actions';
 import { subKeyMap } from 'utils/component-subkeymap';
@@ -637,31 +640,6 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         canvasInstance.html().removeEventListener('canvas.message', this.onCanvasMessage as EventListener);
     }
 
-    private resolveSidebarTargetsFromCanvasState = (
-        state: Pick<ObjectState, 'clientID' | 'parentID'>,
-    ): { sidebarItem: HTMLElement | null; targetSidebarStateID: number } => {
-        const { clientID, parentID } = state;
-        const isElement = Number.isInteger(parentID);
-
-        return {
-            targetSidebarStateID: isElement ? (parentID as number) : (clientID as number),
-            sidebarItem: window.document.getElementById(
-                isElement ?
-                    `cvat-objects-sidebar-state-item-element-${clientID}` :
-                    `cvat-objects-sidebar-state-item-${clientID}`,
-            ),
-        };
-    };
-
-    private dispatchSidebarToggleMultiSelection = (clientID: number, x: number, y: number): void => {
-        window.document.dispatchEvent(new CustomEvent(OBJECTS_SIDEBAR_TOGGLE_MULTI_SELECTION_EVENT, {
-            detail: {
-                clientID,
-                position: { x, y },
-            },
-        }));
-    };
-
     private onCanvasErrorOccurrence = (event: any): void => {
         const { exception, domain } = event.detail;
         if (domain === 'data fetching') {
@@ -841,7 +819,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         const {
             state, ctrlKey, metaKey, clientX, clientY,
         } = e.detail;
-        const { sidebarItem, targetSidebarStateID } = this.resolveSidebarTargetsFromCanvasState(state);
+        const { sidebarItem, targetSidebarStateID } = getObjectsSidebarItem(window.document, state);
 
         if (
             workspace === Workspace.STANDARD &&
@@ -850,7 +828,10 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             Number.isFinite(clientX) &&
             Number.isFinite(clientY)
         ) {
-            this.dispatchSidebarToggleMultiSelection(targetSidebarStateID, clientX, clientY);
+            dispatchObjectsSidebarToggleMultiSelection(window.document, {
+                clientID: targetSidebarStateID,
+                position: { x: clientX, y: clientY },
+            });
         }
 
         if (sidebarItem) {

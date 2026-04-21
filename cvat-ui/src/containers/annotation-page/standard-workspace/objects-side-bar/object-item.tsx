@@ -40,8 +40,8 @@ interface OwnProps {
     objectStates: ObjectState[];
     selected?: boolean;
     multiSelectEnabled?: boolean;
-    onToggleSelection?: (event?: MouseEvent) => void;
-    bulkChangeLabel?: (sourceStateID: number, label: Label) => boolean;
+    onToggleSelection?: () => void;
+    bulkChangeLabel?: (label: Label) => boolean;
     clearMultiSelectionState?: () => void;
 }
 
@@ -325,11 +325,13 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
         const {
             objectState,
             readonly,
+            selected,
             bulkChangeLabel,
             clearMultiSelectionState,
         } = this.props;
         if (!readonly) {
-            const appliedToSelection = bulkChangeLabel?.(objectState.clientID as number, label) || false;
+            // Selected rows reuse the same batch flow as the floating selector to keep behavior consistent.
+            const appliedToSelection = Boolean(selected && bulkChangeLabel?.(label));
             if (appliedToSelection) {
                 clearMultiSelectionState?.();
                 return;

@@ -33,7 +33,7 @@ interface Props {
     locked: boolean;
     selected?: boolean;
     multiSelectEnabled?: boolean;
-    onToggleSelection?: (event?: MouseEvent) => void;
+    onToggleSelection?: () => void;
     changeColorShortcut: string;
     copyShortcut: string;
     pasteShortcut: string;
@@ -115,7 +115,7 @@ function ItemTopComponent(props: Props): JSX.Element {
                             disabled={readonly}
                             onChange={(event: CheckboxChangeEvent): void => {
                                 event.stopPropagation();
-                                onToggleSelection?.(event.nativeEvent as MouseEvent);
+                                onToggleSelection?.();
                             }}
                             style={{ marginRight: 6 }}
                         />

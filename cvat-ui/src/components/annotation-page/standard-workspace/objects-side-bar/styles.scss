@@ -315,7 +315,7 @@
 
 .cvat-objects-sidebar-bulk-label-selector-anchor {
     position: fixed;
-    width: 220px;
+    width: min(220px, calc(100vw - 32px));
     z-index: 1100;
 }
 

@@ -48,7 +48,7 @@ interface Props {
     runAnnotationAction(): void;
     edit(): void;
     slice(): void;
-    onToggleSelection?: (event?: MouseEvent) => void;
+    onToggleSelection?: () => void;
 }
 
 function ObjectItemComponent(props: Props): JSX.Element {

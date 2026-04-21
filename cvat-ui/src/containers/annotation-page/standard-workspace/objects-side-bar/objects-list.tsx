@@ -192,6 +192,10 @@ const componentShortcuts = {
     },
 };
 
+const BULK_LABEL_SELECTOR_VIEWPORT_MARGIN = 16;
+const BULK_LABEL_SELECTOR_MAX_WIDTH = 220;
+const BULK_LABEL_SELECTOR_CONTROL_HEIGHT = 32;
+
 registerComponentShortcuts(componentShortcuts);
 
 function mapStateToProps(state: CombinedState): StateToProps {
@@ -318,12 +322,15 @@ function sortAndMap(objectStates: ObjectState[], ordering: StatesOrdering): numb
 
 interface BulkLabelSelectorState {
     visible: boolean;
+    // This stores the preferred source item for the popup; render still falls back to another
+    // compatible selected item if the preferred one cannot change labels.
     sourceStateID: number | null;
     left: number;
     top: number;
 }
 
 interface PendingBulkLabelSelectorState {
+    // Preserve the user's last canvas target so keyup can open the popup near that interaction.
     sourceStateID: number;
     left: number;
     top: number;
@@ -459,6 +466,83 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         return this.lastPointerPosition;
     };
 
+    private resolveBulkLabelSourceState = (
+        options: {
+            preferredSourceStateID?: number | null;
+            selectedStateIDs?: number[];
+            states?: ObjectState[];
+        } = {},
+    ): ObjectState | null => {
+        const { labels } = this.props;
+        const {
+            preferredSourceStateID = null,
+            selectedStateIDs = this.state.selectedStateIDs,
+            states = this.state.objectStates,
+        } = options;
+
+        const selectedSet = new Set(selectedStateIDs);
+        const stateByID = new Map(
+            states.map((state: ObjectState): [number, ObjectState] => [state.clientID as number, state]),
+        );
+        const candidateIDs: number[] = [];
+
+        if (
+            Number.isInteger(preferredSourceStateID) &&
+            selectedSet.has(preferredSourceStateID as number)
+        ) {
+            candidateIDs.push(preferredSourceStateID as number);
+        }
+
+        for (let index = selectedStateIDs.length - 1; index >= 0; index -= 1) {
+            candidateIDs.push(selectedStateIDs[index]);
+        }
+
+        const checkedIDs = new Set<number>();
+
+        // Keep the popup usable even if the last clicked object cannot change labels, such as skeletons.
+        for (const candidateID of candidateIDs) {
+            if (checkedIDs.has(candidateID)) {
+                continue;
+            }
+
+            checkedIDs.add(candidateID);
+            const state = stateByID.get(candidateID);
+            if (
+                state &&
+                state.shapeType !== ShapeType.SKELETON &&
+                filterApplicableLabels(state, labels).length
+            ) {
+                return state;
+            }
+        }
+
+        return null;
+    };
+
+    private clampBulkLabelSelectorPosition = (
+        position: Pick<BulkLabelSelectorState, 'left' | 'top'>,
+    ): { left: number; top: number } => {
+        const availableWidth = Math.max(
+            0,
+            window.innerWidth - BULK_LABEL_SELECTOR_VIEWPORT_MARGIN * 2,
+        );
+        // Keep this in sync with the anchor width in styles.scss.
+        const anchorWidth = Math.min(BULK_LABEL_SELECTOR_MAX_WIDTH, availableWidth);
+        const maxLeft = Math.max(
+            BULK_LABEL_SELECTOR_VIEWPORT_MARGIN,
+            window.innerWidth - anchorWidth - BULK_LABEL_SELECTOR_VIEWPORT_MARGIN,
+        );
+        const maxTop = Math.max(
+            BULK_LABEL_SELECTOR_VIEWPORT_MARGIN,
+            window.innerHeight - BULK_LABEL_SELECTOR_CONTROL_HEIGHT - BULK_LABEL_SELECTOR_VIEWPORT_MARGIN,
+        );
+
+        return {
+            left: Math.min(Math.max(position.left, BULK_LABEL_SELECTOR_VIEWPORT_MARGIN), maxLeft),
+            top: Math.min(Math.max(position.top, BULK_LABEL_SELECTOR_VIEWPORT_MARGIN), maxTop),
+        };
+    };
+
     private updateObjects = (
         options: {
             clearSelection?: boolean;
@@ -485,19 +569,29 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 [] :
                 prevState.selectedStateIDs
                     .filter((id: number): boolean => availableStateIDs.has(id));
+            const bulkLabelSourceState = this.resolveBulkLabelSourceState({
+                preferredSourceStateID: prevState.bulkLabelSelector.sourceStateID,
+                selectedStateIDs,
+                states: objectStates,
+            });
             const bulkLabelSelectorValid = Boolean(
                 !clearSelection &&
                 prevState.bulkLabelSelector.visible &&
-                prevState.bulkLabelSelector.sourceStateID !== null &&
-                selectedStateIDs.includes(prevState.bulkLabelSelector.sourceStateID) &&
-                availableStateIDs.has(prevState.bulkLabelSelector.sourceStateID),
+                selectedStateIDs.length >= 2 &&
+                bulkLabelSourceState,
             );
+            const pendingBulkLabelSourceState = this.pendingBulkLabelSelector ?
+                this.resolveBulkLabelSourceState({
+                    preferredSourceStateID: this.pendingBulkLabelSelector.sourceStateID,
+                    selectedStateIDs,
+                    states: objectStates,
+                }) :
+                null;
             const pendingBulkLabelSelectorValid = Boolean(
                 !clearSelection &&
                 this.pendingBulkLabelSelector &&
                 selectedStateIDs.length >= 2 &&
-                selectedStateIDs.includes(this.pendingBulkLabelSelector.sourceStateID) &&
-                availableStateIDs.has(this.pendingBulkLabelSelector.sourceStateID),
+                pendingBulkLabelSourceState,
             );
 
             if (!pendingBulkLabelSelectorValid) {
@@ -510,7 +604,10 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 sortedStatesID,
                 selectedStateIDs,
                 bulkLabelSelector: bulkLabelSelectorValid ?
-                    prevState.bulkLabelSelector :
+                    {
+                        ...prevState.bulkLabelSelector,
+                        sourceStateID: bulkLabelSourceState?.clientID ?? null,
+                    } :
                     this.hiddenBulkLabelSelector(),
             };
         });
@@ -538,8 +635,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
     };
 
     private onWindowBlur = (): void => {
-        this.pendingBulkLabelSelector = null;
-        this.lastMultiSelectSource = null;
+        this.resetBulkLabelSelector(false);
     };
 
     private onModifierKeyDown = (event: KeyboardEvent): void => {
@@ -554,6 +650,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         }
 
         const { selectedStateIDs } = this.state;
+        // A fresh modifier-assisted selection starts a new batch session for both canvas and checkbox flows.
         if (selectedStateIDs.length) {
             this.clearMultiSelectionState();
         }
@@ -581,12 +678,13 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 };
             }
 
-            const fallbackSourceStateID = prevState.selectedStateIDs[prevState.selectedStateIDs.length - 1] ?? null;
-            const sourceStateID = pending && prevState.selectedStateIDs.includes(pending.sourceStateID) ?
-                pending.sourceStateID :
-                fallbackSourceStateID;
+            const sourceState = this.resolveBulkLabelSourceState({
+                preferredSourceStateID: pending?.sourceStateID ?? null,
+                selectedStateIDs: prevState.selectedStateIDs,
+                states: prevState.objectStates,
+            });
 
-            if (sourceStateID === null) {
+            if (!sourceState) {
                 return {
                     bulkLabelSelector: this.hiddenBulkLabelSelector(),
                 };
@@ -595,7 +693,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             return {
                 bulkLabelSelector: {
                     visible: true,
-                    sourceStateID,
+                    sourceStateID: sourceState.clientID as number,
                     left: pending?.left ?? this.lastPointerPosition.left,
                     top: pending?.top ?? this.lastPointerPosition.top,
                 },
@@ -688,9 +786,8 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         });
     };
 
-    private onSidebarToggleSelection = (clientID: number, event?: MouseEvent): void => {
-        const pointerPosition = this.getPointerPosition(event);
-        this.toggleMultiSelection(clientID, pointerPosition, false);
+    private onSidebarToggleSelection = (clientID: number): void => {
+        this.toggleMultiSelection(clientID, this.lastPointerPosition, false);
     };
 
     private onCanvasToggleSelection = (event: Event): void => {
@@ -733,21 +830,16 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
     };
 
     private onBulkLabelSelectorChange = (label: Label): void => {
-        const {
-            bulkLabelSelector: { sourceStateID },
-        } = this.state;
-
-        if (sourceStateID !== null) {
-            this.bulkChangeLabel(sourceStateID, label);
-        }
+        this.bulkChangeLabel(label);
         this.clearMultiSelectionState();
     };
 
-    private bulkChangeLabel = (sourceStateID: number, label: Label): boolean => {
+    private bulkChangeLabel = (label: Label): boolean => {
         const { updateAnnotations, labels } = this.props;
         const { objectStates, selectedStateIDs } = this.state;
+        const sourceState = this.resolveBulkLabelSourceState();
 
-        if (!this.isMultiSelectEnabled() || selectedStateIDs.length < 2 || !selectedStateIDs.includes(sourceStateID)) {
+        if (!this.isMultiSelectEnabled() || selectedStateIDs.length < 2 || !sourceState) {
             return false;
         }
 
@@ -776,7 +868,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         const skipped = selectedStates.length - updatedStates.length;
         if (skipped > 0) {
             this.logInternal('objects_sidebar_batch_label_partial_skip', {
-                sourceStateID,
+                sourceStateID: sourceState.clientID,
                 selectedCount: selectedStates.length,
                 updatedCount: updatedStates.length,
                 skippedCount: skipped,
@@ -882,16 +974,19 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             objectStates, sortedStatesID, statesOrdering, filteredStates, selectedStateIDs, bulkLabelSelector,
         } = this.state;
         const multiSelectEnabled = this.isMultiSelectEnabled();
-        const sourceState = bulkLabelSelector.sourceStateID !== null ?
-            objectStates.find(
-                (state: ObjectState): boolean => state.clientID === bulkLabelSelector.sourceStateID,
-            ) || null :
-            null;
+        const bulkLabelSelectorPosition = this.clampBulkLabelSelectorPosition(bulkLabelSelector);
+        const sourceState = this.resolveBulkLabelSourceState({
+            preferredSourceStateID: bulkLabelSelector.sourceStateID,
+        });
         const labelSelectorLabels = sourceState && sourceState.shapeType !== ShapeType.SKELETON ?
             filterApplicableLabels(sourceState, labels) :
             [];
         const shouldRenderBulkLabelSelector = Boolean(
-            multiSelectEnabled && bulkLabelSelector.visible && sourceState && labelSelectorLabels.length,
+            multiSelectEnabled &&
+            bulkLabelSelector.visible &&
+            selectedStateIDs.length >= 2 &&
+            sourceState &&
+            labelSelectorLabels.length,
         );
 
         const preventDefault = (event: KeyboardEvent | undefined): void => {
@@ -1102,8 +1197,8 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     <div
                         className='cvat-objects-sidebar-bulk-label-selector-anchor'
                         style={{
-                            left: bulkLabelSelector.left,
-                            top: bulkLabelSelector.top,
+                            left: bulkLabelSelectorPosition.left,
+                            top: bulkLabelSelectorPosition.top,
                         }}
                     >
                         <LabelSelector
