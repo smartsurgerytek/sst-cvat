@@ -33,7 +33,7 @@ import {
     ActiveControl,
 } from 'reducers';
 import {
-    Label, LabelType, ObjectState, ObjectType, ShapeType,
+    Label, ObjectState, ObjectType, ShapeType,
 } from 'cvat-core-wrapper';
 import { filterAnnotations } from 'utils/filter-annotations';
 import { filterApplicableLabels } from 'utils/filter-applicable-labels';
@@ -381,16 +381,18 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             objectStates, workspace, readonly, frameNumber,
         } = this.props;
         const { objectStates: prevObjectStates } = this.state;
+        const frameChanged = prevProps.frameNumber !== frameNumber;
+        const workspaceChanged = prevProps.workspace !== workspace;
+        const readonlyChanged = prevProps.readonly !== readonly;
+        const shouldClearSelection = frameChanged || workspaceChanged || readonlyChanged;
+
         if (
             objectStates !== prevObjectStates ||
-            prevProps.frameNumber !== frameNumber ||
-            prevProps.workspace !== workspace
+            frameChanged ||
+            workspaceChanged ||
+            readonlyChanged
         ) {
-            this.updateObjects();
-        }
-
-        if ((prevProps.workspace !== workspace || prevProps.readonly !== readonly) && !this.isMultiSelectEnabled()) {
-            this.resetBulkLabelSelector(true);
+            this.updateObjects({ clearSelection: shouldClearSelection });
         }
     }
 
@@ -457,26 +459,41 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         return this.lastPointerPosition;
     };
 
-    private updateObjects = (): void => {
+    private updateObjects = (
+        options: {
+            clearSelection?: boolean;
+        } = {},
+    ): void => {
         const {
             objectStates, frameNumber, workspace,
         } = this.props;
+        const { clearSelection = false } = options;
         const filteredStates = filterAnnotations(objectStates, {
             frame: frameNumber,
             workspace,
         });
+
+        if (clearSelection) {
+            this.pendingBulkLabelSelector = null;
+            this.lastMultiSelectSource = null;
+        }
+
         this.setState((prevState) => {
             const sortedStatesID = sortAndMap(filteredStates, prevState.statesOrdering);
             const availableStateIDs = new Set(sortedStatesID);
-            const selectedStateIDs = prevState.selectedStateIDs
-                .filter((id: number): boolean => availableStateIDs.has(id));
+            const selectedStateIDs = clearSelection ?
+                [] :
+                prevState.selectedStateIDs
+                    .filter((id: number): boolean => availableStateIDs.has(id));
             const bulkLabelSelectorValid = Boolean(
+                !clearSelection &&
                 prevState.bulkLabelSelector.visible &&
                 prevState.bulkLabelSelector.sourceStateID !== null &&
                 selectedStateIDs.includes(prevState.bulkLabelSelector.sourceStateID) &&
                 availableStateIDs.has(prevState.bulkLabelSelector.sourceStateID),
             );
             const pendingBulkLabelSelectorValid = Boolean(
+                !clearSelection &&
                 this.pendingBulkLabelSelector &&
                 selectedStateIDs.length >= 2 &&
                 selectedStateIDs.includes(this.pendingBulkLabelSelector.sourceStateID) &&
@@ -727,7 +744,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
     };
 
     private bulkChangeLabel = (sourceStateID: number, label: Label): boolean => {
-        const { updateAnnotations } = this.props;
+        const { updateAnnotations, labels } = this.props;
         const { objectStates, selectedStateIDs } = this.state;
 
         if (!this.isMultiSelectEnabled() || selectedStateIDs.length < 2 || !selectedStateIDs.includes(sourceStateID)) {
@@ -741,13 +758,10 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         const updatedStates: ObjectState[] = [];
 
         for (const state of selectedStates) {
-            const bothAreTags = state.objectType === ObjectType.TAG && label.type === LabelType.TAG;
-            const matchingShapeLabelType = label.type as unknown as ShapeType;
-            const labelIsApplicable = (
-                label.type === LabelType.ANY ||
-                (state.shapeType === matchingShapeLabelType && state.shapeType !== ShapeType.SKELETON) ||
-                bothAreTags
-            ) && state.shapeType !== ShapeType.SKELETON;
+            const labelIsApplicable = state.shapeType !== ShapeType.SKELETON &&
+                filterApplicableLabels(state, labels).some((applicableLabel: Label): boolean => (
+                    applicableLabel.id === label.id
+                ));
 
             if (!state.lock && labelIsApplicable) {
                 state.label = label;

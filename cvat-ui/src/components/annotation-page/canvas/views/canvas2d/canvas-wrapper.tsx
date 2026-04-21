@@ -92,7 +92,7 @@ interface StateToProps {
     gridSize: number;
     gridColor: GridColor;
     gridOpacity: number;
-    activeLabelID: number | null;
+    activeLabelID: number;
     activeObjectType: ObjectType;
     brightnessLevel: number;
     contrastLevel: number;

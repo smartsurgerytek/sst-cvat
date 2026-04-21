@@ -1041,7 +1041,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
                 );
 
                 if (['polygon', 'polyline', 'points'].includes(state.shapeType)) {
-                    if (state.shapeType === 'points' && (e.altKey || e.ctrlKey)) {
+                    if (state.shapeType === 'points' && (e.altKey || e.ctrlKey || e.metaKey)) {
                         const selectedClientID = +((e.target as HTMLElement).parentElement as HTMLElement).getAttribute('clientID');
 
                         if (state.clientID !== selectedClientID) {
@@ -1134,7 +1134,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
 
                     circle.on('mouseenter', (e: MouseEvent): void => {
                         const activeElement = getActiveElement();
-                        if (activeElement !== null && (e.altKey || e.ctrlKey)) {
+                        if (activeElement !== null && (e.altKey || e.ctrlKey || e.metaKey)) {
                             const [state] = getController().objects.filter(
                                 (_state: any): boolean => _state.clientID === activeElement.clientID,
                             );
@@ -3510,7 +3510,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
 
                 const mouseover = (e: MouseEvent): void => {
                     const locked = this.drawnStates[state.clientID].lock;
-                    if (!locked && !e.ctrlKey && this.mode === Mode.IDLE) {
+                    if (!locked && !e.ctrlKey && !e.metaKey && this.mode === Mode.IDLE) {
                         circle.attr({
                             'stroke-width': consts.POINTS_SELECTED_STROKE_WIDTH / this.geometry.scale,
                         });

@@ -177,6 +177,11 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
         });
     }
 
+    function assertNoMultiSelectionUI() {
+        cy.get('.cvat-objects-sidebar-state-multi-selected-item').should('not.exist');
+        cy.get(bulkLabelSelectorAnchor).should('not.exist');
+    }
+
     before(() => {
         cy.visit('/auth/login');
         cy.login();
@@ -377,6 +382,48 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
 
         cy.get('body').click(10, 10);
         cy.get(bulkLabelSelectorAnchor).should('not.exist');
+    });
+
+    it('clears multi-selection when switching frames', () => {
+        withCreatedShapeIDs(([firstShapeID, secondShapeID]) => {
+            cy.get(sidebarCheckboxControl(firstShapeID)).click({ force: true });
+            cy.get(sidebarCheckboxControl(secondShapeID)).click({ force: true });
+            cy.get(sidebarCheckbox(firstShapeID)).should('be.checked');
+            cy.get(sidebarCheckbox(secondShapeID)).should('be.checked');
+
+            cy.goToNextFrame(1);
+            assertNoMultiSelectionUI();
+
+            cy.goToPreviousFrame(0);
+            cy.get(sidebarRow(firstShapeID)).should('exist');
+            cy.get(sidebarRow(secondShapeID)).should('exist');
+            cy.get(sidebarCheckbox(firstShapeID)).should('not.be.checked');
+            cy.get(sidebarCheckbox(secondShapeID)).should('not.be.checked');
+            assertNoMultiSelectionUI();
+        });
+    });
+
+    it('clears multi-selection when switching workspaces and returning from readonly review workspace', () => {
+        withCreatedShapeIDs(([firstShapeID, secondShapeID]) => {
+            cy.get(sidebarCheckboxControl(firstShapeID)).click({ force: true });
+            cy.get(sidebarCheckboxControl(secondShapeID)).click({ force: true });
+            cy.get(sidebarCheckbox(firstShapeID)).should('be.checked');
+            cy.get(sidebarCheckbox(secondShapeID)).should('be.checked');
+
+            cy.changeWorkspace('Review');
+            cy.get('.cvat-workspace-selector').should('contain.text', 'Review');
+            cy.get(sidebarCheckbox(firstShapeID)).should('not.exist');
+            cy.get(sidebarCheckbox(secondShapeID)).should('not.exist');
+            assertNoMultiSelectionUI();
+
+            cy.changeWorkspace('Standard');
+            cy.get('.cvat-workspace-selector').should('contain.text', 'Standard');
+            cy.get(sidebarRow(firstShapeID)).should('exist');
+            cy.get(sidebarRow(secondShapeID)).should('exist');
+            cy.get(sidebarCheckbox(firstShapeID)).should('not.be.checked');
+            cy.get(sidebarCheckbox(secondShapeID)).should('not.be.checked');
+            assertNoMultiSelectionUI();
+        });
     });
 
     it('keeps review workspace behavior unchanged (no checkbox multi-select, no floating batch label dropdown)', () => {
