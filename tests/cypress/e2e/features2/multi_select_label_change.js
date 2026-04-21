@@ -89,17 +89,6 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
         return `${sidebarRow(id)} .cvat-objects-sidebar-state-item-label-selector`;
     }
 
-    function createTwoRectangles() {
-        cy.createRectangle(rectangleA);
-        cy.createRectangle(rectangleB);
-        collectLatestShapeIDs(2);
-        cy.then(() => {
-            createdShapeIDs.forEach((id) => {
-                cy.get(canvasShape(id)).should('exist').and('be.visible');
-            });
-        });
-    }
-
     function collectLatestShapeIDs(count) {
         cy.document().then((doc) => {
             createdShapeIDs = Array.from(
@@ -113,6 +102,17 @@ context('Objects sidebar multi-select and batch label change', { scrollBehavior:
                 .sort((firstID, secondID) => firstID - secondID)
                 .slice(-count);
             expect(createdShapeIDs).to.have.length(count);
+        });
+    }
+
+    function createTwoRectangles() {
+        cy.createRectangle(rectangleA);
+        cy.createRectangle(rectangleB);
+        collectLatestShapeIDs(2);
+        cy.then(() => {
+            createdShapeIDs.forEach((id) => {
+                cy.get(canvasShape(id)).should('exist').and('be.visible');
+            });
         });
     }
 

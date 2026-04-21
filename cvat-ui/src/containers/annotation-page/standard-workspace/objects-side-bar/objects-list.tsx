@@ -475,9 +475,13 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
     ): ObjectState | null => {
         const { labels } = this.props;
         const {
+            selectedStateIDs: currentSelectedStateIDs,
+            objectStates: currentObjectStates,
+        } = this.state;
+        const {
             preferredSourceStateID = null,
-            selectedStateIDs = this.state.selectedStateIDs,
-            states = this.state.objectStates,
+            selectedStateIDs = currentSelectedStateIDs,
+            states = currentObjectStates,
         } = options;
 
         const selectedSet = new Set(selectedStateIDs);
