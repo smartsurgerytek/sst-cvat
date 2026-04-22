@@ -6,7 +6,6 @@ import {
     useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
 import notification from 'antd/lib/notification';
-import { type Dayjs } from 'dayjs';
 
 import {
     getCore, Job, Project,
@@ -26,6 +25,7 @@ import {
     getErrorDescription,
     groupHistoryEvents,
     HistoryChangeGroup,
+    HistoryDateRange,
     HistoryChangeRow,
     HistorySelection,
     HistorySnapshot,
@@ -79,7 +79,7 @@ interface UseHistoryBrowserResult {
     jobDetailsLoading: boolean;
     selectedJob: Job | null;
     historyDateRangeLabel: string;
-    historyDateRange: [Dayjs, Dayjs] | null;
+    historyDateRange: HistoryDateRange | null;
     historyLoading: boolean;
     paginatedHistoryRows: HistoryChangeRow[];
     historyPage: number;
@@ -94,7 +94,7 @@ interface UseHistoryBrowserResult {
     handleTreeLoadData: (node: HistoryTreeNode) => Promise<void>;
     handleSummaryChange: (page: number, pageSize: number) => void;
     handleSelectSummaryJob: (job: Job) => void;
-    handleHistoryDateRangeChange: (range: [Dayjs, Dayjs] | null) => void;
+    handleHistoryDateRangeChange: (range: HistoryDateRange | null) => void;
     handleResetHistoryDateRange: () => void;
     handleSetAllTime: () => void;
     handleHistoryChange: (page: number, pageSize: number) => void;
@@ -122,7 +122,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
     const [historyRows, setHistoryRows] = useState<HistoryChangeRow[]>([]);
     const [historyPage, setHistoryPage] = useState(1);
     const [historyPageSize, setHistoryPageSize] = useState(HISTORY_PAGE_SIZE);
-    const [historyDateRange, setHistoryDateRange] = useState<[Dayjs, Dayjs] | null>(
+    const [historyDateRange, setHistoryDateRange] = useState<HistoryDateRange | null>(
         () => createDefaultHistoryDateRange(),
     );
     const summaryRequestID = useRef(0);
@@ -145,7 +145,6 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
     const historyGroupsRef = useRef<HistoryChangeGroup[]>([]);
     const historyRowsRef = useRef<HistoryChangeRow[]>([]);
     const historySnapshotRef = useRef<HistorySnapshot>(createHistorySnapshot(null));
-    const historyBaseSnapshotRef = useRef<HistorySnapshot>(createHistorySnapshot(null));
     const historyBaseReadyRef = useRef(false);
     const historyHasMoreRef = useRef(false);
     const historyNextCursorRef = useRef<string | null>(null);
@@ -694,7 +693,6 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         historyGroupsRef.current = [];
         historyRowsRef.current = [];
         historySnapshotRef.current = createHistorySnapshot(job);
-        historyBaseSnapshotRef.current = createHistorySnapshot(job);
         historyBaseReadyRef.current = job === null;
         historyHasMoreRef.current = hasMore;
         historyNextCursorRef.current = null;
@@ -754,7 +752,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
 
         const requestID = ++historyRequestID.current;
         let nextCursor = historyNextCursorRef.current;
-        let hasMore = historyHasMoreRef.current;
+        let hasMore: boolean = historyHasMoreRef.current;
 
         setHistoryLoading(true);
 
@@ -980,7 +978,6 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
     useEffect(() => {
         if (!selectedJob) {
             historyBaseRequestID.current += 1;
-            historyBaseSnapshotRef.current = createHistorySnapshot(null);
             historyBaseReadyRef.current = false;
             if (!historyGroupsRef.current.length) {
                 historyRowsRef.current = [];
@@ -1001,7 +998,6 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
                     return;
                 }
 
-                historyBaseSnapshotRef.current = snapshot;
                 historyBaseReadyRef.current = true;
                 rebuildHistoryRows(snapshot);
             })
@@ -1011,7 +1007,6 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
                 }
 
                 const fallbackSnapshot = createHistorySnapshot(selectedJob);
-                historyBaseSnapshotRef.current = fallbackSnapshot;
                 historyBaseReadyRef.current = true;
                 rebuildHistoryRows(fallbackSnapshot);
                 notification.error({
@@ -1094,7 +1089,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         ensurePathForJob(job).catch(() => undefined);
     }, [ensurePathForJob]);
 
-    const handleHistoryDateRangeChange = useCallback((range: [Dayjs, Dayjs] | null): void => {
+    const handleHistoryDateRangeChange = useCallback((range: HistoryDateRange | null): void => {
         setHistoryDateRange(range);
     }, []);
 

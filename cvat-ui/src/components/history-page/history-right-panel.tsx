@@ -11,13 +11,14 @@ import Button from 'antd/lib/button';
 import DatePicker from 'antd/lib/date-picker';
 import Descriptions from 'antd/lib/descriptions';
 import Text from 'antd/lib/typography/Text';
-import dayjs, { type Dayjs } from 'dayjs';
+import dayjs from 'dayjs';
 
 import { Job, User } from 'cvat-core-wrapper';
 
 import {
     formatAssignee,
     HistoryChangeRow,
+    HistoryDateRange,
     HistorySelection,
 } from './history-utils';
 
@@ -33,8 +34,8 @@ interface HistoryRightPanelProps {
     jobDetailsLoading: boolean;
     selectedJob: Job | null;
     historyDateRangeLabel: string;
-    historyDateRange: [Dayjs, Dayjs] | null;
-    onHistoryDateRangeChange: (range: [Dayjs, Dayjs] | null) => void;
+    historyDateRange: HistoryDateRange | null;
+    onHistoryDateRangeChange: (range: HistoryDateRange | null) => void;
     onResetHistoryDateRange: () => void;
     onSetAllTime: () => void;
     historyLoading: boolean;
@@ -43,6 +44,16 @@ interface HistoryRightPanelProps {
     historyPageSize: number;
     historyPaginationTotal: number;
     onHistoryChange: (page: number, pageSize: number) => void;
+}
+
+interface JobSummaryRow {
+    key: number;
+    id: number;
+    taskId: number;
+    assignee: User | null;
+    stage: Job['stage'];
+    state: Job['state'];
+    updatedDate: string;
 }
 
 function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
@@ -70,16 +81,33 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
         onHistoryChange,
     } = props;
 
+    const summaryRows = useMemo<JobSummaryRow[]>(() => summaryJobs.map((job) => ({
+        key: job.id,
+        id: job.id,
+        taskId: job.taskId,
+        assignee: job.assignee,
+        stage: job.stage,
+        state: job.state,
+        updatedDate: job.updatedDate,
+    })), [summaryJobs]);
+
+    const summaryJobsByID = useMemo(() => (
+        new Map(summaryJobs.map((job) => [job.id, job]))
+    ), [summaryJobs]);
+
     const jobSummaryColumns = useMemo(() => ([
         {
             title: 'Job',
             dataIndex: 'id',
             key: 'id',
-            render: (value: number, job: Job) => (
+            render: (value: number, row: JobSummaryRow) => (
                 <Button
                     type='link'
                     onClick={() => {
-                        onSelectSummaryJob(job);
+                        const job = summaryJobsByID.get(row.id);
+                        if (job) {
+                            onSelectSummaryJob(job);
+                        }
                     }}
                 >
                     {`Job #${value}`}
@@ -114,7 +142,7 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
             key: 'updatedDate',
             render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm:ss'),
         },
-    ]), [onSelectSummaryJob]);
+    ]), [onSelectSummaryJob, summaryJobsByID]);
 
     const historyColumns = useMemo(() => ([
         {
@@ -163,11 +191,11 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
                             `Task #${selection.taskId}`}
                     </Text>
                 </div>
-                <Table
+                <Table<JobSummaryRow>
                     rowKey='id'
                     loading={summaryLoading}
                     columns={jobSummaryColumns}
-                    dataSource={summaryJobs}
+                    dataSource={summaryRows}
                     pagination={{
                         current: summaryPage,
                         pageSize: summaryPageSize,
@@ -218,13 +246,14 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
                     <div className='cvat-history-history-controls'>
                         <DatePicker.RangePicker
                             allowClear
-                            value={historyDateRange || undefined}
+                            value={historyDateRange}
                             format='YYYY-MM-DD'
                             onChange={(value) => {
-                                if (value && value[0] && value[1]) {
+                                const [fromDate, toDate] = value || [];
+                                if (fromDate && toDate) {
                                     onHistoryDateRangeChange([
-                                        value[0].startOf('day'),
-                                        value[1].endOf('day'),
+                                        fromDate.startOf('day'),
+                                        toDate.endOf('day'),
                                     ]);
                                 } else {
                                     onHistoryDateRangeChange(null);
@@ -235,7 +264,7 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
                         <Button onClick={onSetAllTime}>All time</Button>
                     </div>
                 </div>
-                <Table
+                <Table<HistoryChangeRow>
                     rowKey='key'
                     loading={historyLoading}
                     columns={historyColumns}

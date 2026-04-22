@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: MIT
 
-import dayjs, { type Dayjs } from 'dayjs';
+import dayjs from 'dayjs';
+import type { RangePickerProps } from 'antd/lib/date-picker';
 
 import {
     AnalyticsEvent, Job, Project, User,
@@ -62,7 +63,14 @@ export interface HistorySnapshot {
     state: string;
 }
 
-export function createDefaultHistoryDateRange(): [Dayjs, Dayjs] {
+type RangePickerValue = NonNullable<RangePickerProps['value']>;
+
+export type HistoryDateRange = [
+    NonNullable<RangePickerValue[0]>,
+    NonNullable<RangePickerValue[1]>,
+];
+
+export function createDefaultHistoryDateRange(): HistoryDateRange {
     return [
         dayjs().subtract(HISTORY_DEFAULT_RANGE_DAYS, 'day').startOf('day'),
         dayjs().endOf('day'),

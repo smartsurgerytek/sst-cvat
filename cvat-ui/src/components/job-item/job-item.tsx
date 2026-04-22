@@ -57,7 +57,7 @@ function ReviewSummaryComponent({ jobInstance }: Readonly<{ jobInstance: Job }>)
     useEffect(() => {
         setError(null);
         jobInstance
-            .issues(jobInstance.id)
+            .issues()
             .then((issues: any[]) => {
                 if (isMounted()) {
                     setSummary({

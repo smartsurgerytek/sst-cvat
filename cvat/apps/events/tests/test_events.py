@@ -724,51 +724,6 @@ class RecordServerEventTestCase(unittest.TestCase):
         mock_insert_event.assert_called_once_with({"scope": "update:job", "job_id": 2302})
         mock_vlogger_info.assert_not_called()
 
-    @mock.patch("cvat.apps.events.event.vlogger.info")
-    @mock.patch("cvat.apps.events.event._insert_events_directly", return_value=True)
-    def test_emit_server_event_batch_inserts_multiple_events_at_once(
-        self, mock_insert_events, mock_vlogger_info
-    ):
-        from cvat.apps.events.event import _emit_server_event_batch
-
-        _emit_server_event_batch([
-            (
-                {"scope": "update:job", "job_id": 2302},
-                {"scope": "update:job", "timestamp": "123", "job_id": 2302},
-            ),
-            (
-                {"scope": "update:job", "job_id": 2303},
-                {"scope": "update:job", "timestamp": "124", "job_id": 2303},
-            ),
-        ])
-
-        mock_insert_events.assert_called_once_with([
-            {"scope": "update:job", "job_id": 2302},
-            {"scope": "update:job", "job_id": 2303},
-        ])
-        mock_vlogger_info.assert_not_called()
-
-    @mock.patch("cvat.apps.events.event._emit_server_event")
-    @mock.patch("cvat.apps.events.event._insert_events_directly", return_value=False)
-    def test_emit_server_event_batch_retries_each_event_on_failure(
-        self, mock_insert_events, mock_emit_server_event
-    ):
-        from cvat.apps.events.event import _emit_server_event_batch
-
-        _emit_server_event_batch([
-            (
-                {"scope": "update:job", "job_id": 2302},
-                {"scope": "update:job", "timestamp": "123", "job_id": 2302},
-            ),
-            (
-                {"scope": "update:job", "job_id": 2303},
-                {"scope": "update:job", "timestamp": "124", "job_id": 2303},
-            ),
-        ])
-
-        mock_insert_events.assert_called_once()
-        self.assertEqual(mock_emit_server_event.call_count, 2)
-
     @mock.patch("cvat.apps.events.event._get_clickhouse_client")
     def test_insert_event_directly_uses_clickhouse_client_context_manager(self, mock_get_client):
         from cvat.apps.events import event as event_module

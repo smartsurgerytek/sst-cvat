@@ -104,19 +104,6 @@ def _emit_server_event(clickhouse_data: dict, logger_data: dict) -> None:
     if not _insert_event_directly(clickhouse_data):
         _emit_server_event_to_logger(logger_data)
 
-
-def _emit_server_event_batch(batch_data: list[tuple[dict, dict]]) -> None:
-    if not batch_data:
-        return
-
-    clickhouse_batch = [clickhouse_data for clickhouse_data, _logger_data in batch_data]
-    if _insert_events_directly(clickhouse_batch):
-        return
-
-    for clickhouse_data, logger_data in batch_data:
-        _emit_server_event(clickhouse_data, logger_data)
-
-
 def record_server_event(
     *,
     scope: str,
