@@ -14,12 +14,16 @@ from cvat.apps.engine.log import vlogger
 from cvat.apps.engine.types import ExtendedRequest
 from cvat.apps.events.export import EventsExporter
 from cvat.apps.events.permissions import EventsPermission
-from cvat.apps.events.serializers import ClientEventsSerializer
+from cvat.apps.events.serializers import (
+    ClientEventsSerializer,
+    EventListQuerySerializer,
+    PaginatedEventReadSerializer,
+)
 from cvat.apps.iam.filters import ORGANIZATION_OPEN_API_PARAMETERS
 from cvat.apps.redis_handler.serializers import RqIdSerializer
 
 from .const import USER_ACTIVITY_SCOPE
-from .export import export
+from .export import export, list_events
 from .handlers import handle_client_events_push
 
 api_filter_parameters = (
@@ -79,6 +83,48 @@ api_filter_parameters = (
         type=OpenApiTypes.STR,
         required=False,
     ),
+    OpenApiParameter(
+        "obj_name",
+        description="Filter events by exact object name or comma-separated object names",
+        location=OpenApiParameter.QUERY,
+        type=OpenApiTypes.STR,
+        required=False,
+    ),
+    OpenApiParameter(
+        "scope",
+        description="Filter events by exact scope",
+        location=OpenApiParameter.QUERY,
+        type=OpenApiTypes.STR,
+        required=False,
+    ),
+    OpenApiParameter(
+        "page",
+        description="Pagination page number",
+        location=OpenApiParameter.QUERY,
+        type=OpenApiTypes.INT,
+        required=False,
+    ),
+    OpenApiParameter(
+        "page_size",
+        description="Pagination page size",
+        location=OpenApiParameter.QUERY,
+        type=OpenApiTypes.INT,
+        required=False,
+    ),
+    OpenApiParameter(
+        "cursor",
+        description="Opaque cursor returned by the previous page response",
+        location=OpenApiParameter.QUERY,
+        type=OpenApiTypes.STR,
+        required=False,
+    ),
+    OpenApiParameter(
+        "include_count",
+        description="Whether to include an exact total count for the query",
+        location=OpenApiParameter.QUERY,
+        type=OpenApiTypes.BOOL,
+        required=False,
+    ),
 )
 
 
@@ -114,6 +160,37 @@ class EventsViewSet(viewsets.ViewSet):
             vlogger.info(message)
 
         return Response(serializer.validated_data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        summary="List event entries",
+        methods=["GET"],
+        description="Returns event entries as a paginated JSON response.",
+        parameters=[*ORGANIZATION_OPEN_API_PARAMETERS, *api_filter_parameters],
+        responses={"200": PaginatedEventReadSerializer()},
+    )
+    @action(detail=False, methods=["GET"], url_path="entries")
+    def entries(self, request: ExtendedRequest):
+        self.check_permissions(request)
+
+        query_data = request.query_params.copy()
+        if "from" in query_data and "from_" not in query_data:
+            query_data["from_"] = query_data["from"]
+
+        query_serializer = EventListQuerySerializer(data=query_data)
+        query_serializer.is_valid(raise_exception=True)
+
+        permission = EventsPermission.create_scope_list(request)
+        filter_query = permission.filter(query_serializer.validated_data)
+        data = list_events(
+            filter_query,
+            page=query_serializer.validated_data["page"],
+            page_size=query_serializer.validated_data["page_size"],
+            include_count=query_serializer.validated_data["include_count"],
+        )
+
+        response_serializer = PaginatedEventReadSerializer(data=data)
+        response_serializer.is_valid(raise_exception=True)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     # FUTURE-TODO: remove deprecated API endpoint after several releases
     @extend_schema(

@@ -2,7 +2,9 @@
 #
 # SPDX-License-Identifier: MIT
 
+import base64
 import csv
+import json
 import os
 import uuid
 from datetime import datetime, timedelta
@@ -31,46 +33,333 @@ slogger = ServerLogManager(__name__)
 
 DEFAULT_CACHE_TTL = timedelta(hours=1)
 TARGET = "events"
+EVENT_RESOURCE_FILTERS = ("org_id", "project_id", "task_id", "job_id", "user_id")
+EVENT_DATETIME_FILTERS = ("from", "to")
+EVENT_BASE_CONDITIONS = ("source in ('server', 'client')", "scope != 'send:exception'")
+EVENT_COLUMNS = (
+    "scope",
+    "timestamp",
+    "obj_name",
+    "obj_id",
+    "obj_val",
+    "source",
+    "count",
+    "duration",
+    "project_id",
+    "task_id",
+    "job_id",
+    "user_id",
+    "user_name",
+    "user_email",
+    "org_id",
+    "org_slug",
+    "payload",
+)
+EVENT_CURSOR_FIELDS = (
+    ("timestamp", "timestamp", "DateTime64", None, None),
+    ("scope", "scope", "String", "", None),
+    ("obj_name", "ifNull(obj_name, '')", "String", "", None),
+    ("obj_id", "ifNull(obj_id, 0)", "UInt64", 0, None),
+    ("obj_val", "ifNull(obj_val, '')", "String", "", None),
+    ("source", "source", "String", "", None),
+    ("count", "ifNull(count, 0)", "Int64", 0, None),
+    ("duration", "ifNull(duration, 0)", "Int64", 0, None),
+    ("project_id", "ifNull(project_id, 0)", "UInt64", 0, None),
+    ("task_id", "ifNull(task_id, 0)", "UInt64", 0, None),
+    ("job_id", "ifNull(job_id, 0)", "UInt64", 0, None),
+    ("user_id", "ifNull(user_id, 0)", "UInt64", 0, None),
+    ("org_id", "ifNull(org_id, 0)", "UInt64", 0, None),
+    (
+        "access_token_id",
+        "ifNull(access_token_id, 0)",
+        "UInt64",
+        0,
+        "ifNull(access_token_id, 0) AS access_token_id",
+    ),
+    (
+        "payload_signature",
+        "hex(SHA256(ifNull(payload, '')))",
+        "String",
+        "",
+        "hex(SHA256(ifNull(payload, ''))) AS payload_signature",
+    ),
+)
+
+
+def _encode_event_cursor(row: dict) -> str:
+    cursor_payload = {}
+    for field_name, _expression, _type_name, default_value, _select_expression in EVENT_CURSOR_FIELDS:
+        value = row.get(field_name, default_value)
+        if field_name == "timestamp":
+            cursor_payload[field_name] = value.isoformat() if isinstance(value, datetime) else str(value)
+        else:
+            cursor_payload[field_name] = default_value if value is None else value
+
+    return base64.urlsafe_b64encode(json.dumps(cursor_payload).encode("utf-8")).decode("ascii")
+
+
+def _decode_event_cursor(cursor: str) -> dict:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        decoded_cursor = base64.urlsafe_b64decode(f"{cursor}{padding}".encode("ascii")).decode("utf-8")
+        cursor_payload = json.loads(decoded_cursor)
+    except Exception as ex:
+        raise serializers.ValidationError("Cannot parse events cursor") from ex
+
+    if not isinstance(cursor_payload, dict):
+        raise serializers.ValidationError("Events cursor payload is invalid")
+
+    decoded = {}
+    for field_name, _expression, _type_name, default_value, _select_expression in EVENT_CURSOR_FIELDS:
+        value = cursor_payload.get(field_name, default_value)
+        if field_name == "timestamp":
+            if not value:
+                raise serializers.ValidationError("Events cursor is missing timestamp")
+            try:
+                decoded[field_name] = parser.isoparse(value)
+            except (TypeError, ValueError) as ex:
+                raise serializers.ValidationError("Events cursor timestamp is invalid") from ex
+        elif isinstance(default_value, int):
+            try:
+                decoded[field_name] = int(value)
+            except (TypeError, ValueError) as ex:
+                raise serializers.ValidationError(f"Events cursor field {field_name!r} is invalid") from ex
+        else:
+            decoded[field_name] = default_value if value is None else str(value)
+
+    return decoded
+
+def _get_clickhouse_client():
+    clickhouse_settings = settings.CLICKHOUSE["events"]
+    return clickhouse_connect.get_client(
+        host=clickhouse_settings["HOST"],
+        database=clickhouse_settings["NAME"],
+        port=clickhouse_settings["PORT"],
+        username=clickhouse_settings["USER"],
+        password=clickhouse_settings["PASSWORD"],
+    )
+
+
+def _normalize_event_query_params(query_params: dict) -> dict:
+    normalized = {**query_params}
+
+    for datetime_filter in EVENT_DATETIME_FILTERS:
+        value = normalized.get(datetime_filter)
+        if not value:
+            normalized[datetime_filter] = None
+            continue
+
+        if isinstance(value, datetime):
+            normalized[datetime_filter] = value
+            continue
+
+        try:
+            normalized[datetime_filter] = parser.isoparse(value)
+        except (TypeError, parser.ParserError):
+            raise serializers.ValidationError(
+                f"Cannot parse {datetime_filter!r} datetime parameter: {value}"
+            )
+
+    if normalized["from"] and normalized["to"] and normalized["from"] > normalized["to"]:
+        raise serializers.ValidationError("'from' must be before than 'to'")
+
+    if not normalized["from"]:
+        normalized["from"] = find_minimal_date_for_filter(
+            job_id=normalized.get("job_id"),
+            task_id=normalized.get("task_id"),
+            project_id=normalized.get("project_id"),
+            org_id=normalized.get("org_id"),
+        )
+
+    if not normalized["to"]:
+        normalized["to"] = datetime.now(timezone.utc)
+
+    cursor = normalized.get("cursor")
+    normalized["cursor_data"] = _decode_event_cursor(cursor) if cursor else None
+
+    return normalized
+
+
+def _get_events_list_columns() -> str:
+    columns = list(EVENT_COLUMNS)
+    for field_name, _expression, _field_type, _default_value, select_expression in EVENT_CURSOR_FIELDS:
+        if select_expression and field_name not in EVENT_COLUMNS:
+            columns.append(select_expression)
+
+    return ", ".join(columns)
+
+
+def _build_events_query(
+    query_params: dict,
+    *,
+    columns: str,
+    order: str = "DESC",
+    limit: int | None = None,
+    offset: int | None = None,
+) -> tuple[str, dict]:
+    conditions = list(EVENT_BASE_CONDITIONS)
+    parameters = {}
+
+    if query_params.get("from"):
+        conditions.append("timestamp >= {from:DateTime64}")
+        parameters["from"] = query_params["from"]
+
+    if query_params.get("to"):
+        conditions.append("timestamp <= {to:DateTime64}")
+        parameters["to"] = query_params["to"]
+
+    for param in EVENT_RESOURCE_FILTERS:
+        value = query_params.get(param)
+        if value is not None:
+            conditions.append(f"{param} = {{{param}:UInt64}}")
+            parameters[param] = value
+
+    cursor_data = query_params.get("cursor_data")
+    if cursor_data:
+        cursor_expressions = ", ".join(expression for _, expression, _, _, _ in EVENT_CURSOR_FIELDS)
+        cursor_placeholders = ", ".join(
+            f"{{cursor_{field_name}:{field_type}}}"
+            for field_name, _expression, field_type, _default_value, _select_expression in EVENT_CURSOR_FIELDS
+        )
+        conditions.append(f"({cursor_expressions}) < ({cursor_placeholders})")
+        for field_name, _expression, _field_type, _default_value, _select_expression in EVENT_CURSOR_FIELDS:
+            parameters[f"cursor_{field_name}"] = cursor_data[field_name]
+
+    obj_name = query_params.get("obj_name")
+    if obj_name:
+        obj_names = [name.strip() for name in obj_name.split(",") if name.strip()]
+        placeholders = []
+        for index, name in enumerate(obj_names):
+            parameter_name = f"obj_name_{index}"
+            placeholders.append(f"{{{parameter_name}:String}}")
+            parameters[parameter_name] = name
+        if placeholders:
+            conditions.append(f"obj_name IN ({', '.join(placeholders)})")
+
+    scope = query_params.get("scope")
+    if scope:
+        conditions.append("scope = {scope:String}")
+        parameters["scope"] = scope
+
+    query = f"SELECT {columns} FROM events"
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    if order:
+        order_by = ", ".join(
+            f"{expression} {order}"
+            for _, expression, _field_type, _default_value, _select_expression in EVENT_CURSOR_FIELDS
+        )
+        query += f" ORDER BY {order_by}"
+
+    if limit is not None:
+        query += " LIMIT {limit:UInt64}"
+        parameters["limit"] = limit
+
+    if offset:
+        query += " OFFSET {offset:UInt64}"
+        parameters["offset"] = offset
+
+    return query, parameters
+
+
+def _deserialize_event(row: dict) -> dict:
+    payload = row.get("payload")
+    if payload:
+        try:
+            row["payload"] = json.loads(payload)
+        except json.JSONDecodeError:
+            row["payload"] = None
+    else:
+        row["payload"] = None
+
+    return row
+
+
+def list_events(
+    query_params: dict,
+    *,
+    page: int,
+    page_size: int,
+    include_count: bool = True,
+) -> dict:
+    try:
+        normalized_query_params = _normalize_event_query_params(query_params)
+        uses_cursor = bool(normalized_query_params.get("cursor_data"))
+        offset = None if uses_cursor else (page - 1) * page_size
+        query_limit = page_size + 1 if uses_cursor or not include_count else page_size
+        events_query, events_parameters = _build_events_query(
+            normalized_query_params,
+            columns=_get_events_list_columns(),
+            limit=query_limit,
+            offset=offset,
+        )
+
+        with _get_clickhouse_client() as client:
+            events_result = client.query(events_query, parameters=events_parameters)
+            if include_count:
+                count_query, count_parameters = _build_events_query(
+                    normalized_query_params,
+                    columns="count()",
+                    order="",
+                )
+                count_result = client.query(count_query, parameters=count_parameters)
+            else:
+                count_result = None
+
+        result_rows = events_result.result_rows
+        fetched_extra_row = len(result_rows) > page_size
+        if fetched_extra_row:
+            result_rows = result_rows[:page_size]
+
+        has_more = False
+        if include_count:
+            total = count_result.result_rows[0][0] if count_result and count_result.result_rows else 0
+            consumed_rows = len(result_rows) if uses_cursor else offset + len(result_rows)
+            if uses_cursor:
+                # Cursor-based pagination already fetches one extra row, so it can
+                # determine whether another page exists without guessing how many
+                # rows were consumed by previous cursors.
+                has_more = fetched_extra_row
+            else:
+                has_more = total > consumed_rows
+        else:
+            has_more = fetched_extra_row
+            total = len(result_rows) + int(has_more) if uses_cursor else offset + len(result_rows) + int(has_more)
+
+        raw_results = [
+            dict(zip(events_result.column_names, row))
+            for row in result_rows
+        ]
+        next_cursor = _encode_event_cursor(raw_results[-1]) if has_more and raw_results else None
+        results = [
+            _deserialize_event({column: row.get(column) for column in EVENT_COLUMNS})
+            for row in raw_results
+        ]
+
+        return {
+            "count": total,
+            "page": page,
+            "page_size": page_size,
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+            "results": results,
+        }
+    except Exception:
+        log_exception(slogger.glob)
+        raise
 
 
 def _create_csv(query_params: dict, output_filename: str):
     try:
-        clickhouse_settings = settings.CLICKHOUSE["events"]
+        normalized_query_params = _normalize_event_query_params(query_params)
+        query, parameters = _build_events_query(
+            normalized_query_params,
+            columns="*",
+            order="ASC",
+        )
 
-        time_filter = {
-            "from": query_params.pop("from"),
-            "to": query_params.pop("to"),
-        }
-
-        query = "SELECT * FROM events"
-        conditions = ["source in ('server', 'client')", "scope != 'send:exception'"]
-        parameters = {}
-
-        if time_filter["from"]:
-            conditions.append(f"timestamp >= {{from:DateTime64}}")
-            parameters["from"] = time_filter["from"]
-
-        if time_filter["to"]:
-            conditions.append(f"timestamp <= {{to:DateTime64}}")
-            parameters["to"] = time_filter["to"]
-
-        for param, value in query_params.items():
-            if value:
-                conditions.append(f"{param} = {{{param}:UInt64}}")
-                parameters[param] = value
-
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-
-        query += " ORDER BY timestamp ASC"
-
-        with clickhouse_connect.get_client(
-            host=clickhouse_settings["HOST"],
-            database=clickhouse_settings["NAME"],
-            port=clickhouse_settings["PORT"],
-            username=clickhouse_settings["USER"],
-            password=clickhouse_settings["PASSWORD"],
-        ) as client:
+        with _get_clickhouse_client() as client:
             result = client.query(query, parameters=parameters)
 
         with open(output_filename, "w", encoding="UTF8") as f:
@@ -123,36 +412,9 @@ class EventsExporter(AbstractExporter):
     def _init_callback_with_params(self):
         self.callback = _create_csv
 
-        resource_filters = ("org_id", "project_id", "task_id", "job_id", "user_id")
-        datetime_filters = ("from", "to")
-        query_params = {k: self.filter_query.get(k) for k in resource_filters + datetime_filters}
-
-        for datetime_filter in datetime_filters:
-            if query_params[datetime_filter]:
-                try:
-                    query_params[datetime_filter] = parser.isoparse(query_params[datetime_filter])
-                except parser.ParserError:
-                    raise serializers.ValidationError(
-                        f"Cannot parse {datetime_filter!r} datetime parameter: {query_params[datetime_filter]}"
-                    )
-
-        if (
-            query_params["from"]
-            and query_params["to"]
-            and query_params["from"] > query_params["to"]
-        ):
-            raise serializers.ValidationError("'from' must be before than 'to'")
-
-        if not query_params["from"]:
-            query_params["from"] = find_minimal_date_for_filter(
-                job_id=query_params["job_id"],
-                task_id=query_params["task_id"],
-                project_id=query_params["project_id"],
-                org_id=query_params["org_id"],
-            )
-
-        if not query_params["to"]:
-            query_params["to"] = datetime.now(timezone.utc)
+        query_params = _normalize_event_query_params(
+            {k: self.filter_query.get(k) for k in EVENT_RESOURCE_FILTERS + EVENT_DATETIME_FILTERS}
+        )
 
         output_filename = ExportCacheManager.make_file_path(
             file_type="events", file_id=self.query_id, file_ext="csv"

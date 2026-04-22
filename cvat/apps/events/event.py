@@ -2,8 +2,11 @@
 #
 # SPDX-License-Identifier: MIT
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 
+import clickhouse_connect
+from django.conf import settings
 from django.db import transaction
 from rest_framework.renderers import JSONRenderer
 
@@ -43,17 +46,90 @@ class EventScopes:
         ]
 
 
+EVENT_INSERT_COLUMNS = (
+    "scope",
+    "obj_name",
+    "obj_id",
+    "obj_val",
+    "source",
+    "timestamp",
+    "count",
+    "duration",
+    "project_id",
+    "task_id",
+    "job_id",
+    "user_id",
+    "user_name",
+    "user_email",
+    "org_id",
+    "org_slug",
+    "payload",
+    "access_token_id",
+)
+
+def _get_clickhouse_client():
+    clickhouse_settings = settings.CLICKHOUSE["events"]
+    return clickhouse_connect.get_client(
+        host=clickhouse_settings["HOST"],
+        database=clickhouse_settings["NAME"],
+        port=clickhouse_settings["PORT"],
+        username=clickhouse_settings["USER"],
+        password=clickhouse_settings["PASSWORD"],
+    )
+
+
+def _insert_events_directly(data_batch: list[dict]) -> bool:
+    rows = [
+        [data.get(column) for column in EVENT_INSERT_COLUMNS]
+        for data in data_batch
+    ]
+
+    try:
+        with _get_clickhouse_client() as client:
+            client.insert("events", rows, column_names=EVENT_INSERT_COLUMNS)
+        return True
+    except Exception:
+        return False
+
+
+def _insert_event_directly(data: dict) -> bool:
+    return _insert_events_directly([data])
+
+
+def _emit_server_event_to_logger(logger_data: dict) -> None:
+    vlogger.info(JSONRenderer().render(logger_data).decode("UTF-8"))
+
+
+def _emit_server_event(clickhouse_data: dict, logger_data: dict) -> None:
+    if not _insert_event_directly(clickhouse_data):
+        _emit_server_event_to_logger(logger_data)
+
+
+def _emit_server_event_batch(batch_data: list[tuple[dict, dict]]) -> None:
+    if not batch_data:
+        return
+
+    clickhouse_batch = [clickhouse_data for clickhouse_data, _logger_data in batch_data]
+    if _insert_events_directly(clickhouse_batch):
+        return
+
+    for clickhouse_data, logger_data in batch_data:
+        _emit_server_event(clickhouse_data, logger_data)
+
+
 def record_server_event(
     *,
     scope: str,
-    request_info: dict[str, str],
+    request_info: Mapping[str, str | int | None],
     payload: dict | None = None,
     on_commit: bool = False,
     **kwargs,
 ) -> None:
     payload = payload or {}
+    event_timestamp = datetime.now(timezone.utc)
+    request_metadata = dict(request_info)
 
-    access_token_id = request_info.pop("access_token_id", None)
+    access_token_id = request_metadata.pop("access_token_id", None)
     if access_token_id is not None:
         kwargs.setdefault("access_token_id", access_token_id)
 
@@ -61,24 +137,29 @@ def record_server_event(
         **payload,
         "request": {
             **payload.get("request", {}),
-            **request_info,
+            **request_metadata,
         },
     }
 
-    data = {
+    clickhouse_data = {
         "scope": scope,
-        "timestamp": str(datetime.now(timezone.utc).timestamp()),
+        "timestamp": event_timestamp,
         "source": "server",
+        "count": kwargs.get("count"),
+        "duration": kwargs.get("duration", 0),
         "payload": JSONRenderer().render(payload_with_request_info).decode("UTF-8"),
         **kwargs,
     }
-
-    rendered_data = JSONRenderer().render(data).decode("UTF-8")
+    logger_data = {
+        **clickhouse_data,
+        "timestamp": str(event_timestamp.timestamp()),
+    }
+    dispatch = lambda: _emit_server_event(clickhouse_data, logger_data)
 
     if on_commit:
-        transaction.on_commit(lambda: vlogger.info(rendered_data), robust=True)
+        transaction.on_commit(dispatch, robust=True)
     else:
-        vlogger.info(rendered_data)
+        dispatch()
 
 
 class EventScopeChoice:
