@@ -6,7 +6,7 @@ import dayjs from 'dayjs';
 import type { RangePickerProps } from 'antd/lib/date-picker';
 
 import {
-    AnalyticsEvent, Job, Project, User,
+    AnalyticsEvent, Job, Project, Task, User,
 } from 'cvat-core-wrapper';
 
 const HISTORY_DEFAULT_RANGE_DAYS = 30;
@@ -61,6 +61,12 @@ export interface HistorySnapshot {
     assignee: string;
     stage: string;
     state: string;
+}
+
+export interface HistorySnapshotSource {
+    assignee?: User | null;
+    stage?: string | null;
+    state?: string | null;
 }
 
 type RangePickerValue = NonNullable<RangePickerProps['value']>;
@@ -448,12 +454,62 @@ export function groupHistoryEvents(events: AnalyticsEvent[]): HistoryChangeGroup
     return groups;
 }
 
-export function createHistorySnapshot(job: Job | null): HistorySnapshot {
+export function createHistorySnapshot(resource: HistorySnapshotSource | null): HistorySnapshot {
     return {
-        assignee: job ? formatAssignee(job.assignee) : '-',
-        stage: job?.stage || '-',
-        state: job?.state || '-',
+        assignee: resource ? formatAssignee(resource.assignee ?? null) : '-',
+        stage: resource?.stage || '-',
+        state: resource?.state || '-',
     };
+}
+
+export function getHistorySelectionQuery(selection: HistorySelection): {
+    scope: 'update:project' | 'update:task' | 'update:job';
+    objName: string;
+    projectId?: number;
+    taskId?: number;
+    jobId?: number;
+} {
+    if (selection.type === 'project') {
+        return {
+            scope: 'update:project',
+            objName: 'assignee',
+            projectId: selection.projectId,
+        };
+    }
+
+    if (selection.type === 'task') {
+        return {
+            scope: 'update:task',
+            objName: 'assignee',
+            taskId: selection.taskId,
+        };
+    }
+
+    return {
+        scope: 'update:job',
+        objName: 'assignee,stage,state',
+        jobId: selection.jobId,
+    };
+}
+
+export function isJobHistorySelection(
+    selection: HistorySelection | null,
+): selection is Extract<HistorySelection, { type: 'job' }> {
+    return selection?.type === 'job';
+}
+
+export function isProjectHistoryResource(
+    selection: HistorySelection,
+    resource: Project | Task | Job | null,
+): resource is Project {
+    return selection.type === 'project' && resource instanceof Project;
+}
+
+export function isTaskHistoryResource(
+    selection: HistorySelection,
+    resource: Project | Task | Job | null,
+): resource is Task {
+    return selection.type === 'task' && resource instanceof Task;
 }
 
 export function applyGroupToSnapshot(

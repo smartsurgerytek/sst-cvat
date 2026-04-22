@@ -8,7 +8,7 @@ import {
 import notification from 'antd/lib/notification';
 
 import {
-    getCore, Job, Project,
+    getCore, Job, Project, Task,
 } from 'cvat-core-wrapper';
 
 import {
@@ -23,12 +23,14 @@ import {
     createStandaloneRootNode,
     dedupeTreeChildren,
     getErrorDescription,
+    getHistorySelectionQuery,
     groupHistoryEvents,
     HistoryChangeGroup,
     HistoryDateRange,
     HistoryChangeRow,
     HistorySelection,
     HistorySnapshot,
+    HistorySnapshotSource,
     HistoryTreeNode,
     indexTreeNode,
     mapJobToTreeNode,
@@ -47,7 +49,6 @@ const TREE_PAGE_SIZE = 100;
 const SUMMARY_PAGE_SIZE = 10;
 const HISTORY_PAGE_SIZE = 20;
 const HISTORY_FETCH_PAGE_SIZE = 100;
-const HISTORY_FIELDS = 'assignee,stage,state';
 const RESOURCE_SORT_FIELD = '-id';
 const DEFAULT_PROJECT_SORT = '-id';
 const PROJECT_SEARCH_DEBOUNCE_MS = 300;
@@ -72,11 +73,14 @@ interface UseHistoryBrowserResult {
     projectSort: string;
     normalizedProjectSearch: string;
     summaryLoading: boolean;
+    summaryTasks: Task[];
     summaryJobs: Job[];
     summaryPage: number;
     summaryPageSize: number;
     summaryTotal: number;
-    jobDetailsLoading: boolean;
+    resourceDetailsLoading: boolean;
+    selectedProject: Project | null;
+    selectedTask: Task | null;
     selectedJob: Job | null;
     historyDateRangeLabel: string;
     historyDateRange: HistoryDateRange | null;
@@ -94,6 +98,7 @@ interface UseHistoryBrowserResult {
     handleTreeLoadData: (node: HistoryTreeNode) => Promise<void>;
     handleSelectionBack: () => void;
     handleSummaryChange: (page: number, pageSize: number) => void;
+    handleSelectSummaryTask: (task: Task) => void;
     handleSelectSummaryJob: (job: Job) => void;
     handleHistoryDateRangeChange: (range: HistoryDateRange | null) => void;
     handleResetHistoryDateRange: () => void;
@@ -108,17 +113,20 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
     const [selection, setSelection] = useState<HistorySelection | null>(null);
     const [treeLoading, setTreeLoading] = useState(true);
     const [summaryLoading, setSummaryLoading] = useState(false);
-    const [jobDetailsLoading, setJobDetailsLoading] = useState(false);
+    const [resourceDetailsLoading, setResourceDetailsLoading] = useState(false);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyBaseLoading, setHistoryBaseLoading] = useState(false);
     const [historyHasMore, setHistoryHasMore] = useState(false);
     const [projectSearchInput, setProjectSearchInput] = useState('');
     const [projectSearch, setProjectSearch] = useState('');
     const [projectSort, setProjectSort] = useState(DEFAULT_PROJECT_SORT);
+    const [summaryTasks, setSummaryTasks] = useState<Task[]>([]);
     const [summaryJobs, setSummaryJobs] = useState<Job[]>([]);
     const [summaryPage, setSummaryPage] = useState(1);
     const [summaryPageSize, setSummaryPageSize] = useState(SUMMARY_PAGE_SIZE);
     const [summaryTotal, setSummaryTotal] = useState(0);
+    const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+    const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
     const [historyRows, setHistoryRows] = useState<HistoryChangeRow[]>([]);
     const [historyPage, setHistoryPage] = useState(1);
@@ -127,11 +135,11 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         () => createDefaultHistoryDateRange(),
     );
     const summaryRequestID = useRef(0);
-    const jobDetailsRequestID = useRef(0);
+    const resourceDetailsRequestID = useRef(0);
     const historyRequestID = useRef(0);
     const historyBaseRequestID = useRef(0);
-    const selectedJobRef = useRef<Job | null>(null);
-    const selectedHistoryJobIDRef = useRef<number | null>(null);
+    const selectedResourceRef = useRef<HistorySnapshotSource | null>(null);
+    const selectedHistorySelectionKeyRef = useRef<string | null>(null);
     const summarySelectionKey = useRef<string | null>(null);
     const treeDataRef = useRef<HistoryTreeNode[]>([]);
     const treeNodeIndexRef = useRef<Map<string, HistoryTreeNode>>(new Map());
@@ -156,6 +164,21 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
     const historyTo = historyDateRange?.[1]?.toISOString() || null;
     const historyAfter = historyDateRange?.[1]?.add(1, 'millisecond').toISOString() || null;
     const historyFilterKey = `${historyFrom || 'all'}|${historyTo || 'all'}`;
+    const selectedResource = useMemo<HistorySnapshotSource | null>(() => {
+        if (!selection) {
+            return null;
+        }
+
+        if (selection.type === 'project') {
+            return selectedProject;
+        }
+
+        if (selection.type === 'task') {
+            return selectedTask;
+        }
+
+        return selectedJob;
+    }, [selection, selectedJob, selectedProject, selectedTask]);
 
     const replaceTreeData = useCallback(
         (nextTree: HistoryTreeNode[], nextIndex?: Map<string, HistoryTreeNode>): void => {
@@ -689,12 +712,12 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         setHistoryPage(1);
     }, [ensureStandaloneRootNode, getIndexedTreeNode, insertChildNode, insertProjectNode, loadChildren]);
 
-    const resetHistoryState = useCallback((hasMore: boolean, job: Job | null = null): void => {
+    const resetHistoryState = useCallback((hasMore: boolean, resource: HistorySnapshotSource | null = null): void => {
         historyRequestID.current += 1;
         historyGroupsRef.current = [];
         historyRowsRef.current = [];
-        historySnapshotRef.current = createHistorySnapshot(job);
-        historyBaseReadyRef.current = job === null;
+        historySnapshotRef.current = createHistorySnapshot(resource);
+        historyBaseReadyRef.current = resource === null;
         historyHasMoreRef.current = hasMore;
         historyNextCursorRef.current = null;
         setHistoryRows([]);
@@ -709,8 +732,11 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         setHistoryRows(rebuilt.rows);
     }, []);
 
-    const buildHistoryBaseSnapshot = useCallback(async (job: Job): Promise<HistorySnapshot> => {
-        let snapshot = createHistorySnapshot(job);
+    const buildHistoryBaseSnapshot = useCallback(async (
+        resource: HistorySnapshotSource,
+        selectionForHistory: HistorySelection,
+    ): Promise<HistorySnapshot> => {
+        let snapshot = createHistorySnapshot(resource);
 
         if (!historyAfter) {
             return snapshot;
@@ -718,12 +744,11 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
 
         let nextCursor: string | null = null;
         let hasMore = true;
+        const selectionQuery = getHistorySelectionQuery(selectionForHistory);
 
         while (hasMore) {
             const batch = await core.analytics.events.list({
-                jobId: job.id,
-                scope: 'update:job',
-                objName: HISTORY_FIELDS,
+                ...selectionQuery,
                 pageSize: HISTORY_FETCH_PAGE_SIZE,
                 from: historyAfter,
                 ...(nextCursor ? { cursor: nextCursor } : {}),
@@ -745,7 +770,10 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         return snapshot;
     }, [historyAfter]);
 
-    const ensureHistoryRows = useCallback(async (jobId: number, requiredRows: number): Promise<void> => {
+    const ensureHistoryRows = useCallback(async (
+        selectionForHistory: HistorySelection,
+        requiredRows: number,
+    ): Promise<void> => {
         const currentGroups = historyGroupsRef.current;
         if (currentGroups.length >= requiredRows || !historyHasMoreRef.current) {
             return;
@@ -754,6 +782,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         const requestID = ++historyRequestID.current;
         let nextCursor = historyNextCursorRef.current;
         let hasMore: boolean = historyHasMoreRef.current;
+        const selectionQuery = getHistorySelectionQuery(selectionForHistory);
 
         setHistoryLoading(true);
 
@@ -761,9 +790,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
             let groupCount = currentGroups.length;
             while (groupCount < requiredRows && hasMore) {
                 const batch = await core.analytics.events.list({
-                    jobId,
-                    scope: 'update:job',
-                    objName: HISTORY_FIELDS,
+                    ...selectionQuery,
                     pageSize: HISTORY_FETCH_PAGE_SIZE,
                     ...(historyFrom ? { from: historyFrom } : {}),
                     ...(historyTo ? { to: historyTo } : {}),
@@ -798,7 +825,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
                         ];
                         groupsToAppend = groupedBatch.slice(1);
 
-                        if (selectedJobRef.current && historyRowsRef.current.length) {
+                        if (selectedResourceRef.current && historyRowsRef.current.length) {
                             const boundaryRow = historyRowsRef.current[historyRowsRef.current.length - 1];
                             nextSnapshot = applyGroupToSnapshot(
                                 {
@@ -816,12 +843,12 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
                     historyGroupsRef.current = [...historyGroupsRef.current, ...groupedBatch];
                 }
 
-                if (selectedJobRef.current && historyBaseReadyRef.current && groupsToAppend.length) {
+                if (selectedResourceRef.current && historyBaseReadyRef.current && groupsToAppend.length) {
                     const appended = appendHistoryRows(groupsToAppend, nextSnapshot);
                     historyRowsRef.current = [...historyRowsRef.current, ...appended.rows];
                     historySnapshotRef.current = appended.snapshot;
                     setHistoryRows(historyRowsRef.current);
-                } else if (selectedJobRef.current && historyBaseReadyRef.current) {
+                } else if (selectedResourceRef.current && historyBaseReadyRef.current) {
                     historySnapshotRef.current = nextSnapshot;
                 }
 
@@ -839,7 +866,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
             }
 
             notification.error({
-                message: 'Could not load job history',
+                message: 'Could not load history',
                 description: getErrorDescription(error),
             });
         } finally {
@@ -872,17 +899,18 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
     }, [expandedKeys]);
 
     useEffect(() => {
-        selectedJobRef.current = selectedJob;
-    }, [selectedJob]);
+        selectedResourceRef.current = selectedResource;
+    }, [selectedResource]);
 
     useEffect(() => {
-        selectedHistoryJobIDRef.current = selection?.type === 'job' ? selection.jobId : null;
+        selectedHistorySelectionKeyRef.current = selection?.key ?? null;
     }, [selection]);
 
     useEffect(() => {
         if (!selection || selection.type === 'job') {
             summaryRequestID.current += 1;
             summarySelectionKey.current = null;
+            setSummaryTasks([]);
             setSummaryJobs([]);
             setSummaryTotal(0);
             setSummaryPage(1);
@@ -892,6 +920,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
 
         if (summarySelectionKey.current !== selection.key) {
             summarySelectionKey.current = selection.key;
+            setSummaryTasks([]);
             setSummaryJobs([]);
             setSummaryTotal(0);
             if (summaryPage !== 1) {
@@ -903,8 +932,8 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         const requestID = ++summaryRequestID.current;
         setSummaryLoading(true);
         const promise = selection.type === 'project' ?
-            core.jobs.get({
-                projectID: selection.projectId,
+            core.tasks.get({
+                projectId: selection.projectId,
                 page: summaryPage,
                 pageSize: summaryPageSize,
                 sort: RESOURCE_SORT_FIELD,
@@ -917,10 +946,21 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
             });
 
         promise
-            .then((jobs) => {
+            .then((resources) => {
                 if (summaryRequestID.current !== requestID) {
                     return;
                 }
+
+                if (selection.type === 'project') {
+                    const tasks = resources as Task[];
+                    setSummaryTasks([...tasks]);
+                    setSummaryJobs([]);
+                    setSummaryTotal(tasks.count);
+                    return;
+                }
+
+                const jobs = resources as Job[];
+                setSummaryTasks([]);
                 setSummaryJobs([...jobs]);
                 setSummaryTotal(jobs.count);
             })
@@ -929,7 +969,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
                     return;
                 }
                 notification.error({
-                    message: 'Could not load jobs for the selected resource',
+                    message: `Could not load ${selection.type === 'project' ? 'tasks' : 'jobs'} for the selected resource`,
                     description: getErrorDescription(error),
                 });
             })
@@ -941,43 +981,63 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
     }, [selection, summaryPage, summaryPageSize]);
 
     useEffect(() => {
-        if (!selection || selection.type !== 'job') {
-            jobDetailsRequestID.current += 1;
+        if (!selection) {
+            resourceDetailsRequestID.current += 1;
+            setSelectedProject(null);
+            setSelectedTask(null);
             setSelectedJob(null);
-            setJobDetailsLoading(false);
+            setResourceDetailsLoading(false);
             resetHistoryState(false);
             return;
         }
 
-        const requestID = ++jobDetailsRequestID.current;
+        const requestID = ++resourceDetailsRequestID.current;
+        setSelectedProject(null);
+        setSelectedTask(null);
         setSelectedJob(null);
         resetHistoryState(true);
-        setJobDetailsLoading(true);
-        core.jobs.get({ jobID: selection.jobId })
-            .then(([job]) => {
-                if (jobDetailsRequestID.current !== requestID) {
+        setResourceDetailsLoading(true);
+        let promise: Promise<Project[] | Task[] | Job[]>;
+        if (selection.type === 'project') {
+            promise = core.projects.get({ id: selection.projectId });
+        } else if (selection.type === 'task') {
+            promise = core.tasks.get({ id: selection.taskId });
+        } else {
+            promise = core.jobs.get({ jobID: selection.jobId });
+        }
+
+        promise
+            .then((resources) => {
+                if (resourceDetailsRequestID.current !== requestID) {
                     return;
                 }
-                setSelectedJob(job || null);
+
+                if (selection.type === 'project') {
+                    setSelectedProject((resources[0] as Project) || null);
+                } else if (selection.type === 'task') {
+                    setSelectedTask((resources[0] as Task) || null);
+                } else {
+                    setSelectedJob((resources[0] as Job) || null);
+                }
             })
             .catch((error: unknown) => {
-                if (jobDetailsRequestID.current !== requestID) {
+                if (resourceDetailsRequestID.current !== requestID) {
                     return;
                 }
                 notification.error({
-                    message: 'Could not load the selected job',
+                    message: `Could not load the selected ${selection.type}`,
                     description: getErrorDescription(error),
                 });
             })
             .finally(() => {
-                if (jobDetailsRequestID.current === requestID) {
-                    setJobDetailsLoading(false);
+                if (resourceDetailsRequestID.current === requestID) {
+                    setResourceDetailsLoading(false);
                 }
             });
     }, [selection, resetHistoryState]);
 
     useEffect(() => {
-        if (!selectedJob) {
+        if (!selection || !selectedResource) {
             historyBaseRequestID.current += 1;
             historyBaseReadyRef.current = false;
             if (!historyGroupsRef.current.length) {
@@ -993,7 +1053,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         historyBaseReadyRef.current = false;
         setHistoryBaseLoading(true);
 
-        buildHistoryBaseSnapshot(selectedJob)
+        buildHistoryBaseSnapshot(selectedResource, selection)
             .then((snapshot) => {
                 if (historyBaseRequestID.current !== requestID) {
                     return;
@@ -1007,7 +1067,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
                     return;
                 }
 
-                const fallbackSnapshot = createHistorySnapshot(selectedJob);
+                const fallbackSnapshot = createHistorySnapshot(selectedResource);
                 historyBaseReadyRef.current = true;
                 rebuildHistoryRows(fallbackSnapshot);
                 notification.error({
@@ -1020,28 +1080,29 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
                     setHistoryBaseLoading(false);
                 }
             });
-    }, [selectedJob, historyFilterKey, buildHistoryBaseSnapshot, rebuildHistoryRows]);
+    }, [
+        selection,
+        selectedResource,
+        historyFilterKey,
+        buildHistoryBaseSnapshot,
+        rebuildHistoryRows,
+    ]);
 
     useEffect(() => {
-        if (!selectedHistoryJobIDRef.current) {
+        if (!selectedHistorySelectionKeyRef.current) {
             return;
         }
 
-        const selectedJobID = selectedHistoryJobIDRef.current;
-        const snapshotJob = (
-            selectedJobRef.current && selectedJobRef.current.id === selectedJobID
-        ) ? selectedJobRef.current : null;
-
-        resetHistoryState(true, snapshotJob);
+        resetHistoryState(true, selectedResourceRef.current);
         setHistoryPage((currentPage) => (currentPage === 1 ? currentPage : 1));
     }, [historyFilterKey, resetHistoryState]);
 
     useEffect(() => {
-        if (!selection || selection.type !== 'job') {
+        if (!selection) {
             return;
         }
 
-        ensureHistoryRows(selection.jobId, historyPage * historyPageSize);
+        ensureHistoryRows(selection, historyPage * historyPageSize);
     }, [selection, historyPage, historyPageSize, historyFilterKey, ensureHistoryRows]);
 
     const historyPaginationTotal = useMemo(() => (
@@ -1130,6 +1191,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         }
 
         setSelectedKeys([node.key]);
+        setHistoryPage(1);
         if (node.nodeType === 'project') {
             setSelection({
                 type: 'project',
@@ -1146,7 +1208,6 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
                 title: node.title,
             });
         } else if (node.taskId) {
-            setHistoryPage(1);
             setSelection({
                 type: 'job',
                 key: node.key,
@@ -1169,6 +1230,65 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         setSelection(null);
         setHistoryPage(1);
     }, []);
+
+    const ensurePathForTask = useCallback(async (task: Task): Promise<void> => {
+        const nextExpandedKeys = new Set(expandedKeysRef.current);
+
+        if (task.projectId) {
+            const projectKey = `project-${task.projectId}`;
+            nextExpandedKeys.add(projectKey);
+
+            let projectNode = getIndexedTreeNode(projectKey);
+            if (!projectNode) {
+                const [project] = await core.projects.get({ id: task.projectId });
+                if (project) {
+                    insertProjectNode(project);
+                    projectNode = getIndexedTreeNode(projectKey);
+                }
+            }
+
+            if (projectNode) {
+                await loadChildren(projectNode);
+
+                if (!getIndexedTreeNode(`task-${task.id}`)) {
+                    insertChildNode(projectKey, mapTaskToTreeNode(task));
+                }
+            }
+        } else {
+            ensureStandaloneRootNode();
+            nextExpandedKeys.add(STANDALONE_TASKS_ROOT_KEY);
+
+            const standaloneRootNode = getIndexedTreeNode(STANDALONE_TASKS_ROOT_KEY);
+            if (standaloneRootNode) {
+                await loadChildren(standaloneRootNode);
+
+                if (!getIndexedTreeNode(`task-${task.id}`)) {
+                    insertChildNode(STANDALONE_TASKS_ROOT_KEY, mapTaskToTreeNode(task));
+                }
+            }
+        }
+
+        const taskNode = getIndexedTreeNode(`task-${task.id}`);
+        if (!taskNode) {
+            return;
+        }
+
+        const nextKeys = [...nextExpandedKeys];
+        expandedKeysRef.current = nextKeys;
+        setExpandedKeys(nextKeys);
+        applyTreeSelection(taskNode);
+    }, [
+        applyTreeSelection,
+        ensureStandaloneRootNode,
+        getIndexedTreeNode,
+        insertChildNode,
+        insertProjectNode,
+        loadChildren,
+    ]);
+
+    const handleSelectSummaryTask = useCallback((task: Task): void => {
+        ensurePathForTask(task).catch(() => undefined);
+    }, [ensurePathForTask]);
 
     const handleTreeExpand = useCallback((keys: string[], node: HistoryTreeNode): void => {
         expandedKeysRef.current = keys;
@@ -1239,11 +1359,14 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         projectSort,
         normalizedProjectSearch,
         summaryLoading,
+        summaryTasks,
         summaryJobs,
         summaryPage,
         summaryPageSize,
         summaryTotal,
-        jobDetailsLoading,
+        resourceDetailsLoading,
+        selectedProject,
+        selectedTask,
         selectedJob,
         historyDateRangeLabel,
         historyDateRange,
@@ -1261,6 +1384,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         handleTreeLoadData: loadChildren,
         handleSelectionBack,
         handleSummaryChange,
+        handleSelectSummaryTask,
         handleSelectSummaryJob,
         handleHistoryDateRangeChange,
         handleResetHistoryDateRange,

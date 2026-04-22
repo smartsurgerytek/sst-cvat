@@ -26,11 +26,14 @@ function HistoryPage(): JSX.Element {
         projectSort,
         normalizedProjectSearch,
         summaryLoading,
+        summaryTasks,
         summaryJobs,
         summaryPage,
         summaryPageSize,
         summaryTotal,
-        jobDetailsLoading,
+        resourceDetailsLoading,
+        selectedProject,
+        selectedTask,
         selectedJob,
         historyDateRangeLabel,
         historyDateRange,
@@ -48,6 +51,7 @@ function HistoryPage(): JSX.Element {
         handleTreeLoadData,
         handleSelectionBack,
         handleSummaryChange,
+        handleSelectSummaryTask,
         handleSelectSummaryJob,
         handleHistoryDateRangeChange,
         handleResetHistoryDateRange,
@@ -97,13 +101,17 @@ function HistoryPage(): JSX.Element {
                                     selection={selection}
                                     onNavigateBack={handleSelectionBack}
                                     summaryLoading={summaryLoading}
+                                    summaryTasks={summaryTasks}
                                     summaryJobs={summaryJobs}
                                     summaryPage={summaryPage}
                                     summaryPageSize={summaryPageSize}
                                     summaryTotal={summaryTotal}
                                     onSummaryChange={handleSummaryChange}
+                                    onSelectSummaryTask={handleSelectSummaryTask}
                                     onSelectSummaryJob={handleSelectSummaryJob}
-                                    jobDetailsLoading={jobDetailsLoading}
+                                    resourceDetailsLoading={resourceDetailsLoading}
+                                    selectedProject={selectedProject}
+                                    selectedTask={selectedTask}
                                     selectedJob={selectedJob}
                                     historyDateRangeLabel={historyDateRangeLabel}
                                     historyDateRange={historyDateRange}
