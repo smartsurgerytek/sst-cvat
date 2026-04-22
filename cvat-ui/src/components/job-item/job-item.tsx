@@ -13,6 +13,7 @@ import dayjs, { Dayjs } from 'dayjs';
 import PropTypes from 'prop-types';
 import { Col, Row } from 'antd/lib/grid';
 import Card from 'antd/lib/card';
+import Button from 'antd/lib/button';
 import Text from 'antd/lib/typography/Text';
 import Icon from '@ant-design/icons';
 import {
@@ -30,6 +31,7 @@ import { CombinedState } from 'reducers';
 import Collapse from 'antd/lib/collapse';
 import CVATTag, { TagType } from 'components/common/cvat-tag';
 import JobActionsComponent from 'components/jobs-page/actions-menu';
+import { getJobStateForStageChange } from 'utils/job-workflow';
 import { JobStageSelector, JobStateSelector } from './job-selectors';
 
 function formatDate(value: Dayjs): string {
@@ -39,7 +41,7 @@ function formatDate(value: Dayjs): string {
 interface Props {
     job: Job;
     task: Task;
-    onJobUpdate: (job: Job, fields: Parameters<Job['save']>[0]) => void;
+    onJobUpdate: (job: Job, fields: Parameters<Job['save']>[0]) => Promise<void>;
     childJobs?: Job[];
     defaultCollapsed?: boolean;
     onCollapseChange?: (jobID: number, collapsed: boolean) => void;
@@ -114,15 +116,68 @@ function JobItem(props: Readonly<Props>): JSX.Element {
     const {
         job, task, onJobUpdate, childJobs, defaultCollapsed, onCollapseChange, selected, onClick,
     } = props;
+    const [draftAssignee, setDraftAssignee] = useState<User | null>(job.assignee);
+    const [draftStage, setDraftStage] = useState<JobStage>(job.stage);
+    const [draftState, setDraftState] = useState<JobState>(job.state);
+    const [stateTouched, setStateTouched] = useState(false);
+    const [saving, setSaving] = useState(false);
 
     const deletes = useSelector((state: CombinedState) => state.jobs.activities.deletes);
     const deleted = job.id in deletes ? deletes[job.id] === true : false;
     const { itemRef, handleContextMenuClick } = useContextMenuClick<HTMLDivElement>();
 
-    const { stage, state } = job;
     const created = dayjs(job.createdDate);
     const updated = dayjs(job.updatedDate);
     const now = dayjs();
+
+    useEffect(() => {
+        setDraftAssignee(job.assignee);
+        setDraftStage(job.stage);
+        setDraftState(job.state);
+        setStateTouched(false);
+        setSaving(false);
+    }, [job.id, job.assignee, job.stage, job.state]);
+
+    const hasChanges = (
+        job.assignee?.id !== draftAssignee?.id ||
+        job.stage !== draftStage ||
+        job.state !== draftState
+    );
+
+    const onCancel = useCallback(() => {
+        setDraftAssignee(job.assignee);
+        setDraftStage(job.stage);
+        setDraftState(job.state);
+        setStateTouched(false);
+    }, [job.assignee, job.stage, job.state]);
+
+    const onSave = useCallback(async () => {
+        const fields: Parameters<Job['save']>[0] = {};
+
+        if (job.assignee?.id !== draftAssignee?.id) {
+            fields.assignee = draftAssignee;
+        }
+
+        if (job.stage !== draftStage) {
+            fields.stage = draftStage;
+        }
+
+        if (job.state !== draftState) {
+            fields.state = draftState;
+        }
+
+        if (!Object.keys(fields).length) {
+            return;
+        }
+
+        setSaving(true);
+        try {
+            await onJobUpdate(job, fields);
+            setStateTouched(false);
+        } finally {
+            setSaving(false);
+        }
+    }, [job, draftAssignee, draftStage, draftState, onJobUpdate]);
 
     const style = {};
     if (deleted) {
@@ -209,10 +264,9 @@ function JobItem(props: Readonly<Props>): JSX.Element {
                                     </Row>
                                     <UserSelector
                                         className='cvat-job-assignee-selector'
-                                        value={job.assignee}
+                                        value={draftAssignee}
                                         onSelect={(user: User | null): void => {
-                                            if (job?.assignee?.id === user?.id) return;
-                                            onJobUpdate(job, { assignee: user });
+                                            setDraftAssignee(user);
                                         }}
                                     />
                                 </Col>
@@ -223,9 +277,14 @@ function JobItem(props: Readonly<Props>): JSX.Element {
                                         </Col>
                                     </Row>
                                     <JobStageSelector
-                                        value={stage}
+                                        value={draftStage}
                                         onSelect={(newValue: JobStage) => {
-                                            onJobUpdate(job, { stage: newValue });
+                                            setDraftStage(newValue);
+                                            if (stateTouched) {
+                                                return;
+                                            }
+
+                                            setDraftState(getJobStateForStageChange(job.stage, job.state, newValue));
                                         }}
                                     />
                                 </Col>
@@ -236,13 +295,24 @@ function JobItem(props: Readonly<Props>): JSX.Element {
                                         </Col>
                                     </Row>
                                     <JobStateSelector
-                                        value={state}
+                                        value={draftState}
                                         onSelect={(newValue: JobState) => {
-                                            onJobUpdate(job, { state: newValue });
+                                            setStateTouched(true);
+                                            setDraftState(newValue);
                                         }}
                                     />
                                 </Col>
                             </Row>
+                            {hasChanges && (
+                                <Row className='cvat-job-item-save-actions'>
+                                    <Button onClick={onCancel} disabled={saving}>
+                                        Cancel
+                                    </Button>
+                                    <Button type='primary' onClick={onSave} loading={saving}>
+                                        Save
+                                    </Button>
+                                </Row>
+                            )}
                         </Col>
                     </Row>
                 </Col>
