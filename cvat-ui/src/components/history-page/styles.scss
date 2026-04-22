@@ -1,0 +1,88 @@
+// Copyright (C) CVAT.ai Corporation
+//
+// SPDX-License-Identifier: MIT
+
+@import 'base';
+
+.cvat-history-page {
+    overflow: auto;
+}
+
+.cvat-history-page,
+.cvat-history-wrapper {
+    height: 100%;
+}
+
+.cvat-history-inner {
+    @include cvat-management-page-inner;
+}
+
+.cvat-history-inner-wrapper {
+    @include cvat-management-page-inner-wrapper;
+}
+
+.cvat-history-header {
+    margin-bottom: $grid-unit-size * 2;
+}
+
+.cvat-history-content {
+    align-items: stretch;
+}
+
+.cvat-history-content > .ant-col:last-child {
+    display: flex;
+}
+
+.cvat-history-card {
+    height: 100%;
+}
+
+.cvat-history-tree {
+    min-height: $grid-unit-size * 24;
+    max-height: calc(100vh - #{$header-height + $grid-unit-size * 18});
+    overflow: auto;
+}
+
+.cvat-history-card-meta {
+    margin-bottom: $grid-unit-size * 2;
+}
+
+.cvat-history-empty-state {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    min-height: $grid-unit-size * 30;
+    text-align: center;
+}
+
+.cvat-history-tree-toolbar {
+    display: grid;
+    gap: $grid-unit-size;
+    margin-bottom: $grid-unit-size * 2;
+}
+
+.cvat-history-tree-sort {
+    width: 100%;
+}
+
+.cvat-history-job-detail {
+    display: grid;
+    gap: $grid-unit-size * 2;
+}
+
+.cvat-history-history-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $grid-unit-size;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: $grid-unit-size * 2;
+}
+
+.cvat-history-history-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $grid-unit-size;
+    justify-content: flex-end;
+}
