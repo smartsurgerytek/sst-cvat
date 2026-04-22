@@ -5,7 +5,7 @@
 import './styles.scss';
 
 import React, {
-    useCallback, useEffect, useState,
+    useCallback, useEffect, useRef, useState,
 } from 'react';
 import { useSelector } from 'react-redux';
 import { Link } from 'react-router-dom';
@@ -38,10 +38,64 @@ function formatDate(value: Dayjs): string {
     return value.format('MMM Do YYYY HH:mm');
 }
 
+const AUTOSAVE_DELAY_MS = 1200;
+
+type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'error';
+type JobSaveFields = NonNullable<Parameters<Job['save']>[0]>;
+
+interface JobDraftSnapshot {
+    assignee: User | null;
+    stage: JobStage;
+    state: JobState;
+}
+
+function createJobDraftSnapshot(job: Job): JobDraftSnapshot {
+    return {
+        assignee: job.assignee,
+        stage: job.stage,
+        state: job.state,
+    };
+}
+
+function isSameJobDraftSnapshot(left: JobDraftSnapshot, right: JobDraftSnapshot): boolean {
+    return left.assignee?.id === right.assignee?.id &&
+        left.stage === right.stage &&
+        left.state === right.state;
+}
+
+function buildJobUpdateFields(
+    baseline: JobDraftSnapshot,
+    draft: JobDraftSnapshot,
+): JobSaveFields {
+    const fields: JobSaveFields = {};
+
+    if (baseline.assignee?.id !== draft.assignee?.id) {
+        fields.assignee = draft.assignee;
+    }
+
+    if (baseline.stage !== draft.stage) {
+        fields.stage = draft.stage;
+    }
+
+    if (baseline.state !== draft.state) {
+        fields.state = draft.state;
+    }
+
+    return fields;
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error && error.message) {
+        return error.message;
+    }
+
+    return 'Could not save changes.';
+}
+
 interface Props {
     job: Job;
     task: Task;
-    onJobUpdate: (job: Job, fields: Parameters<Job['save']>[0]) => Promise<void>;
+    onJobUpdate: (job: Job, fields: JobSaveFields) => Promise<void>;
     childJobs?: Job[];
     defaultCollapsed?: boolean;
     onCollapseChange?: (jobID: number, collapsed: boolean) => void;
@@ -116,11 +170,17 @@ function JobItem(props: Readonly<Props>): JSX.Element {
     const {
         job, task, onJobUpdate, childJobs, defaultCollapsed, onCollapseChange, selected, onClick,
     } = props;
-    const [draftAssignee, setDraftAssignee] = useState<User | null>(job.assignee);
-    const [draftStage, setDraftStage] = useState<JobStage>(job.stage);
-    const [draftState, setDraftState] = useState<JobState>(job.state);
+    const isMounted = useIsMounted();
+    const [baseline, setBaseline] = useState<JobDraftSnapshot>(() => createJobDraftSnapshot(job));
+    const [draft, setDraft] = useState<JobDraftSnapshot>(() => createJobDraftSnapshot(job));
     const [stateTouched, setStateTouched] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle');
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const autoSaveTimeoutRef = useRef<number | null>(null);
+    const baselineRef = useRef<JobDraftSnapshot>(baseline);
+    const draftRef = useRef<JobDraftSnapshot>(draft);
+    const savingRef = useRef(saving);
 
     const deletes = useSelector((state: CombinedState) => state.jobs.activities.deletes);
     const deleted = job.id in deletes ? deletes[job.id] === true : false;
@@ -130,54 +190,141 @@ function JobItem(props: Readonly<Props>): JSX.Element {
     const updated = dayjs(job.updatedDate);
     const now = dayjs();
 
+    const clearAutoSaveTimeout = useCallback((): void => {
+        if (autoSaveTimeoutRef.current !== null) {
+            window.clearTimeout(autoSaveTimeoutRef.current);
+            autoSaveTimeoutRef.current = null;
+        }
+    }, []);
+
     useEffect(() => {
-        setDraftAssignee(job.assignee);
-        setDraftStage(job.stage);
-        setDraftState(job.state);
+        baselineRef.current = baseline;
+    }, [baseline]);
+
+    useEffect(() => {
+        draftRef.current = draft;
+    }, [draft]);
+
+    useEffect(() => {
+        savingRef.current = saving;
+    }, [saving]);
+
+    useEffect(() => {
+        const nextSnapshot = createJobDraftSnapshot(job);
+        clearAutoSaveTimeout();
+        setBaseline(nextSnapshot);
+        setDraft(nextSnapshot);
         setStateTouched(false);
         setSaving(false);
-    }, [job.id, job.assignee, job.stage, job.state]);
+        setAutoSaveStatus('idle');
+        setSaveError(null);
+    }, [job.id, clearAutoSaveTimeout]);
 
-    const hasChanges = (
-        job.assignee?.id !== draftAssignee?.id ||
-        job.stage !== draftStage ||
-        job.state !== draftState
-    );
-
-    const onCancel = useCallback(() => {
-        setDraftAssignee(job.assignee);
-        setDraftStage(job.stage);
-        setDraftState(job.state);
-        setStateTouched(false);
-    }, [job.assignee, job.stage, job.state]);
-
-    const onSave = useCallback(async () => {
-        const fields: Parameters<Job['save']>[0] = {};
-
-        if (job.assignee?.id !== draftAssignee?.id) {
-            fields.assignee = draftAssignee;
-        }
-
-        if (job.stage !== draftStage) {
-            fields.stage = draftStage;
-        }
-
-        if (job.state !== draftState) {
-            fields.state = draftState;
-        }
-
-        if (!Object.keys(fields).length) {
+    useEffect(() => {
+        const nextSnapshot = createJobDraftSnapshot(job);
+        if (isSameJobDraftSnapshot(nextSnapshot, baselineRef.current)) {
             return;
         }
 
+        setBaseline(nextSnapshot);
+        if (!savingRef.current && isSameJobDraftSnapshot(draftRef.current, baselineRef.current)) {
+            setDraft(nextSnapshot);
+            setStateTouched(false);
+            setAutoSaveStatus('idle');
+            setSaveError(null);
+        }
+    }, [job.assignee, job.stage, job.state]);
+
+    useEffect(() => clearAutoSaveTimeout, [clearAutoSaveTimeout]);
+
+    const hasChanges = !isSameJobDraftSnapshot(draft, baseline);
+
+    const clearAutoSaveError = useCallback(() => {
+        if (autoSaveStatus === 'error' || saveError) {
+            setAutoSaveStatus('idle');
+            setSaveError(null);
+        }
+    }, [autoSaveStatus, saveError]);
+
+    const onUndo = useCallback(() => {
+        clearAutoSaveTimeout();
+        setDraft(baseline);
+        setStateTouched(false);
+        setAutoSaveStatus('idle');
+        setSaveError(null);
+    }, [baseline, clearAutoSaveTimeout]);
+
+    const onSave = useCallback(async () => {
+        const fields = buildJobUpdateFields(baseline, draft);
+        const hasFieldChanges =
+            'assignee' in fields ||
+            'stage' in fields ||
+            'state' in fields;
+
+        if (!hasFieldChanges) {
+            clearAutoSaveTimeout();
+            setAutoSaveStatus('idle');
+            setSaveError(null);
+            return;
+        }
+
+        clearAutoSaveTimeout();
         setSaving(true);
+        setAutoSaveStatus('saving');
+        setSaveError(null);
+
         try {
             await onJobUpdate(job, fields);
-            setStateTouched(false);
+            if (isMounted()) {
+                setBaseline({ ...draft });
+                setStateTouched(false);
+                setAutoSaveStatus('idle');
+            }
+        } catch (error: unknown) {
+            if (isMounted()) {
+                setAutoSaveStatus('error');
+                setSaveError(getErrorMessage(error));
+            }
         } finally {
-            setSaving(false);
+            if (isMounted()) {
+                setSaving(false);
+            }
         }
-    }, [job, draftAssignee, draftStage, draftState, onJobUpdate]);
+    }, [baseline, clearAutoSaveTimeout, draft, isMounted, job, onJobUpdate]);
+
+    useEffect(() => {
+        clearAutoSaveTimeout();
+
+        if (!hasChanges || saving) {
+            if (!hasChanges) {
+                setAutoSaveStatus('idle');
+            }
+            return undefined;
+        }
+
+        if (autoSaveStatus === 'error') {
+            return undefined;
+        }
+
+        if (autoSaveStatus !== 'pending') {
+            setAutoSaveStatus('pending');
+        }
+
+        autoSaveTimeoutRef.current = window.setTimeout(() => {
+            onSave().catch(() => {});
+        }, AUTOSAVE_DELAY_MS);
+
+        return clearAutoSaveTimeout;
+    }, [autoSaveStatus, clearAutoSaveTimeout, hasChanges, onSave, saving]);
+
+    let autoSaveStatusText: string | null = null;
+    if (autoSaveStatus === 'saving') {
+        autoSaveStatusText = 'Saving changes...';
+    } else if (autoSaveStatus === 'error') {
+        autoSaveStatusText = saveError || 'Could not save changes.';
+    } else if (autoSaveStatus === 'pending' || (hasChanges && autoSaveStatus === 'idle')) {
+        autoSaveStatusText = 'Changes pending. Saving automatically...';
+    }
 
     const style = {};
     if (deleted) {
@@ -264,9 +411,14 @@ function JobItem(props: Readonly<Props>): JSX.Element {
                                     </Row>
                                     <UserSelector
                                         className='cvat-job-assignee-selector'
-                                        value={draftAssignee}
+                                        value={draft.assignee}
+                                        disabled={saving}
                                         onSelect={(user: User | null): void => {
-                                            setDraftAssignee(user);
+                                            clearAutoSaveError();
+                                            setDraft((currentDraft) => ({
+                                                ...currentDraft,
+                                                assignee: user,
+                                            }));
                                         }}
                                     />
                                 </Col>
@@ -277,14 +429,26 @@ function JobItem(props: Readonly<Props>): JSX.Element {
                                         </Col>
                                     </Row>
                                     <JobStageSelector
-                                        value={draftStage}
+                                        value={draft.stage}
+                                        disabled={saving}
                                         onSelect={(newValue: JobStage) => {
-                                            setDraftStage(newValue);
-                                            if (stateTouched) {
-                                                return;
-                                            }
+                                            clearAutoSaveError();
+                                            setDraft((currentDraft) => {
+                                                const nextDraft = {
+                                                    ...currentDraft,
+                                                    stage: newValue,
+                                                };
 
-                                            setDraftState(getJobStateForStageChange(job.stage, job.state, newValue));
+                                                if (!stateTouched) {
+                                                    nextDraft.state = getJobStateForStageChange(
+                                                        currentDraft.stage,
+                                                        currentDraft.state,
+                                                        newValue,
+                                                    );
+                                                }
+
+                                                return nextDraft;
+                                            });
                                         }}
                                     />
                                 </Col>
@@ -295,22 +459,44 @@ function JobItem(props: Readonly<Props>): JSX.Element {
                                         </Col>
                                     </Row>
                                     <JobStateSelector
-                                        value={draftState}
+                                        value={draft.state}
+                                        disabled={saving}
                                         onSelect={(newValue: JobState) => {
+                                            clearAutoSaveError();
                                             setStateTouched(true);
-                                            setDraftState(newValue);
+                                            setDraft((currentDraft) => ({
+                                                ...currentDraft,
+                                                state: newValue,
+                                            }));
                                         }}
                                     />
                                 </Col>
                             </Row>
-                            {hasChanges && (
-                                <Row className='cvat-job-item-save-actions'>
-                                    <Button onClick={onCancel} disabled={saving}>
-                                        Cancel
-                                    </Button>
-                                    <Button type='primary' onClick={onSave} loading={saving}>
-                                        Save
-                                    </Button>
+                            {(autoSaveStatusText || hasChanges) && (
+                                <Row className='cvat-job-item-autosave-status' align='middle' justify='space-between'>
+                                    <Col>
+                                        <Text type={autoSaveStatus === 'error' ? 'danger' : 'secondary'}>
+                                            {autoSaveStatusText}
+                                        </Text>
+                                    </Col>
+                                    <Col className='cvat-job-item-autosave-actions'>
+                                        {autoSaveStatus === 'error' && (
+                                            <Button
+                                                type='link'
+                                                size='small'
+                                                onClick={() => {
+                                                    onSave().catch(() => {});
+                                                }}
+                                            >
+                                                Retry
+                                            </Button>
+                                        )}
+                                        {hasChanges && (
+                                            <Button type='link' size='small' onClick={onUndo} disabled={saving}>
+                                                Undo
+                                            </Button>
+                                        )}
+                                    </Col>
                                 </Row>
                             )}
                         </Col>

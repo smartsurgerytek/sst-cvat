@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: MIT
 
+@use 'sass:math';
 @import 'base';
 
 .cvat-job-item {
@@ -48,9 +49,14 @@
         }
     }
 
-    .cvat-job-item-save-actions {
+    .cvat-job-item-autosave-status {
         margin-top: $grid-unit-size * 2;
         gap: $grid-unit-size;
+    }
+
+    .cvat-job-item-autosave-actions {
+        display: flex;
+        gap: math.div($grid-unit-size, 2);
     }
 
     .cvat-job-item-details {
