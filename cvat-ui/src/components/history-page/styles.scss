@@ -37,6 +37,18 @@
     height: 100%;
 }
 
+.cvat-history-card-title {
+    display: inline-flex;
+    gap: $grid-unit-size;
+    align-items: center;
+}
+
+.cvat-history-card-title-back {
+    padding-inline: 0;
+    min-width: auto;
+    height: auto;
+}
+
 .cvat-history-tree {
     min-height: $grid-unit-size * 24;
     max-height: calc(100vh - #{$header-height + $grid-unit-size * 18});

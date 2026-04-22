@@ -92,6 +92,7 @@ interface UseHistoryBrowserResult {
     handleTreeSelect: (keys: string[], node: HistoryTreeNode) => void;
     handleToggleStandaloneRoot: (node: HistoryTreeNode) => void;
     handleTreeLoadData: (node: HistoryTreeNode) => Promise<void>;
+    handleSelectionBack: () => void;
     handleSummaryChange: (page: number, pageSize: number) => void;
     handleSelectSummaryJob: (job: Job) => void;
     handleHistoryDateRangeChange: (range: HistoryDateRange | null) => void;
@@ -1121,36 +1122,14 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         setProjectSort(value);
     }, []);
 
-    const handleTreeExpand = useCallback((keys: string[], node: HistoryTreeNode): void => {
-        expandedKeysRef.current = keys;
-        setExpandedKeys(keys);
-        if (node.nodeType !== 'load-more') {
-            loadChildren(node).catch(() => undefined);
-        }
-    }, [loadChildren]);
-
-    const handleTreeSelect = useCallback((keys: string[], node: HistoryTreeNode): void => {
-        const [selectedKey] = keys;
-        if (!selectedKey) {
-            return;
-        }
-
-        if (node.nodeType === 'load-more' && node.parentKey) {
-            if (node.parentKey === ROOT_TREE_KEY) {
-                loadMoreProjects().catch(() => undefined);
-            } else {
-                loadMoreChildren(node.parentKey).catch(() => undefined);
-            }
-            return;
-        }
-
+    const applyTreeSelection = useCallback((node: HistoryTreeNode): void => {
         if (node.nodeType === 'task') {
             focusTaskExpansion(node);
         } else if (!node.isLeaf && node.nodeType !== 'load-more') {
             expandTreeNode(node.key);
         }
 
-        setSelectedKeys([selectedKey]);
+        setSelectedKeys([node.key]);
         if (node.nodeType === 'project') {
             setSelection({
                 type: 'project',
@@ -1183,8 +1162,71 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         expandTreeNode,
         focusTaskExpansion,
         loadChildren,
+    ]);
+
+    const clearSelection = useCallback((): void => {
+        setSelectedKeys([]);
+        setSelection(null);
+        setHistoryPage(1);
+    }, []);
+
+    const handleTreeExpand = useCallback((keys: string[], node: HistoryTreeNode): void => {
+        expandedKeysRef.current = keys;
+        setExpandedKeys(keys);
+        if (node.nodeType !== 'load-more') {
+            loadChildren(node).catch(() => undefined);
+        }
+    }, [loadChildren]);
+
+    const handleTreeSelect = useCallback((keys: string[], node: HistoryTreeNode): void => {
+        const [selectedKey] = keys;
+        if (!selectedKey) {
+            return;
+        }
+
+        if (node.nodeType === 'load-more' && node.parentKey) {
+            if (node.parentKey === ROOT_TREE_KEY) {
+                loadMoreProjects().catch(() => undefined);
+            } else {
+                loadMoreChildren(node.parentKey).catch(() => undefined);
+            }
+            return;
+        }
+
+        applyTreeSelection(node);
+    }, [
+        applyTreeSelection,
         loadMoreChildren,
         loadMoreProjects,
+    ]);
+
+    const handleSelectionBack = useCallback((): void => {
+        if (!selection) {
+            return;
+        }
+
+        if (selection.type === 'job') {
+            const taskNode = getIndexedTreeNode(`task-${selection.taskId}`);
+            if (taskNode) {
+                applyTreeSelection(taskNode);
+                return;
+            }
+        }
+
+        if (selection.type === 'task' && selection.projectId) {
+            const projectNode = getIndexedTreeNode(`project-${selection.projectId}`);
+            if (projectNode) {
+                applyTreeSelection(projectNode);
+                return;
+            }
+        }
+
+        clearSelection();
+    }, [
+        applyTreeSelection,
+        clearSelection,
+        getIndexedTreeNode,
+        selection,
     ]);
 
     return {
@@ -1217,6 +1259,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         handleTreeSelect,
         handleToggleStandaloneRoot: toggleStandaloneRoot,
         handleTreeLoadData: loadChildren,
+        handleSelectionBack,
         handleSummaryChange,
         handleSelectSummaryJob,
         handleHistoryDateRangeChange,

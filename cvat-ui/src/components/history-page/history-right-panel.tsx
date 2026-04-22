@@ -11,6 +11,7 @@ import Button from 'antd/lib/button';
 import DatePicker from 'antd/lib/date-picker';
 import Descriptions from 'antd/lib/descriptions';
 import Text from 'antd/lib/typography/Text';
+import { LeftOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
 import { Job, User } from 'cvat-core-wrapper';
@@ -24,6 +25,7 @@ import {
 
 interface HistoryRightPanelProps {
     selection: HistorySelection | null;
+    onNavigateBack: () => void;
     summaryLoading: boolean;
     summaryJobs: Job[];
     summaryPage: number;
@@ -59,6 +61,7 @@ interface JobSummaryRow {
 function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
     const {
         selection,
+        onNavigateBack,
         summaryLoading,
         summaryJobs,
         summaryPage,
@@ -173,6 +176,26 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
         },
     ]), []);
 
+    const selectionCardTitle = useMemo(() => {
+        if (!selection) {
+            return null;
+        }
+
+        return (
+            <div className='cvat-history-card-title'>
+                <Button
+                    type='text'
+                    size='small'
+                    icon={<LeftOutlined />}
+                    className='cvat-history-card-title-back'
+                    aria-label='Back'
+                    onClick={onNavigateBack}
+                />
+                <span>{selection.title}</span>
+            </div>
+        );
+    }, [onNavigateBack, selection]);
+
     if (!selection) {
         return (
             <div className='cvat-history-empty-state'>
@@ -183,7 +206,7 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
 
     if (selection.type === 'project' || selection.type === 'task') {
         return (
-            <Card title={selection.title} className='cvat-history-card'>
+            <Card title={selectionCardTitle} className='cvat-history-card'>
                 <div className='cvat-history-card-meta'>
                     <Text type='secondary'>
                         {selection.type === 'project' ?
@@ -212,7 +235,7 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
 
     return (
         <div className='cvat-history-job-detail'>
-            <Card title={selection.title} className='cvat-history-card'>
+            <Card title={selectionCardTitle} className='cvat-history-card'>
                 <Spin spinning={jobDetailsLoading}>
                     {selectedJob ? (
                         <Descriptions column={2} bordered size='small'>

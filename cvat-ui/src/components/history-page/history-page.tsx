@@ -46,6 +46,7 @@ function HistoryPage(): JSX.Element {
         handleTreeSelect,
         handleToggleStandaloneRoot,
         handleTreeLoadData,
+        handleSelectionBack,
         handleSummaryChange,
         handleSelectSummaryJob,
         handleHistoryDateRangeChange,
@@ -94,6 +95,7 @@ function HistoryPage(): JSX.Element {
                             <Col xs={24} lg={17}>
                                 <HistoryRightPanel
                                     selection={selection}
+                                    onNavigateBack={handleSelectionBack}
                                     summaryLoading={summaryLoading}
                                     summaryJobs={summaryJobs}
                                     summaryPage={summaryPage}
