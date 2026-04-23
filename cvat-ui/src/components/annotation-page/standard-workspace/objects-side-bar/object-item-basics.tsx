@@ -108,7 +108,10 @@ function ItemTopComponent(props: Props): JSX.Element {
                 {multiSelectEnabled && (
                     <span
                         role='presentation'
-                        onMouseDown={(event): void => event.stopPropagation()}
+                        onMouseDown={(event): void => {
+                            // Keep checkbox clicks from also activating the row.
+                            event.stopPropagation();
+                        }}
                     >
                         <Checkbox
                             checked={Boolean(selected)}
@@ -136,7 +139,10 @@ function ItemTopComponent(props: Props): JSX.Element {
                 <CVATTooltip title='Change current label'>
                     <div
                         role='presentation'
-                        onMouseDown={(event): void => event.stopPropagation()}
+                        onMouseDown={(event): void => {
+                            // Inline label edits should not also toggle row activation.
+                            event.stopPropagation();
+                        }}
                         onMouseUp={(event): void => event.stopPropagation()}
                     >
                         <LabelSelector

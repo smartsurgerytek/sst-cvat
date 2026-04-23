@@ -821,6 +821,8 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         } = e.detail;
         const { sidebarItem, targetSidebarStateID } = getObjectsSidebarItem(window.document, state);
 
+        // Canvas hit-testing decides which object was Ctrl/Cmd-clicked, but the sidebar
+        // owns the batch-selection state and popup placement.
         if (
             workspace === Workspace.STANDARD &&
             (ctrlKey || metaKey) &&
