@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: MIT
 
+@use 'sass:math';
 @import 'base';
 
 .cvat-job-item {
@@ -48,6 +49,16 @@
         }
     }
 
+    .cvat-job-item-autosave-status {
+        margin-top: $grid-unit-size * 2;
+        gap: $grid-unit-size;
+    }
+
+    .cvat-job-item-autosave-actions {
+        display: flex;
+        gap: math.div($grid-unit-size, 2);
+    }
+
     .cvat-job-item-details {
         .ant-row {
             margin-top: $grid-unit-size;
@@ -89,6 +100,20 @@
 
 .ant-menu.cvat-job-item-menu {
     box-shadow: $box-shadow-base;
+
+    .cvat-job-item-menu-editor {
+        min-width: $grid-unit-size * 18;
+    }
+
+    .cvat-job-item-menu-editor-selector {
+        margin-bottom: $grid-unit-size;
+    }
+
+    .cvat-job-item-menu-editor-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: $grid-unit-size;
+    }
 }
 
 .cvat-job-item-stage, .cvat-job-item-state {

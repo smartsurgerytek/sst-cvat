@@ -19,6 +19,7 @@ import {
     SerializedInvitationData, SerializedCloudStorage, SerializedFramesMetaData, SerializedCollection,
     SerializedQualitySettingsData, APIQualitySettingsFilter, SerializedQualityConflictData, APIQualityConflictsFilter,
     SerializedQualityReportData, APIQualityReportsFilter, APIAnalyticsEventsFilter, APIConsensusSettingsFilter,
+    APIAnalyticsEventsQuery, SerializedAnalyticsEventsPage,
     SerializedRequest, SerializedJobValidationLayout, SerializedTaskValidationLayout, SerializedConsensusSettingsData,
     SerializedApiToken, APIApiTokensFilter,
 } from './server-response-types';
@@ -1782,6 +1783,17 @@ async function saveEvents(events: {
     }
 }
 
+async function listEvents(params: APIAnalyticsEventsQuery): Promise<SerializedAnalyticsEventsPage> {
+    const { backendAPI } = config;
+
+    try {
+        const response = await Axios.get(`${backendAPI}/events/entries`, { params });
+        return response.data;
+    } catch (errorData) {
+        throw generateError(errorData);
+    }
+}
+
 const eventsExportRequests: Record<string, { promise: Promise<string> }> = {};
 function exportEvents(params: APIAnalyticsEventsFilter): Promise<string> {
     const { backendAPI } = config;
@@ -2557,6 +2569,7 @@ export default Object.freeze({
 
     events: Object.freeze({
         save: saveEvents,
+        list: listEvents,
         export: exportEvents,
     }),
 

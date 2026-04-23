@@ -354,12 +354,16 @@ function HeaderComponent(props: Props): JSX.Element {
             }, {
                 key: '$personal',
                 label: 'Personal workspace',
-                className: !currentOrganization ? 'cvat-header-menu-active-organization-item' : 'cvat-header-menu-organization-item',
+                className: !currentOrganization ?
+                    'cvat-header-menu-active-organization-item' :
+                    'cvat-header-menu-organization-item',
                 onClick: resetOrganization,
             }, ...organizationsList.map((organization: Organization) => ({
                 key: organization.slug,
                 onClick: () => setNewOrganization(organization),
-                className: currentOrganization?.slug === organization.slug ? 'cvat-header-menu-active-organization-item' : 'cvat-header-menu-organization-item',
+                className: currentOrganization?.slug === organization.slug ?
+                    'cvat-header-menu-active-organization-item' :
+                    'cvat-header-menu-organization-item',
                 label: organization.slug,
             }))] : []),
         ],
@@ -441,6 +445,18 @@ function HeaderComponent(props: Props): JSX.Element {
                     }}
                 >
                     Jobs
+                </Button>
+                <Button
+                    className={getButtonClassName('history')}
+                    type='link'
+                    value='history'
+                    href='/history'
+                    onClick={(event: React.MouseEvent): void => {
+                        event.preventDefault();
+                        history.push('/history');
+                    }}
+                >
+                    History
                 </Button>
                 <Button
                     className={getButtonClassName('cloudstorages')}

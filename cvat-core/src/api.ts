@@ -404,6 +404,10 @@ function build(): CVATCore {
                     const result = await PluginRegistry.apiWrapper(cvat.analytics.events.export, filter);
                     return result;
                 },
+                async list(filter = {}) {
+                    const result = await PluginRegistry.apiWrapper(cvat.analytics.events.list, filter);
+                    return result;
+                },
             },
             quality: {
                 async reports(filter = {}, aggregate = false) {

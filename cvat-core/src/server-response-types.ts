@@ -395,6 +395,48 @@ export interface APIAnalyticsEventsFilter {
 
 export type AnalyticsEventsFilter = CamelizedV2<APIAnalyticsEventsFilter>;
 
+export interface APIAnalyticsEvent {
+    scope: string;
+    timestamp: string;
+    obj_name?: string | null;
+    obj_id?: number | null;
+    obj_val?: string | null;
+    source?: string | null;
+    count?: number | null;
+    duration?: number | null;
+    project_id?: number | null;
+    task_id?: number | null;
+    job_id?: number | null;
+    user_id?: number | null;
+    user_name?: string | null;
+    user_email?: string | null;
+    org_id?: number | null;
+    org_slug?: string | null;
+    payload?: Record<string, unknown> | null;
+}
+
+export type AnalyticsEvent = CamelizedV2<APIAnalyticsEvent>;
+
+export interface APIAnalyticsEventsQuery extends Omit<APIAnalyticsEventsFilter, 'filename'> {
+    scope?: string;
+    obj_name?: string;
+    page?: number;
+    page_size?: number;
+    cursor?: string;
+    include_count?: boolean;
+}
+
+export type AnalyticsEventsQuery = CamelizedV2<APIAnalyticsEventsQuery>;
+
+export interface SerializedAnalyticsEventsPage {
+    count: number;
+    page: number;
+    page_size: number;
+    has_more: boolean;
+    next_cursor?: string | null;
+    results: APIAnalyticsEvent[];
+}
+
 export interface SerializedInvitationData {
     created_date: string;
     key: string;

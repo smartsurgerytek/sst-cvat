@@ -61,6 +61,7 @@ class EventsPermission(OpenPolicyAgentPermission, DownloadExportedExtension):
         return [
             {
                 ("create", "POST"): Scopes.SEND_EVENTS,
+                ("entries", "GET"): Scopes.DUMP_EVENTS,
                 ("initiate_export", "POST"): Scopes.DUMP_EVENTS,
                 ("download_file", "GET"): DownloadExportedExtension.Scopes.DOWNLOAD_EXPORTED_FILE,
                 # deprecated permissions:
