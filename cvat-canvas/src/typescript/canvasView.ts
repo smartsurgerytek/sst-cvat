@@ -132,6 +132,8 @@ export class CanvasViewImpl implements CanvasView, Listener {
     };
 
     private dispatchCanvasClicked = (state: DrawnState, event?: MouseEvent): void => {
+        // Forward modifier keys and pointer position so the sidebar can mirror
+        // canvas multi-select and anchor the floating batch actions near the click.
         this.canvas.dispatchEvent(
             new CustomEvent('canvas.clicked', {
                 bubbles: false,

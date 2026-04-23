@@ -233,6 +233,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
         } = this.props;
 
         if (!readonly) {
+            // A selected row should respect the current batch selection, not bypass it.
             const appliedToSelection = Boolean(selected && bulkRemoveObjects?.());
             if (appliedToSelection) {
                 return;

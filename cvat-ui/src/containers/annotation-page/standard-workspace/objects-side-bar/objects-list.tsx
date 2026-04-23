@@ -576,6 +576,8 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
 
         this.setState((prevState) => {
             const sortedStatesID = sortAndMap(filteredStates, prevState.statesOrdering);
+            // Keep the selection and popup anchor limited to states that still exist
+            // in the current frame/workspace snapshot.
             const availableStateIDs = new Set(sortedStatesID);
             const selectedStateIDs = clearSelection ?
                 [] :
@@ -679,6 +681,8 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             return;
         }
 
+        // Checkbox multi-select stays inline; only canvas-driven multi-select opens
+        // the floating batch actions after the modifier key is released.
         const pending = this.pendingBulkLabelSelector;
         this.pendingBulkLabelSelector = null;
         this.lastMultiSelectSource = null;
@@ -771,6 +775,8 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             }
 
             if (deferBulkLabelOpen && selectedStateIDs.length >= 2) {
+                // Let users keep Ctrl/Cmd-clicking on the canvas without fighting the popup;
+                // the selector appears once the modifier key is released.
                 this.lastMultiSelectSource = 'canvas';
                 const previousPendingSourceID = this.pendingBulkLabelSelector?.sourceStateID;
                 let sourceStateID = clientID;
@@ -866,6 +872,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
 
         this.clearMultiSelectionState();
 
+        // Preserve the same ordered async behavior as repeated single-object deletes.
         for (const state of statesToRemove) {
             await removeObjectImmediately(state, force);
         }
@@ -934,6 +941,8 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     applicableLabel.id === label.id
                 ));
 
+            // Batch relabel is best-effort: incompatible or locked states are skipped
+            // instead of aborting the whole selection.
             if (!state.lock && labelIsApplicable) {
                 state.label = label;
                 updatedStates.push(state);

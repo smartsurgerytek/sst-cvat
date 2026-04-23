@@ -23,6 +23,7 @@ export function resolveObjectsSidebarTargets(
     state: ObjectsSidebarStateReference,
 ): { sidebarItemID: string; targetSidebarStateID: number } {
     const { clientID, parentID } = state;
+    // Element clicks in the canvas should still target the owning sidebar state row.
     const isElement = Number.isInteger(parentID);
 
     return {
