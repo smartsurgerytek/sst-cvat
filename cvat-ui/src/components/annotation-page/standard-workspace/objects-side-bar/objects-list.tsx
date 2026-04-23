@@ -36,6 +36,7 @@ interface Props {
     changeShowGroundTruth(): void;
     onToggleSelection?(id: number): void;
     bulkChangeLabel?(label: any): boolean;
+    bulkRemoveObjects?(force?: boolean): boolean;
     clearMultiSelectionState?(): void;
 }
 
@@ -64,6 +65,7 @@ function ObjectListComponent(props: Props): JSX.Element {
         changeShowGroundTruth,
         onToggleSelection,
         bulkChangeLabel,
+        bulkRemoveObjects,
         clearMultiSelectionState,
     } = props;
 
@@ -120,6 +122,7 @@ function ObjectListComponent(props: Props): JSX.Element {
                                         (): void => onToggleSelection(id) :
                                         undefined}
                                     bulkChangeLabel={bulkChangeLabel}
+                                    bulkRemoveObjects={bulkRemoveObjects}
                                     clearMultiSelectionState={clearMultiSelectionState}
                                 />
                             </React.Fragment>

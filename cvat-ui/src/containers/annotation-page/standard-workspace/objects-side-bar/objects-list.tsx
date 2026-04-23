@@ -8,7 +8,10 @@ import ReactDOM from 'react-dom';
 
 import { connect, ConnectedProps } from 'react-redux';
 import GlobalHotKeys, { KeyMap } from 'utils/mousetrap-react';
+import Button from 'antd/lib/button';
 import message from 'antd/lib/message';
+import Modal from 'antd/lib/modal';
+import { DeleteOutlined } from '@ant-design/icons';
 
 import ObjectsListComponent from 'components/annotation-page/standard-workspace/objects-side-bar/objects-list';
 import LabelSelector from 'components/label-selector/label-selector';
@@ -20,6 +23,7 @@ import {
     copyShape as copyShapeAction,
     switchPropagateVisibility as switchPropagateVisibilityAction,
     removeObject as removeObjectAction,
+    removeObjectAsync,
     fetchAnnotationsAsync,
     changeHideActiveObjectAsync,
 } from 'actions/annotation-actions';
@@ -79,6 +83,7 @@ interface DispatchToProps {
     updateAnnotations(states: any[]): void;
     collapseStates(states: any[], value: boolean): void;
     removeObject: (objectState: any, force: boolean) => void;
+    removeObjectImmediately: (objectState: ObjectState, force: boolean) => Promise<void>;
     copyShape: (objectState: any) => void;
     switchPropagateVisibility: (visible: boolean) => void;
     changeFrame(frame: number): void;
@@ -194,7 +199,7 @@ const componentShortcuts = {
 
 const BULK_LABEL_SELECTOR_VIEWPORT_MARGIN = 16;
 const BULK_LABEL_SELECTOR_MAX_WIDTH = 220;
-const BULK_LABEL_SELECTOR_CONTROL_HEIGHT = 32;
+const BULK_LABEL_SELECTOR_CONTROL_HEIGHT = 72;
 
 registerComponentShortcuts(componentShortcuts);
 
@@ -282,6 +287,9 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         },
         removeObject(objectState: ObjectState, force: boolean): void {
             dispatch(removeObjectAction(objectState, force));
+        },
+        removeObjectImmediately(objectState: ObjectState, force: boolean): Promise<void> {
+            return dispatch(removeObjectAsync(objectState, force));
         },
         copyShape(objectState: ObjectState): void {
             dispatch(copyShapeAction(objectState));
@@ -838,6 +846,73 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         this.clearMultiSelectionState();
     };
 
+    private onBulkRemoveButtonMouseDown = (event: React.MouseEvent<HTMLButtonElement>): void => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.bulkRemoveObjects(false);
+    };
+
+    private getSelectedStates = (): ObjectState[] => {
+        const { filteredStates, selectedStateIDs } = this.state;
+        const selectedSet = new Set(selectedStateIDs);
+
+        return filteredStates.filter(
+            (state: ObjectState): boolean => selectedSet.has(state.clientID as number),
+        );
+    };
+
+    private removeSelectedStates = async (statesToRemove: ObjectState[], force: boolean): Promise<void> => {
+        const { removeObjectImmediately } = this.props;
+
+        this.clearMultiSelectionState();
+
+        for (const state of statesToRemove) {
+            await removeObjectImmediately(state, force);
+        }
+    };
+
+    private bulkRemoveObjects = (force = false): boolean => {
+        if (!this.isMultiSelectEnabled()) {
+            return false;
+        }
+
+        const selectedStates = this.getSelectedStates();
+        if (selectedStates.length < 2) {
+            return false;
+        }
+
+        const lockedCount = selectedStates.filter((state: ObjectState): boolean => state.lock).length;
+        const trackCount = selectedStates.filter(
+            (state: ObjectState): boolean => state.objectType === ObjectType.TRACK,
+        ).length;
+
+        if (!force && (lockedCount > 0 || trackCount > 0)) {
+            Modal.confirm({
+                title: 'Remove selected objects',
+                className: 'cvat-modal-confirm-remove-object',
+                content: (
+                    <>
+                        <p>{`Are you sure you want to remove ${selectedStates.length} selected object(s)?`}</p>
+                        {trackCount > 0 ? (
+                            <p>{`${trackCount} selected object(s) are tracks. Removing them also removes drawn objects on other frames.`}</p>
+                        ) : null}
+                        {lockedCount > 0 ? (
+                            <p>{`${lockedCount} selected object(s) are locked and will be force removed.`}</p>
+                        ) : null}
+                    </>
+                ),
+                okType: 'primary',
+                okText: 'Remove selected',
+                cancelText: 'Cancel',
+                onOk: () => this.removeSelectedStates(selectedStates, true),
+            });
+        } else {
+            void this.removeSelectedStates(selectedStates, force);
+        }
+
+        return true;
+    };
+
     private bulkChangeLabel = (label: Label): boolean => {
         const { updateAnnotations, labels } = this.props;
         const { objectStates, selectedStateIDs } = this.state;
@@ -1085,6 +1160,10 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             },
             DELETE_OBJECT_STANDARD_WORKSPACE: (event: KeyboardEvent | undefined) => {
                 preventDefault(event);
+                if (!readonly && this.bulkRemoveObjects(Boolean(event?.shiftKey))) {
+                    return;
+                }
+
                 const state = activatedState(true);
                 if (state && !readonly) {
                     removeObject(state, event ? event.shiftKey : false);
@@ -1186,6 +1265,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     onToggleSelection={multiSelectEnabled ? this.onSidebarToggleSelection : undefined}
                     clearMultiSelectionState={multiSelectEnabled ? this.clearMultiSelectionState : undefined}
                     bulkChangeLabel={multiSelectEnabled ? this.bulkChangeLabel : undefined}
+                    bulkRemoveObjects={multiSelectEnabled ? this.bulkRemoveObjects : undefined}
                     switchHiddenAllShortcut={normalizedKeyMap.SWITCH_ALL_HIDDEN}
                     switchLockAllShortcut={normalizedKeyMap.SWITCH_ALL_LOCK}
                     changeStatesOrdering={this.onChangeStatesOrdering}
@@ -1205,6 +1285,16 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                             top: bulkLabelSelectorPosition.top,
                         }}
                     >
+                        <Button
+                            block
+                            danger
+                            type='primary'
+                            icon={<DeleteOutlined />}
+                            className='cvat-objects-sidebar-bulk-remove-button'
+                            onMouseDown={this.onBulkRemoveButtonMouseDown}
+                        >
+                            Remove
+                        </Button>
                         <LabelSelector
                             autoFocus
                             open

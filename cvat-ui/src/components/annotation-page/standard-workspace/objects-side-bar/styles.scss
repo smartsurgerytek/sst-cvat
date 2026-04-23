@@ -317,10 +317,17 @@
     position: fixed;
     width: min(220px, calc(100vw - 32px));
     z-index: 1100;
+    display: flex;
+    flex-direction: column;
+    gap: $grid-unit-size;
 }
 
 .cvat-objects-sidebar-bulk-label-selector {
     width: 100%;
+}
+
+.cvat-objects-sidebar-bulk-remove-button {
+    box-shadow: $box-shadow-base;
 }
 
 .cvat-objects-sidebar-state-item-collapse,

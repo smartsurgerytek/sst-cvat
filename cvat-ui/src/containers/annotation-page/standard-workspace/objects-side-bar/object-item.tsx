@@ -42,6 +42,7 @@ interface OwnProps {
     multiSelectEnabled?: boolean;
     onToggleSelection?: () => void;
     bulkChangeLabel?: (label: Label) => boolean;
+    bulkRemoveObjects?: (force?: boolean) => boolean;
     clearMultiSelectionState?: () => void;
 }
 
@@ -228,10 +229,14 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
 
     private remove = (): void => {
         const {
-            objectState, readonly, removeObject,
+            objectState, readonly, removeObject, selected, bulkRemoveObjects,
         } = this.props;
 
         if (!readonly) {
+            const appliedToSelection = Boolean(selected && bulkRemoveObjects?.());
+            if (appliedToSelection) {
+                return;
+            }
             removeObject(objectState);
         }
     };
