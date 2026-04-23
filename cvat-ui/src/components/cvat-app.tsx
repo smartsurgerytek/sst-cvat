@@ -556,6 +556,7 @@ class CVATApplication extends React.PureComponent<CVATAppProps & RouteComponentP
                                             component={AnalyticsReportPage}
                                         />
                                         <Route exact path='/jobs' component={JobsPageComponent} />
+                                        {/* History spans multiple resource levels, so give it its own page. */}
                                         <Route exact path='/history' component={HistoryPage} />
                                         <Route exact path='/cloudstorages' component={CloudStoragesPageComponent} />
                                         <Route

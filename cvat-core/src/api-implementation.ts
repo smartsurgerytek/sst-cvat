@@ -601,6 +601,7 @@ export default function implementAPI(cvat: CVATCore): CVATCore {
 
         const params = fieldsToSnakeCase(filter);
         const result = await serverProxy.events.list(params);
+        // Convert backend field names to the camelCase shape used in the UI.
         const events = result.results.map((event) => ({
             scope: event.scope,
             timestamp: event.timestamp,

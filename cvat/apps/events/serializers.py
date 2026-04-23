@@ -31,6 +31,7 @@ class EventSerializer(serializers.Serializer):
 
 
 class EventListQuerySerializer(serializers.Serializer):
+    # Keep this query small and explicit because it powers the interactive History page.
     org_id = serializers.IntegerField(required=False, min_value=1)
     project_id = serializers.IntegerField(required=False, min_value=1)
     task_id = serializers.IntegerField(required=False, min_value=1)
@@ -75,6 +76,7 @@ class EventReadSerializer(serializers.Serializer):
 
 
 class PaginatedEventReadSerializer(serializers.Serializer):
+    # Match the paginated shape the frontend already uses for other list endpoints.
     count = serializers.IntegerField()
     page = serializers.IntegerField()
     page_size = serializers.IntegerField()

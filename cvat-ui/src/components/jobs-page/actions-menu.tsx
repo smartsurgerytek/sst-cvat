@@ -64,6 +64,7 @@ function JobActionsComponent(
         allJobs: state.jobs.current,
     }), shallowEqual);
     const isBulkMode = selectedIds.length > 1;
+    // For one job, edit the same draft the card uses so both entry points stay in sync.
     const useSingleJobDraft = !isBulkMode && !!singleJobDraft;
     const [draftAssignee, setDraftAssignee] = useState<User | null>(null);
     const [draftState, setDraftState] = useState<JobState | null>(null);

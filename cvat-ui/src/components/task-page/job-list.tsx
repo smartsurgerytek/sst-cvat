@@ -33,6 +33,7 @@ const FilteringComponent = ResourceFilterHOC(
 
 interface Props {
     task: Task;
+    // Job items wait on this promise so autosave can show saving and retry state.
     onJobUpdate(job: Job, data: Parameters<Job['save']>[0]): Promise<void>;
 }
 

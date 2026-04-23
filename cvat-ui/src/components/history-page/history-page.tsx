@@ -16,6 +16,7 @@ import HistoryTreePanel from './history-tree';
 import useHistoryBrowser, { PROJECT_SORT_OPTIONS } from './use-history-browser';
 
 function HistoryPage(): JSX.Element {
+    // This component only lays out the page. The hook handles loading and shared state.
     const {
         treeData,
         treeLoading,

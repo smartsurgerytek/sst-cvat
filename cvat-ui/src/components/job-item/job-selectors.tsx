@@ -16,6 +16,7 @@ interface JobStateSelectorProps {
 export function JobStateSelector({ value, disabled, onSelect }: Readonly<JobStateSelectorProps>): JSX.Element {
     return (
         <Select
+            // Shared selector used by both the card and the context menu.
             className='cvat-job-item-state'
             popupClassName='cvat-job-item-state-dropdown'
             value={value}
@@ -41,6 +42,7 @@ interface JobStageSelectorProps {
 export function JobStageSelector({ value, disabled, onSelect }: Readonly<JobStageSelectorProps>): JSX.Element {
     return (
         <Select
+            // Shared selector used by both the card and the context menu.
             className='cvat-job-item-stage'
             popupClassName='cvat-job-item-stage-dropdown'
             value={value}

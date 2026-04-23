@@ -137,6 +137,7 @@ export type {
     RequestOperation,
     UpdateStatusData,
     OrganizationMembersFilter,
+    // Re-export these here so UI code does not import cvat-core internals directly.
     AnalyticsEvent,
     QualitySettingsSaveFields,
     AnalyticsEventsFilter,

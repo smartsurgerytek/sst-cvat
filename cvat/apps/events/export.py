@@ -55,6 +55,8 @@ EVENT_COLUMNS = (
     "org_slug",
     "payload",
 )
+# Use more than timestamp in the cursor so pages do not skip or repeat rows
+# when many events share the same timestamp.
 EVENT_CURSOR_FIELDS = (
     ("timestamp", "timestamp", "DateTime64", None, None),
     ("scope", "scope", "String", "", None),
@@ -287,6 +289,7 @@ def list_events(
         normalized_query_params = _normalize_event_query_params(query_params)
         uses_cursor = bool(normalized_query_params.get("cursor_data"))
         offset = None if uses_cursor else (page - 1) * page_size
+        # Read one extra row so we can tell the client whether another page exists.
         query_limit = page_size + 1 if uses_cursor or not include_count else page_size
         events_query, events_parameters = _build_events_query(
             normalized_query_params,
@@ -298,6 +301,8 @@ def list_events(
         with _get_clickhouse_client() as client:
             events_result = client.query(events_query, parameters=events_parameters)
             if include_count:
+                # Numbered pages need an exact count, but cursor browsing can skip
+                # it to keep long history queries lighter.
                 count_query, count_parameters = _build_events_query(
                     normalized_query_params,
                     columns="count()",

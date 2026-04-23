@@ -160,6 +160,7 @@ export default function UserSelector(props: Readonly<Props>): JSX.Element {
     return (
         <Autocomplete
             ref={autocompleteRef}
+            // Lock the control while the parent is saving to avoid duplicate updates.
             disabled={disabled}
             value={searchPhrase}
             placeholder='Select a user'

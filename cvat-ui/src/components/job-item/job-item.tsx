@@ -216,6 +216,7 @@ function JobItem(props: Readonly<Props>): JSX.Element {
             return;
         }
 
+        // If the saved job changed elsewhere, reset this local draft to that saved value.
         clearAutoSaveTimeout();
         setBaseline(nextSnapshot);
         setDraft(nextSnapshot);
@@ -261,6 +262,8 @@ function JobItem(props: Readonly<Props>): JSX.Element {
             };
 
             if (!stateTouched) {
+                // Apply the same stage->state rule the backend uses so the UI does
+                // not briefly show the old state before autosave finishes.
                 nextDraft.state = getJobStateForStageChange(
                     currentDraft.stage,
                     currentDraft.state,

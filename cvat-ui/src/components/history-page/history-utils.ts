@@ -10,6 +10,7 @@ import {
 } from 'cvat-core-wrapper';
 
 const HISTORY_DEFAULT_RANGE_DAYS = 30;
+// These are the fields the History page shows today.
 const TRACKED_HISTORY_FIELDS = ['assignee', 'stage', 'state'] as const;
 
 export const ROOT_TREE_KEY = '__history-root__';
@@ -409,6 +410,7 @@ function getEventGroupKey(event: AnalyticsEvent): string {
         return requestID;
     }
 
+    // If the event has no request id, build another stable key so one save still becomes one row.
     const requestSignature = getEventRequestSignature(event);
     return JSON.stringify({
         timestamp: event.timestamp,
@@ -439,6 +441,7 @@ export function groupHistoryEvents(events: AnalyticsEvent[]): HistoryChangeGroup
         const existingIndex = groupIndex.get(key);
 
         if (existingIndex === undefined) {
+            // Keep the incoming order so snapshot reconstruction stays correct.
             groupIndex.set(key, groups.length);
             groups.push({
                 key,
@@ -472,6 +475,7 @@ export function getHistorySelectionQuery(selection: HistorySelection): {
     if (selection.type === 'project') {
         return {
             scope: 'update:project',
+            // Project history only shows assignee changes for now.
             objName: 'assignee',
             projectId: selection.projectId,
         };
@@ -480,6 +484,7 @@ export function getHistorySelectionQuery(selection: HistorySelection): {
     if (selection.type === 'task') {
         return {
             scope: 'update:task',
+            // Task history only shows assignee changes for now.
             objName: 'assignee',
             taskId: selection.taskId,
         };

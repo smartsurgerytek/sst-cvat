@@ -395,6 +395,7 @@ export interface APIAnalyticsEventsFilter {
 
 export type AnalyticsEventsFilter = CamelizedV2<APIAnalyticsEventsFilter>;
 
+// One event row returned by the JSON history endpoint.
 export interface APIAnalyticsEvent {
     scope: string;
     timestamp: string;
@@ -417,6 +418,7 @@ export interface APIAnalyticsEvent {
 
 export type AnalyticsEvent = CamelizedV2<APIAnalyticsEvent>;
 
+// Query params for the JSON history endpoint.
 export interface APIAnalyticsEventsQuery extends Omit<APIAnalyticsEventsFilter, 'filename'> {
     scope?: string;
     obj_name?: string;
@@ -428,6 +430,7 @@ export interface APIAnalyticsEventsQuery extends Omit<APIAnalyticsEventsFilter, 
 
 export type AnalyticsEventsQuery = CamelizedV2<APIAnalyticsEventsQuery>;
 
+// Paginated response returned by /events/entries.
 export interface SerializedAnalyticsEventsPage {
     count: number;
     page: number;

@@ -932,6 +932,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         const requestID = ++summaryRequestID.current;
         setSummaryLoading(true);
         if (selection.type === 'project') {
+            // Do not cast this to Task[]; the pager needs the returned count.
             core.tasks.get({
                 projectId: selection.projectId,
                 page: summaryPage,
@@ -962,6 +963,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
                     }
                 });
         } else {
+            // Same here: jobs come back as a paginated resource, not a plain array.
             core.jobs.get({
                 taskID: selection.taskId,
                 page: summaryPage,
