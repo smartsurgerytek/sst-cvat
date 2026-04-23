@@ -179,8 +179,6 @@ function JobItem(props: Readonly<Props>): JSX.Element {
     const [saveError, setSaveError] = useState<string | null>(null);
     const autoSaveTimeoutRef = useRef<number | null>(null);
     const baselineRef = useRef<JobDraftSnapshot>(baseline);
-    const draftRef = useRef<JobDraftSnapshot>(draft);
-    const savingRef = useRef(saving);
 
     const deletes = useSelector((state: CombinedState) => state.jobs.activities.deletes);
     const deleted = job.id in deletes ? deletes[job.id] === true : false;
@@ -202,14 +200,6 @@ function JobItem(props: Readonly<Props>): JSX.Element {
     }, [baseline]);
 
     useEffect(() => {
-        draftRef.current = draft;
-    }, [draft]);
-
-    useEffect(() => {
-        savingRef.current = saving;
-    }, [saving]);
-
-    useEffect(() => {
         const nextSnapshot = createJobDraftSnapshot(job);
         clearAutoSaveTimeout();
         setBaseline(nextSnapshot);
@@ -226,14 +216,14 @@ function JobItem(props: Readonly<Props>): JSX.Element {
             return;
         }
 
+        clearAutoSaveTimeout();
         setBaseline(nextSnapshot);
-        if (!savingRef.current && isSameJobDraftSnapshot(draftRef.current, baselineRef.current)) {
-            setDraft(nextSnapshot);
-            setStateTouched(false);
-            setAutoSaveStatus('idle');
-            setSaveError(null);
-        }
-    }, [job.assignee, job.stage, job.state]);
+        setDraft(nextSnapshot);
+        setStateTouched(false);
+        setSaving(false);
+        setAutoSaveStatus('idle');
+        setSaveError(null);
+    }, [job.assignee, job.stage, job.state, clearAutoSaveTimeout]);
 
     useEffect(() => clearAutoSaveTimeout, [clearAutoSaveTimeout]);
 
@@ -253,6 +243,43 @@ function JobItem(props: Readonly<Props>): JSX.Element {
         setAutoSaveStatus('idle');
         setSaveError(null);
     }, [baseline, clearAutoSaveTimeout]);
+
+    const onDraftAssigneeSelect = useCallback((user: User | null): void => {
+        clearAutoSaveError();
+        setDraft((currentDraft) => ({
+            ...currentDraft,
+            assignee: user,
+        }));
+    }, [clearAutoSaveError]);
+
+    const onDraftStageSelect = useCallback((newValue: JobStage): void => {
+        clearAutoSaveError();
+        setDraft((currentDraft) => {
+            const nextDraft = {
+                ...currentDraft,
+                stage: newValue,
+            };
+
+            if (!stateTouched) {
+                nextDraft.state = getJobStateForStageChange(
+                    currentDraft.stage,
+                    currentDraft.state,
+                    newValue,
+                );
+            }
+
+            return nextDraft;
+        });
+    }, [clearAutoSaveError, stateTouched]);
+
+    const onDraftStateSelect = useCallback((newValue: JobState): void => {
+        clearAutoSaveError();
+        setStateTouched(true);
+        setDraft((currentDraft) => ({
+            ...currentDraft,
+            state: newValue,
+        }));
+    }, [clearAutoSaveError]);
 
     const onSave = useCallback(async () => {
         const fields = buildJobUpdateFields(baseline, draft);
@@ -413,13 +440,7 @@ function JobItem(props: Readonly<Props>): JSX.Element {
                                         className='cvat-job-assignee-selector'
                                         value={draft.assignee}
                                         disabled={saving}
-                                        onSelect={(user: User | null): void => {
-                                            clearAutoSaveError();
-                                            setDraft((currentDraft) => ({
-                                                ...currentDraft,
-                                                assignee: user,
-                                            }));
-                                        }}
+                                        onSelect={onDraftAssigneeSelect}
                                     />
                                 </Col>
                                 <Col className='cvat-job-item-select'>
@@ -431,25 +452,7 @@ function JobItem(props: Readonly<Props>): JSX.Element {
                                     <JobStageSelector
                                         value={draft.stage}
                                         disabled={saving}
-                                        onSelect={(newValue: JobStage) => {
-                                            clearAutoSaveError();
-                                            setDraft((currentDraft) => {
-                                                const nextDraft = {
-                                                    ...currentDraft,
-                                                    stage: newValue,
-                                                };
-
-                                                if (!stateTouched) {
-                                                    nextDraft.state = getJobStateForStageChange(
-                                                        currentDraft.stage,
-                                                        currentDraft.state,
-                                                        newValue,
-                                                    );
-                                                }
-
-                                                return nextDraft;
-                                            });
-                                        }}
+                                        onSelect={onDraftStageSelect}
                                     />
                                 </Col>
                                 <Col className='cvat-job-item-select'>
@@ -461,14 +464,7 @@ function JobItem(props: Readonly<Props>): JSX.Element {
                                     <JobStateSelector
                                         value={draft.state}
                                         disabled={saving}
-                                        onSelect={(newValue: JobState) => {
-                                            clearAutoSaveError();
-                                            setStateTouched(true);
-                                            setDraft((currentDraft) => ({
-                                                ...currentDraft,
-                                                state: newValue,
-                                            }));
-                                        }}
+                                        onSelect={onDraftStateSelect}
                                     />
                                 </Col>
                             </Row>
@@ -571,6 +567,15 @@ function JobItem(props: Readonly<Props>): JSX.Element {
                         jobInstance={job}
                         consensusJobsPresent={(childJobs as Job[]).length > 0}
                         dropdownTrigger={['contextMenu']}
+                        singleJobDraft={{
+                            assignee: draft.assignee,
+                            stage: draft.stage,
+                            state: draft.state,
+                            saving,
+                            onAssigneeChange: onDraftAssigneeSelect,
+                            onStageChange: onDraftStageSelect,
+                            onStateChange: onDraftStateSelect,
+                        }}
                         triggerElement={card}
                     />
                 ) : card

@@ -2,13 +2,10 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React, {
-    useCallback, useEffect, useMemo, useState,
-} from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { shallowEqual, useDispatch, useSelector } from 'react-redux';
 import Dropdown from 'antd/lib/dropdown';
 import Modal from 'antd/lib/modal';
-import Button from 'antd/lib/button';
 
 import {
     Job, JobStage, JobState, JobType, User,
@@ -24,14 +21,24 @@ import { makeBulkOperationAsync } from 'actions/bulk-actions';
 import UserSelector from 'components/task-page/user-selector';
 import { JobStageSelector, JobStateSelector } from 'components/job-item/job-selectors';
 import { makeKey } from 'reducers/consensus-reducer';
-import { getJobStateForStageChange } from 'utils/job-workflow';
 import JobActionsItems from './actions-menu-items';
+
+interface SingleJobDraft {
+    assignee: User | null;
+    stage: JobStage;
+    state: JobState;
+    saving: boolean;
+    onAssigneeChange: (user: User | null) => void;
+    onStageChange: (stage: JobStage) => void;
+    onStateChange: (state: JobState) => void;
+}
 
 interface Props {
     jobInstance: Job;
     consensusJobsPresent: boolean;
     triggerElement: JSX.Element;
     dropdownTrigger?: ('click' | 'hover' | 'contextMenu')[];
+    singleJobDraft?: SingleJobDraft;
 }
 
 function JobActionsComponent(
@@ -42,6 +49,7 @@ function JobActionsComponent(
         triggerElement,
         consensusJobsPresent,
         dropdownTrigger,
+        singleJobDraft,
     } = props;
     const dispatch = useDispatch();
 
@@ -56,10 +64,10 @@ function JobActionsComponent(
         allJobs: state.jobs.current,
     }), shallowEqual);
     const isBulkMode = selectedIds.length > 1;
+    const useSingleJobDraft = !isBulkMode && !!singleJobDraft;
     const [draftAssignee, setDraftAssignee] = useState<User | null>(null);
     const [draftState, setDraftState] = useState<JobState | null>(null);
     const [draftStage, setDraftStage] = useState<JobStage | null>(null);
-    const [draftDirty, setDraftDirty] = useState(false);
     const [saving, setSaving] = useState(false);
 
     const {
@@ -73,21 +81,35 @@ function JobActionsComponent(
 
     useEffect(() => {
         if (!editField) {
-            setDraftDirty(false);
-            setSaving(false);
             return;
         }
 
-        setDraftDirty(false);
-        if (editField === 'assignee') {
-            setDraftAssignee(isBulkMode ? null : jobInstance.assignee);
-        } else if (editField === 'state') {
-            setDraftState(isBulkMode ? null : jobInstance.state);
-        } else if (editField === 'stage') {
-            setDraftStage(isBulkMode ? null : jobInstance.stage);
-            setDraftState(isBulkMode ? null : jobInstance.state);
+        let initialAssignee = isBulkMode ? null : jobInstance.assignee;
+        let initialState = isBulkMode ? null : jobInstance.state;
+        let initialStage = isBulkMode ? null : jobInstance.stage;
+
+        if (useSingleJobDraft) {
+            initialAssignee = singleJobDraft.assignee;
+            initialState = singleJobDraft.state;
+            initialStage = singleJobDraft.stage;
         }
-    }, [editField, isBulkMode, jobInstance.assignee, jobInstance.stage, jobInstance.state]);
+
+        if (editField === 'assignee') {
+            setDraftAssignee(initialAssignee);
+        } else if (editField === 'state') {
+            setDraftState(initialState);
+        } else if (editField === 'stage') {
+            setDraftStage(initialStage);
+        }
+    }, [
+        editField,
+        isBulkMode,
+        jobInstance.assignee,
+        jobInstance.stage,
+        jobInstance.state,
+        singleJobDraft,
+        useSingleJobDraft,
+    ]);
 
     const onOpenBugTracker = useCallback(() => {
         if (jobInstance.bugTracker) {
@@ -181,105 +203,18 @@ function JobActionsComponent(
         ));
     }, [jobInstance, allJobs, selectedIds, dispatch, stopEditField]);
 
-    const onUpdateJobStage = useCallback(async (stage: JobStage) => {
-        const jobsToUpdate = allJobs.filter((job) => selectedIds.includes(job.id));
-        const jobs = jobsToUpdate.length ? jobsToUpdate : [jobInstance];
-        const jobsWithChanges = jobs
-            .map((job) => {
-                const nextState = getJobStateForStageChange(job.stage, job.state, stage);
-                const fields: Partial<{ stage: JobStage; state: JobState; }> = {};
-
-                if (job.stage !== stage) {
-                    fields.stage = stage;
-                }
-
-                if (job.state !== nextState) {
-                    fields.state = nextState;
-                }
-
-                return { job, fields };
-            })
-            .filter(({ fields }) => Object.keys(fields).length);
-
-        stopEditField();
-        if (!jobsWithChanges.length) {
-            return;
-        }
-
-        const updatesByJobID = new Map(jobsWithChanges.map(({ job, fields }) => [job.id, fields]));
-        await dispatch(makeBulkOperationAsync(
-            jobsWithChanges.map(({ job }) => job),
-            async (job) => {
-                const fields = updatesByJobID.get(job.id);
-                if (fields) {
-                    await dispatch(updateJobAsync(job, fields));
-                }
-            },
-            (job, idx, total) => `Updating job #${job.id} (${idx + 1}/${total})`,
-        ));
-    }, [jobInstance, allJobs, selectedIds, dispatch, stopEditField]);
-
-    const hasDraftChanges = useMemo(() => {
-        if (!editField) {
-            return false;
-        }
-
-        if (isBulkMode) {
-            return draftDirty;
-        }
-
-        if (editField === 'assignee') {
-            return jobInstance.assignee?.id !== draftAssignee?.id;
-        }
-
-        if (editField === 'state') {
-            return jobInstance.state !== draftState;
-        }
-
-        if (editField === 'stage') {
-            return jobInstance.stage !== draftStage;
-        }
-
-        return false;
-    }, [editField, isBulkMode, draftDirty, draftAssignee, draftState, draftStage, jobInstance]);
-
-    const onCancelEdit = useCallback((event?: React.MouseEvent) => {
-        event?.stopPropagation();
-        stopEditField();
-    }, [stopEditField]);
-
-    const onSaveEdit = useCallback(async (event?: React.MouseEvent) => {
-        event?.stopPropagation();
-        if (!editField || !hasDraftChanges) {
-            return;
-        }
-
-        const fields: Partial<{ assignee: User | null; state: JobState; stage: JobStage; }> = {};
-        if (editField === 'assignee') {
-            fields.assignee = draftAssignee;
-        } else if (editField === 'state' && draftState) {
-            fields.state = draftState;
-        } else if (editField === 'stage' && draftStage) {
-            setSaving(true);
-            try {
-                await onUpdateJobStage(draftStage);
-            } finally {
-                setSaving(false);
-            }
-            return;
-        }
-
-        if (!Object.keys(fields).length) {
+    const runAutoSave = useCallback((callback: () => Promise<void>): void => {
+        if (saving) {
             return;
         }
 
         setSaving(true);
-        try {
-            await onUpdateJobField(fields);
-        } finally {
-            setSaving(false);
-        }
-    }, [editField, hasDraftChanges, draftAssignee, draftState, draftStage, onUpdateJobField, onUpdateJobStage]);
+        callback()
+            .catch(() => undefined)
+            .finally(() => {
+                setSaving(false);
+            });
+    }, [saving]);
 
     let menuItems;
     if (editField) {
@@ -294,50 +229,54 @@ function JobActionsComponent(
                     event.stopPropagation();
                 }}
             >
-                <div className='cvat-job-item-menu-editor-selector'>
-                    {editField === 'assignee' && (
-                        <UserSelector
-                            value={draftAssignee}
-                            onSelect={(value: User | null): void => {
-                                setDraftAssignee(value);
-                                setDraftDirty(true);
-                            }}
-                        />
-                    )}
-                    {editField === 'state' && (
-                        <JobStateSelector
-                            value={draftState}
-                            onSelect={(value) => {
-                                setDraftState(value);
-                                setDraftDirty(true);
-                            }}
-                        />
-                    )}
-                    {editField === 'stage' && (
-                        <JobStageSelector
-                            value={draftStage}
-                            onSelect={(value) => {
-                                setDraftStage(value);
-                                setDraftState(getJobStateForStageChange(jobInstance.stage, jobInstance.state, value));
-                                setDraftDirty(true);
-                            }}
-                        />
-                    )}
-                </div>
-                <div className='cvat-job-item-menu-editor-actions'>
-                    <Button size='small' onClick={onCancelEdit} disabled={saving}>
-                        Cancel
-                    </Button>
-                    <Button
-                        size='small'
-                        type='primary'
-                        onClick={onSaveEdit}
-                        loading={saving}
-                        disabled={!hasDraftChanges}
-                    >
-                        Save
-                    </Button>
-                </div>
+                {editField === 'assignee' && (
+                    <UserSelector
+                        value={useSingleJobDraft ? singleJobDraft.assignee : draftAssignee}
+                        disabled={useSingleJobDraft ? singleJobDraft.saving : saving}
+                        onSelect={(value: User | null): void => {
+                            setDraftAssignee(value);
+                            if (useSingleJobDraft) {
+                                stopEditField();
+                                singleJobDraft.onAssigneeChange(value);
+                                return;
+                            }
+
+                            runAutoSave(() => onUpdateJobField({ assignee: value }));
+                        }}
+                    />
+                )}
+                {editField === 'state' && (
+                    <JobStateSelector
+                        value={useSingleJobDraft ? singleJobDraft.state : draftState}
+                        disabled={useSingleJobDraft ? singleJobDraft.saving : saving}
+                        onSelect={(value) => {
+                            setDraftState(value);
+                            if (useSingleJobDraft) {
+                                stopEditField();
+                                singleJobDraft.onStateChange(value);
+                                return;
+                            }
+
+                            runAutoSave(() => onUpdateJobField({ state: value }));
+                        }}
+                    />
+                )}
+                {editField === 'stage' && (
+                    <JobStageSelector
+                        value={useSingleJobDraft ? singleJobDraft.stage : draftStage}
+                        disabled={useSingleJobDraft ? singleJobDraft.saving : saving}
+                        onSelect={(value) => {
+                            setDraftStage(value);
+                            if (useSingleJobDraft) {
+                                stopEditField();
+                                singleJobDraft.onStageChange(value);
+                                return;
+                            }
+
+                            runAutoSave(() => onUpdateJobField({ stage: value }));
+                        }}
+                    />
+                )}
             </div>
         );
         const fieldSelectors: Record<string, JSX.Element> = {
