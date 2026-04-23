@@ -90,6 +90,7 @@ function AnnotationMenuComponent(): JSX.Element {
             return;
         }
 
+        // This change is saved right away, so ask before writing it.
         Modal.confirm({
             title: 'Save job state change?',
             content: `Job state will be updated to "${state}" and recorded in history.`,

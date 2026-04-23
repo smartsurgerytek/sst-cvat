@@ -95,6 +95,7 @@ function HistoryTreePanel(props: HistoryTreePanelProps): JSX.Element {
                             const historyNode = nodeData as HistoryTreeNode;
 
                             if (historyNode.nodeType === 'standalone-root') {
+                                // This is a UI-only root. Expand/collapse it without selecting it.
                                 const isExpanded = expandedKeys.includes(historyNode.key);
                                 return (
                                     <span

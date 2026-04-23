@@ -931,53 +931,69 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
 
         const requestID = ++summaryRequestID.current;
         setSummaryLoading(true);
-        const promise = selection.type === 'project' ?
+        if (selection.type === 'project') {
+            // Do not cast this to Task[]; the pager needs the returned count.
             core.tasks.get({
                 projectId: selection.projectId,
                 page: summaryPage,
                 pageSize: summaryPageSize,
                 sort: RESOURCE_SORT_FIELD,
-            }) :
+            })
+                .then((tasks) => {
+                    if (summaryRequestID.current !== requestID) {
+                        return;
+                    }
+
+                    setSummaryTasks([...tasks]);
+                    setSummaryJobs([]);
+                    setSummaryTotal(tasks.count);
+                })
+                .catch((error: unknown) => {
+                    if (summaryRequestID.current !== requestID) {
+                        return;
+                    }
+                    notification.error({
+                        message: 'Could not load tasks for the selected resource',
+                        description: getErrorDescription(error),
+                    });
+                })
+                .finally(() => {
+                    if (summaryRequestID.current === requestID) {
+                        setSummaryLoading(false);
+                    }
+                });
+        } else {
+            // Same here: jobs come back as a paginated resource, not a plain array.
             core.jobs.get({
                 taskID: selection.taskId,
                 page: summaryPage,
                 pageSize: summaryPageSize,
                 sort: RESOURCE_SORT_FIELD,
-            });
-
-        promise
-            .then((resources) => {
-                if (summaryRequestID.current !== requestID) {
-                    return;
-                }
-
-                if (selection.type === 'project') {
-                    const tasks = resources as Task[];
-                    setSummaryTasks([...tasks]);
-                    setSummaryJobs([]);
-                    setSummaryTotal(tasks.count);
-                    return;
-                }
-
-                const jobs = resources as Job[];
-                setSummaryTasks([]);
-                setSummaryJobs([...jobs]);
-                setSummaryTotal(jobs.count);
             })
-            .catch((error: unknown) => {
-                if (summaryRequestID.current !== requestID) {
-                    return;
-                }
-                notification.error({
-                    message: `Could not load ${selection.type === 'project' ? 'tasks' : 'jobs'} for the selected resource`,
-                    description: getErrorDescription(error),
+                .then((jobs) => {
+                    if (summaryRequestID.current !== requestID) {
+                        return;
+                    }
+
+                    setSummaryTasks([]);
+                    setSummaryJobs([...jobs]);
+                    setSummaryTotal(jobs.count);
+                })
+                .catch((error: unknown) => {
+                    if (summaryRequestID.current !== requestID) {
+                        return;
+                    }
+                    notification.error({
+                        message: 'Could not load jobs for the selected resource',
+                        description: getErrorDescription(error),
+                    });
+                })
+                .finally(() => {
+                    if (summaryRequestID.current === requestID) {
+                        setSummaryLoading(false);
+                    }
                 });
-            })
-            .finally(() => {
-                if (summaryRequestID.current === requestID) {
-                    setSummaryLoading(false);
-                }
-            });
+        }
     }, [selection, summaryPage, summaryPageSize]);
 
     useEffect(() => {

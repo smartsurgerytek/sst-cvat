@@ -451,6 +451,7 @@ function HeaderComponent(props: Props): JSX.Element {
                     type='link'
                     value='history'
                     href='/history'
+                    // History is a top-level page like Projects, Tasks, and Jobs.
                     onClick={(event: React.MouseEvent): void => {
                         event.preventDefault();
                         history.push('/history');

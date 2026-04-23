@@ -101,6 +101,7 @@ def _emit_server_event_to_logger(logger_data: dict) -> None:
 
 
 def _emit_server_event(clickhouse_data: dict, logger_data: dict) -> None:
+    # History reads from ClickHouse, so write there first and fall back to the logger if needed.
     if not _insert_event_directly(clickhouse_data):
         _emit_server_event_to_logger(logger_data)
 

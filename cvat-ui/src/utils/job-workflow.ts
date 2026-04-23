@@ -9,5 +9,6 @@ export function getJobStateForStageChange(
     currentState: JobState,
     nextStage: JobStage,
 ): JobState {
+    // Match backend behavior: if stage changes and state is not picked explicitly, state becomes NEW.
     return nextStage === currentStage ? currentState : JobState.NEW;
 }

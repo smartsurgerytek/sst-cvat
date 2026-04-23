@@ -104,16 +104,6 @@
     .cvat-job-item-menu-editor {
         min-width: $grid-unit-size * 18;
     }
-
-    .cvat-job-item-menu-editor-selector {
-        margin-bottom: $grid-unit-size;
-    }
-
-    .cvat-job-item-menu-editor-actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: $grid-unit-size;
-    }
 }
 
 .cvat-job-item-stage, .cvat-job-item-state {

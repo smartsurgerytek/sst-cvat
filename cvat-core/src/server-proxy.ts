@@ -1787,6 +1787,7 @@ async function listEvents(params: APIAnalyticsEventsQuery): Promise<SerializedAn
     const { backendAPI } = config;
 
     try {
+        // History reads event rows from JSON. CSV download still goes through exportEvents().
         const response = await Axios.get(`${backendAPI}/events/entries`, { params });
         return response.data;
     } catch (errorData) {

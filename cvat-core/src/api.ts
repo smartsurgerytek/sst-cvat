@@ -405,6 +405,7 @@ function build(): CVATCore {
                     return result;
                 },
                 async list(filter = {}) {
+                    // History reads JSON rows from this endpoint. CSV download still uses export().
                     const result = await PluginRegistry.apiWrapper(cvat.analytics.events.list, filter);
                     return result;
                 },

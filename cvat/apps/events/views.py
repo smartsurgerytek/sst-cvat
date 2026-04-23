@@ -173,6 +173,7 @@ class EventsViewSet(viewsets.ViewSet):
         self.check_permissions(request)
 
         query_data = request.query_params.copy()
+        # Accept ?from=... from the API and map it to serializer field from_.
         if "from" in query_data and "from_" not in query_data:
             query_data["from_"] = query_data["from"]
 

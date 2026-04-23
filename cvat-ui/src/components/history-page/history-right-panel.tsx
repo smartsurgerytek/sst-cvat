@@ -232,6 +232,7 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
         ];
 
         if (isJobHistorySelection(selection)) {
+            // Only job history shows stage and state changes.
             columns.push(
                 {
                     title: 'Stage',
@@ -264,6 +265,7 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
                     aria-label='Back'
                     onClick={onNavigateBack}
                 />
+                {/* Keep one title area while drilling down from project to task to job. */}
                 <span>{selection.title}</span>
             </div>
         );

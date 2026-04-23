@@ -119,6 +119,7 @@ function TaskPageComponent(): JSX.Element {
     );
 
     const onJobUpdate = (job: Job, data: Parameters<Job['save']>[0]): Promise<void> => (
+        // Autosave waits on this promise to show saving and error state correctly.
         dispatch(updateJobAsync(job, data))
     );
 
