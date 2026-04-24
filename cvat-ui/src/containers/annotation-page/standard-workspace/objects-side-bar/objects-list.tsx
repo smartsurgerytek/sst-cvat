@@ -901,7 +901,10 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     <>
                         <p>{`Are you sure you want to remove ${selectedStates.length} selected object(s)?`}</p>
                         {trackCount > 0 ? (
-                            <p>{`${trackCount} selected object(s) are tracks. Removing them also removes drawn objects on other frames.`}</p>
+                            <p>
+                                {`${trackCount} selected object(s) are tracks. `}
+                                Removing them also removes drawn objects on other frames.
+                            </p>
                         ) : null}
                         {lockedCount > 0 ? (
                             <p>{`${lockedCount} selected object(s) are locked and will be force removed.`}</p>
@@ -914,7 +917,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                 onOk: () => this.removeSelectedStates(selectedStates, true),
             });
         } else {
-            void this.removeSelectedStates(selectedStates, force);
+            this.removeSelectedStates(selectedStates, force);
         }
 
         return true;
