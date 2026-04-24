@@ -23,6 +23,7 @@ import {
     createStandaloneRootNode,
     dedupeTreeChildren,
     getErrorDescription,
+    HistoryDatePreset,
     getHistorySelectionQuery,
     groupHistoryEvents,
     HistoryChangeGroup,
@@ -47,7 +48,7 @@ import {
 const core = getCore();
 const TREE_PAGE_SIZE = 100;
 const SUMMARY_PAGE_SIZE = 10;
-const HISTORY_PAGE_SIZE = 20;
+const HISTORY_PAGE_SIZE = 10;
 const HISTORY_FETCH_PAGE_SIZE = 100;
 const RESOURCE_SORT_FIELD = '-id';
 const DEFAULT_PROJECT_SORT = '-id';
@@ -82,6 +83,7 @@ interface UseHistoryBrowserResult {
     selectedProject: Project | null;
     selectedTask: Task | null;
     selectedJob: Job | null;
+    historyDatePreset: HistoryDatePreset;
     historyDateRangeLabel: string;
     historyDateRange: HistoryDateRange | null;
     historyLoading: boolean;
@@ -130,10 +132,9 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
     const [historyRows, setHistoryRows] = useState<HistoryChangeRow[]>([]);
     const [historyPage, setHistoryPage] = useState(1);
-    const [historyPageSize, setHistoryPageSize] = useState(HISTORY_PAGE_SIZE);
-    const [historyDateRange, setHistoryDateRange] = useState<HistoryDateRange | null>(
-        () => createDefaultHistoryDateRange(),
-    );
+    const historyPageSize = HISTORY_PAGE_SIZE;
+    const [historyDateRange, setHistoryDateRange] = useState<HistoryDateRange | null>(null);
+    const [historyDatePreset, setHistoryDatePreset] = useState<HistoryDatePreset>('all-time');
     const summaryRequestID = useRef(0);
     const resourceDetailsRequestID = useRef(0);
     const historyRequestID = useRef(0);
@@ -1169,19 +1170,21 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
 
     const handleHistoryDateRangeChange = useCallback((range: HistoryDateRange | null): void => {
         setHistoryDateRange(range);
+        setHistoryDatePreset(range ? 'custom' : 'all-time');
     }, []);
 
     const handleResetHistoryDateRange = useCallback((): void => {
         setHistoryDateRange(createDefaultHistoryDateRange());
+        setHistoryDatePreset('last-30-days');
     }, []);
 
     const handleSetAllTime = useCallback((): void => {
         setHistoryDateRange(null);
+        setHistoryDatePreset('all-time');
     }, []);
 
-    const handleHistoryChange = useCallback((page: number, pageSize: number): void => {
+    const handleHistoryChange = useCallback((page: number): void => {
         setHistoryPage(page);
-        setHistoryPageSize(pageSize);
     }, []);
 
     const handleProjectSearchInputChange = useCallback((value: string): void => {
@@ -1384,6 +1387,7 @@ export default function useHistoryBrowser(): UseHistoryBrowserResult {
         selectedProject,
         selectedTask,
         selectedJob,
+        historyDatePreset,
         historyDateRangeLabel,
         historyDateRange,
         historyLoading: combinedHistoryLoading,

@@ -58,6 +58,8 @@ export interface HistoryChangeRow {
     state: string;
 }
 
+export type HistoryDatePreset = 'last-30-days' | 'all-time' | 'custom';
+
 export interface HistorySnapshot {
     assignee: string;
     stage: string;
