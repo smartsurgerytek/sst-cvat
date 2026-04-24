@@ -22,6 +22,7 @@ import {
     formatAssignee,
     HistoryChangeRow,
     HistoryDateRange,
+    HistoryDatePreset,
     HistorySelection,
     isJobHistorySelection,
     isProjectHistoryResource,
@@ -44,6 +45,7 @@ interface HistoryRightPanelProps {
     selectedProject: Project | null;
     selectedTask: Task | null;
     selectedJob: Job | null;
+    historyDatePreset: HistoryDatePreset;
     historyDateRangeLabel: string;
     historyDateRange: HistoryDateRange | null;
     onHistoryDateRangeChange: (range: HistoryDateRange | null) => void;
@@ -91,6 +93,7 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
         selectedProject,
         selectedTask,
         selectedJob,
+        historyDatePreset,
         historyDateRangeLabel,
         historyDateRange,
         onHistoryDateRangeChange,
@@ -307,8 +310,20 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
                             }
                         }}
                     />
-                    <Button onClick={onResetHistoryDateRange}>Last 30 days</Button>
-                    <Button onClick={onSetAllTime}>All time</Button>
+                    <Button
+                        type={historyDatePreset === 'last-30-days' ? 'primary' : 'default'}
+                        aria-pressed={historyDatePreset === 'last-30-days'}
+                        onClick={onResetHistoryDateRange}
+                    >
+                        Last 30 days
+                    </Button>
+                    <Button
+                        type={historyDatePreset === 'all-time' ? 'primary' : 'default'}
+                        aria-pressed={historyDatePreset === 'all-time'}
+                        onClick={onSetAllTime}
+                    >
+                        All time
+                    </Button>
                 </div>
             </div>
             <Table<HistoryChangeRow>
@@ -320,8 +335,6 @@ function HistoryRightPanel(props: HistoryRightPanelProps): JSX.Element {
                     current: historyPage,
                     pageSize: historyPageSize,
                     total: historyPaginationTotal,
-                    showSizeChanger: true,
-                    pageSizeOptions: ['10', '20', '50'],
                     onChange: onHistoryChange,
                 }}
             />

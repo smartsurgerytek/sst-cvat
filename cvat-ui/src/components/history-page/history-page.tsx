@@ -36,6 +36,7 @@ function HistoryPage(): JSX.Element {
         selectedProject,
         selectedTask,
         selectedJob,
+        historyDatePreset,
         historyDateRangeLabel,
         historyDateRange,
         historyLoading,
@@ -114,6 +115,7 @@ function HistoryPage(): JSX.Element {
                                     selectedProject={selectedProject}
                                     selectedTask={selectedTask}
                                     selectedJob={selectedJob}
+                                    historyDatePreset={historyDatePreset}
                                     historyDateRangeLabel={historyDateRangeLabel}
                                     historyDateRange={historyDateRange}
                                     onHistoryDateRangeChange={handleHistoryDateRangeChange}
