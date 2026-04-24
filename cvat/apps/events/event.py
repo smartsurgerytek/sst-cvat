@@ -67,6 +67,7 @@ EVENT_INSERT_COLUMNS = (
     "access_token_id",
 )
 
+
 def _get_clickhouse_client():
     clickhouse_settings = settings.CLICKHOUSE["events"]
     return clickhouse_connect.get_client(
@@ -79,10 +80,7 @@ def _get_clickhouse_client():
 
 
 def _insert_events_directly(data_batch: list[dict]) -> bool:
-    rows = [
-        [data.get(column) for column in EVENT_INSERT_COLUMNS]
-        for data in data_batch
-    ]
+    rows = [[data.get(column) for column in EVENT_INSERT_COLUMNS] for data in data_batch]
 
     try:
         with _get_clickhouse_client() as client:
@@ -104,6 +102,7 @@ def _emit_server_event(clickhouse_data: dict, logger_data: dict) -> None:
     # History reads from ClickHouse, so write there first and fall back to the logger if needed.
     if not _insert_event_directly(clickhouse_data):
         _emit_server_event_to_logger(logger_data)
+
 
 def record_server_event(
     *,

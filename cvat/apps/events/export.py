@@ -90,10 +90,18 @@ EVENT_CURSOR_FIELDS = (
 
 def _encode_event_cursor(row: dict) -> str:
     cursor_payload = {}
-    for field_name, _expression, _type_name, default_value, _select_expression in EVENT_CURSOR_FIELDS:
+    for (
+        field_name,
+        _,
+        _,
+        default_value,
+        _,
+    ) in EVENT_CURSOR_FIELDS:
         value = row.get(field_name, default_value)
         if field_name == "timestamp":
-            cursor_payload[field_name] = value.isoformat() if isinstance(value, datetime) else str(value)
+            cursor_payload[field_name] = (
+                value.isoformat() if isinstance(value, datetime) else str(value)
+            )
         else:
             cursor_payload[field_name] = default_value if value is None else value
 
@@ -103,7 +111,9 @@ def _encode_event_cursor(row: dict) -> str:
 def _decode_event_cursor(cursor: str) -> dict:
     try:
         padding = "=" * (-len(cursor) % 4)
-        decoded_cursor = base64.urlsafe_b64decode(f"{cursor}{padding}".encode("ascii")).decode("utf-8")
+        decoded_cursor = base64.urlsafe_b64decode(f"{cursor}{padding}".encode("ascii")).decode(
+            "utf-8"
+        )
         cursor_payload = json.loads(decoded_cursor)
     except Exception as ex:
         raise serializers.ValidationError("Cannot parse events cursor") from ex
@@ -112,7 +122,13 @@ def _decode_event_cursor(cursor: str) -> dict:
         raise serializers.ValidationError("Events cursor payload is invalid")
 
     decoded = {}
-    for field_name, _expression, _type_name, default_value, _select_expression in EVENT_CURSOR_FIELDS:
+    for (
+        field_name,
+        _,
+        _,
+        default_value,
+        _,
+    ) in EVENT_CURSOR_FIELDS:
         value = cursor_payload.get(field_name, default_value)
         if field_name == "timestamp":
             if not value:
@@ -125,11 +141,14 @@ def _decode_event_cursor(cursor: str) -> dict:
             try:
                 decoded[field_name] = int(value)
             except (TypeError, ValueError) as ex:
-                raise serializers.ValidationError(f"Events cursor field {field_name!r} is invalid") from ex
+                raise serializers.ValidationError(
+                    f"Events cursor field {field_name!r} is invalid"
+                ) from ex
         else:
             decoded[field_name] = default_value if value is None else str(value)
 
     return decoded
+
 
 def _get_clickhouse_client():
     clickhouse_settings = settings.CLICKHOUSE["events"]
@@ -184,11 +203,31 @@ def _normalize_event_query_params(query_params: dict) -> dict:
 
 def _get_events_list_columns() -> str:
     columns = list(EVENT_COLUMNS)
-    for field_name, _expression, _field_type, _default_value, select_expression in EVENT_CURSOR_FIELDS:
+    for (
+        field_name,
+        _,
+        _,
+        _,
+        select_expression,
+    ) in EVENT_CURSOR_FIELDS:
         if select_expression and field_name not in EVENT_COLUMNS:
             columns.append(select_expression)
 
     return ", ".join(columns)
+
+
+def _validate_events_select_clause(columns: str) -> str:
+    if columns not in {_get_events_list_columns(), "count()", "*"}:
+        raise ValueError("Unsupported events query columns")
+
+    return columns
+
+
+def _validate_events_sort_order(order: str) -> str:
+    if order not in {"ASC", "DESC", ""}:
+        raise ValueError("Unsupported events query order")
+
+    return order
 
 
 def _build_events_query(
@@ -199,6 +238,8 @@ def _build_events_query(
     limit: int | None = None,
     offset: int | None = None,
 ) -> tuple[str, dict]:
+    columns = _validate_events_select_clause(columns)
+    order = _validate_events_sort_order(order)
     conditions = list(EVENT_BASE_CONDITIONS)
     parameters = {}
 
@@ -221,10 +262,16 @@ def _build_events_query(
         cursor_expressions = ", ".join(expression for _, expression, _, _, _ in EVENT_CURSOR_FIELDS)
         cursor_placeholders = ", ".join(
             f"{{cursor_{field_name}:{field_type}}}"
-            for field_name, _expression, field_type, _default_value, _select_expression in EVENT_CURSOR_FIELDS
+            for field_name, _, field_type, _, _ in EVENT_CURSOR_FIELDS
         )
         conditions.append(f"({cursor_expressions}) < ({cursor_placeholders})")
-        for field_name, _expression, _field_type, _default_value, _select_expression in EVENT_CURSOR_FIELDS:
+        for (
+            field_name,
+            _,
+            _,
+            _,
+            _,
+        ) in EVENT_CURSOR_FIELDS:
             parameters[f"cursor_{field_name}"] = cursor_data[field_name]
 
     obj_name = query_params.get("obj_name")
@@ -243,14 +290,15 @@ def _build_events_query(
         conditions.append("scope = {scope:String}")
         parameters["scope"] = scope
 
-    query = f"SELECT {columns} FROM events"
+    # Bandit cannot infer that the select clause is constrained to internal constants.
+    query = f"SELECT {columns} FROM events"  # nosec B608
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
 
     if order:
         order_by = ", ".join(
             f"{expression} {order}"
-            for _, expression, _field_type, _default_value, _select_expression in EVENT_CURSOR_FIELDS
+            for _, expression, _, _, _ in EVENT_CURSOR_FIELDS
         )
         query += f" ORDER BY {order_by}"
 
@@ -319,7 +367,9 @@ def list_events(
 
         has_more = False
         if include_count:
-            total = count_result.result_rows[0][0] if count_result and count_result.result_rows else 0
+            total = (
+                count_result.result_rows[0][0] if count_result and count_result.result_rows else 0
+            )
             consumed_rows = len(result_rows) if uses_cursor else offset + len(result_rows)
             if uses_cursor:
                 # Cursor-based pagination already fetches one extra row, so it can
@@ -330,12 +380,13 @@ def list_events(
                 has_more = total > consumed_rows
         else:
             has_more = fetched_extra_row
-            total = len(result_rows) + int(has_more) if uses_cursor else offset + len(result_rows) + int(has_more)
+            total = (
+                len(result_rows) + int(has_more)
+                if uses_cursor
+                else offset + len(result_rows) + int(has_more)
+            )
 
-        raw_results = [
-            dict(zip(events_result.column_names, row))
-            for row in result_rows
-        ]
+        raw_results = [dict(zip(events_result.column_names, row)) for row in result_rows]
         next_cursor = _encode_event_cursor(raw_results[-1]) if has_more and raw_results else None
         results = [
             _deserialize_event({column: row.get(column) for column in EVENT_COLUMNS})
