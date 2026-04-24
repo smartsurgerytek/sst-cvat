@@ -297,8 +297,7 @@ def _build_events_query(
 
     if order:
         order_by = ", ".join(
-            f"{expression} {order}"
-            for _, expression, _, _, _ in EVENT_CURSOR_FIELDS
+            f"{expression} {order}" for _, expression, _, _, _ in EVENT_CURSOR_FIELDS
         )
         query += f" ORDER BY {order_by}"
 
