@@ -199,7 +199,7 @@ const componentShortcuts = {
 
 const BULK_LABEL_SELECTOR_VIEWPORT_MARGIN = 16;
 const BULK_LABEL_SELECTOR_MAX_WIDTH = 220;
-const BULK_LABEL_SELECTOR_CONTROL_HEIGHT = 72;
+const BULK_LABEL_SELECTOR_CONTROL_HEIGHT = 40;
 
 registerComponentShortcuts(componentShortcuts);
 
@@ -1294,16 +1294,6 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                             top: bulkLabelSelectorPosition.top,
                         }}
                     >
-                        <Button
-                            block
-                            danger
-                            type='primary'
-                            icon={<DeleteOutlined />}
-                            className='cvat-objects-sidebar-bulk-remove-button'
-                            onMouseDown={this.onBulkRemoveButtonMouseDown}
-                        >
-                            Remove
-                        </Button>
                         <LabelSelector
                             autoFocus
                             open
@@ -1313,6 +1303,23 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                             popupClassName='cvat-objects-sidebar-bulk-label-selector-dropdown'
                             className='cvat-objects-sidebar-bulk-label-selector'
                             onChange={this.onBulkLabelSelectorChange}
+                            dropdownRender={(menu): JSX.Element => (
+                                <div>
+                                    {menu}
+                                    <div className='cvat-objects-sidebar-bulk-label-selector-actions'>
+                                        <Button
+                                            block
+                                            danger
+                                            type='primary'
+                                            icon={<DeleteOutlined />}
+                                            className='cvat-objects-sidebar-bulk-remove-button'
+                                            onMouseDown={this.onBulkRemoveButtonMouseDown}
+                                        >
+                                            Remove
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
                             onDropdownVisibleChange={(open: boolean): void => {
                                 if (!open) {
                                     this.resetBulkLabelSelector(false);
