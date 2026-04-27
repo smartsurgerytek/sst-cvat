@@ -5,8 +5,8 @@
 import base64
 import json
 import unittest
-from unittest import mock
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory
@@ -15,7 +15,7 @@ from rest_framework.test import APIRequestFactory
 
 from cvat.apps.events.const import MAX_EVENT_DURATION, WORKING_TIME_RESOLUTION
 from cvat.apps.events.event import record_server_event
-from cvat.apps.events.export import list_events
+from cvat.apps.events.export import _build_events_query, list_events
 from cvat.apps.events.serializers import ClientEventsSerializer
 from cvat.apps.events.utils import compute_working_time_per_ids, is_contained
 from cvat.apps.events.views import EventsViewSet
@@ -352,7 +352,17 @@ class EventsEntriesViewTestCase(unittest.TestCase):
 
 
 class ListEventsTestCase(unittest.TestCase):
-    @mock.patch("cvat.apps.events.export._normalize_event_query_params", side_effect=lambda params: params)
+    def test_build_events_query_rejects_unapproved_select_clause(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported events query columns"):
+            _build_events_query({}, columns="scope FROM events; DROP TABLE events", order="DESC")
+
+    def test_build_events_query_rejects_unapproved_order(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported events query order"):
+            _build_events_query({}, columns="count()", order="DESC; DROP TABLE events")
+
+    @mock.patch(
+        "cvat.apps.events.export._normalize_event_query_params", side_effect=lambda params: params
+    )
     @mock.patch("cvat.apps.events.export._get_clickhouse_client")
     def test_list_events_skips_count_query_when_include_count_is_false(
         self, mock_get_clickhouse_client, _mock_normalize_query_params
@@ -380,7 +390,9 @@ class ListEventsTestCase(unittest.TestCase):
         self.assertEqual(len(result["results"]), 1)
         self.assertIsNotNone(result["next_cursor"])
 
-    @mock.patch("cvat.apps.events.export._normalize_event_query_params", side_effect=lambda params: params)
+    @mock.patch(
+        "cvat.apps.events.export._normalize_event_query_params", side_effect=lambda params: params
+    )
     @mock.patch("cvat.apps.events.export._get_clickhouse_client")
     def test_list_events_uses_cursor_instead_of_offset(
         self, mock_get_clickhouse_client, _mock_normalize_query_params
@@ -390,8 +402,22 @@ class ListEventsTestCase(unittest.TestCase):
         client.query.return_value = mock.Mock(
             column_names=["scope", "timestamp", "obj_name", "obj_id", "user_id", "payload"],
             result_rows=[
-                ("update:job", datetime(2024, 1, 1, tzinfo=timezone.utc), "state", 1, 7, '{"request": {"id": "r1"}}'),
-                ("update:job", datetime(2023, 12, 31, tzinfo=timezone.utc), "stage", 1, 7, '{"request": {"id": "r2"}}'),
+                (
+                    "update:job",
+                    datetime(2024, 1, 1, tzinfo=timezone.utc),
+                    "state",
+                    1,
+                    7,
+                    '{"request": {"id": "r1"}}',
+                ),
+                (
+                    "update:job",
+                    datetime(2023, 12, 31, tzinfo=timezone.utc),
+                    "stage",
+                    1,
+                    7,
+                    '{"request": {"id": "r2"}}',
+                ),
             ],
         )
 
@@ -437,7 +463,9 @@ class ListEventsTestCase(unittest.TestCase):
         self.assertTrue(result["has_more"])
         self.assertIsNotNone(result["next_cursor"])
 
-    @mock.patch("cvat.apps.events.export._normalize_event_query_params", side_effect=lambda params: params)
+    @mock.patch(
+        "cvat.apps.events.export._normalize_event_query_params", side_effect=lambda params: params
+    )
     @mock.patch("cvat.apps.events.export._get_clickhouse_client")
     def test_list_events_cursor_mode_with_exact_count_keeps_has_more_correct(
         self, mock_get_clickhouse_client, _mock_normalize_query_params
@@ -448,8 +476,16 @@ class ListEventsTestCase(unittest.TestCase):
             mock.Mock(
                 column_names=["scope", "timestamp", "payload"],
                 result_rows=[
-                    ("update:job", datetime(2024, 1, 1, tzinfo=timezone.utc), '{"request": {"id": "r1"}}'),
-                    ("update:job", datetime(2023, 12, 31, tzinfo=timezone.utc), '{"request": {"id": "r2"}}'),
+                    (
+                        "update:job",
+                        datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        '{"request": {"id": "r1"}}',
+                    ),
+                    (
+                        "update:job",
+                        datetime(2023, 12, 31, tzinfo=timezone.utc),
+                        '{"request": {"id": "r2"}}',
+                    ),
                 ],
             ),
             mock.Mock(result_rows=[(2,)]),
@@ -487,7 +523,9 @@ class ListEventsTestCase(unittest.TestCase):
         self.assertEqual(len(result["results"]), 1)
         self.assertIsNotNone(result["next_cursor"])
 
-    @mock.patch("cvat.apps.events.export._normalize_event_query_params", side_effect=lambda params: params)
+    @mock.patch(
+        "cvat.apps.events.export._normalize_event_query_params", side_effect=lambda params: params
+    )
     @mock.patch("cvat.apps.events.export._get_clickhouse_client")
     def test_list_events_cursor_mode_exact_count_last_page_has_no_more(
         self, mock_get_clickhouse_client, _mock_normalize_query_params
@@ -498,7 +536,11 @@ class ListEventsTestCase(unittest.TestCase):
             mock.Mock(
                 column_names=["scope", "timestamp", "payload"],
                 result_rows=[
-                    ("update:job", datetime(2024, 1, 1, tzinfo=timezone.utc), '{"request": {"id": "r1"}}'),
+                    (
+                        "update:job",
+                        datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        '{"request": {"id": "r1"}}',
+                    ),
                 ],
             ),
             mock.Mock(result_rows=[(2,)]),
@@ -536,7 +578,9 @@ class ListEventsTestCase(unittest.TestCase):
         self.assertEqual(len(result["results"]), 1)
         self.assertIsNone(result["next_cursor"])
 
-    @mock.patch("cvat.apps.events.export._normalize_event_query_params", side_effect=lambda params: params)
+    @mock.patch(
+        "cvat.apps.events.export._normalize_event_query_params", side_effect=lambda params: params
+    )
     @mock.patch("cvat.apps.events.export._get_clickhouse_client")
     def test_list_events_cursor_does_not_expose_pii_fields(
         self, mock_get_clickhouse_client, _mock_normalize_query_params
@@ -620,7 +664,9 @@ class ListEventsTestCase(unittest.TestCase):
 
         self.assertIsNotNone(result["next_cursor"])
         padded_cursor = f"{result['next_cursor']}{'=' * (-len(result['next_cursor']) % 4)}"
-        decoded_cursor = json.loads(base64.urlsafe_b64decode(padded_cursor.encode("ascii")).decode("utf-8"))
+        decoded_cursor = json.loads(
+            base64.urlsafe_b64decode(padded_cursor.encode("ascii")).decode("utf-8")
+        )
         self.assertNotIn("user_name", decoded_cursor)
         self.assertNotIn("user_email", decoded_cursor)
         self.assertNotIn("org_slug", decoded_cursor)
@@ -629,9 +675,7 @@ class ListEventsTestCase(unittest.TestCase):
 
 class RecordServerEventTestCase(unittest.TestCase):
     @mock.patch("cvat.apps.events.event._emit_server_event")
-    def test_record_server_event_emits_event_dispatch(
-        self, mock_emit_server_event
-    ):
+    def test_record_server_event_emits_event_dispatch(self, mock_emit_server_event):
         record_server_event(
             scope="update:job",
             request_info={},
@@ -651,9 +695,7 @@ class RecordServerEventTestCase(unittest.TestCase):
         self.assertEqual(inserted_event["source"], "server")
 
     @mock.patch("cvat.apps.events.event._emit_server_event")
-    def test_record_server_event_does_not_mutate_request_info(
-        self, mock_emit_server_event
-    ):
+    def test_record_server_event_does_not_mutate_request_info(self, mock_emit_server_event):
         request_info = {"id": "request-1", "access_token_id": 42}
 
         record_server_event(
@@ -664,7 +706,7 @@ class RecordServerEventTestCase(unittest.TestCase):
         )
 
         self.assertEqual(request_info, {"id": "request-1", "access_token_id": 42})
-        clickhouse_data, _logger_data = mock_emit_server_event.call_args.args
+        clickhouse_data, _ = mock_emit_server_event.call_args.args
         self.assertEqual(clickhouse_data["access_token_id"], 42)
         self.assertEqual(
             json.loads(clickhouse_data["payload"]),
@@ -677,7 +719,9 @@ class RecordServerEventTestCase(unittest.TestCase):
         self, mock_emit_server_event, mock_on_commit
     ):
         captured_callbacks = []
-        mock_on_commit.side_effect = lambda callback, robust: captured_callbacks.append((callback, robust))
+        mock_on_commit.side_effect = lambda callback, robust: captured_callbacks.append(
+            (callback, robust)
+        )
 
         record_server_event(
             scope="update:job",
