@@ -19,11 +19,17 @@ import { reviewActions, finishIssueAsync } from 'actions/review-actions';
 import { useIsMounted } from 'utils/hooks';
 import { useDialogPositioning } from './use-dialog-positioning';
 
+const isSelectEventTarget = (target: EventTarget | null): boolean => (
+    target instanceof HTMLElement && !!target.closest('.ant-select, .ant-select-dropdown')
+);
+const SELECT_PEN_SUPPRESSION_MS = 500;
+
 interface FormProps {
     top: number;
     left: number;
     angle: number;
     scale: number;
+    fixed?: boolean;
     fetching: boolean;
     clientCoordinates: [number, number];
     canvasRect: DOMRect | null;
@@ -34,12 +40,13 @@ interface FormProps {
 
 function MessageForm(props: Readonly<FormProps>): JSX.Element {
     const {
-        top, left, angle, scale, fetching, submit, cancel, clientCoordinates, canvasRect, labelTexts,
+        top, left, angle, scale, fixed = false, fetching, submit, cancel, clientCoordinates, canvasRect, labelTexts,
     } = props;
 
     const dialogRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<InputRef>(null);
     const cursorRangeRef = useRef<{ start: number; end: number } | null>(null);
+    const selectPenSuppressedUntilRef = useRef(0);
     const [form] = Form.useForm();
     const labelOptions = useMemo(
         () => labelTexts.map((label: string) => ({
@@ -58,6 +65,62 @@ function MessageForm(props: Readonly<FormProps>): JSX.Element {
         clientCoordinates,
         canvasRect,
     });
+
+    useEffect(() => {
+        const dialog = dialogRef.current;
+        if (!dialog) return undefined;
+
+        const stopNativePropagation = (event: Event): void => {
+            if (isSelectEventTarget(event.target)) {
+                return;
+            }
+
+            event.stopPropagation();
+        };
+        const blockPenSelectInteraction = (event: Event): void => {
+            if (!isSelectEventTarget(event.target)) {
+                return;
+            }
+
+            const isPenPointerEvent = typeof PointerEvent !== 'undefined' &&
+                event instanceof PointerEvent &&
+                event.pointerType === 'pen';
+            const isFollowUpMouseEvent = ['mousedown', 'mouseup', 'click'].includes(event.type) &&
+                Date.now() < selectPenSuppressedUntilRef.current;
+
+            if (!isPenPointerEvent && !isFollowUpMouseEvent) {
+                return;
+            }
+
+            selectPenSuppressedUntilRef.current = Date.now() + SELECT_PEN_SUPPRESSION_MS;
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+        };
+        const eventTypes = [
+            'pointerdown',
+            'pointerup',
+            'mousedown',
+            'mouseup',
+            'touchstart',
+            'touchend',
+        ];
+
+        eventTypes.forEach((eventType: string) => {
+            dialog.addEventListener(eventType, stopNativePropagation);
+        });
+        ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click'].forEach((eventType: string) => {
+            dialog.addEventListener(eventType, blockPenSelectInteraction, true);
+        });
+        return () => {
+            eventTypes.forEach((eventType: string) => {
+                dialog.removeEventListener(eventType, stopNativePropagation);
+            });
+            ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click'].forEach((eventType: string) => {
+                dialog.removeEventListener(eventType, blockPenSelectInteraction, true);
+            });
+        };
+    }, []);
 
     useEffect(() => {
         if (inputRef.current) {
@@ -115,14 +178,16 @@ function MessageForm(props: Readonly<FormProps>): JSX.Element {
         submit(values.issue_description);
     }
 
+    const currentPosition = fixed ? { top, left } : position;
+
     return (
         <div
             ref={dialogRef}
-            className='cvat-create-issue-dialog'
+            className={`cvat-create-issue-dialog${fixed ? ' cvat-create-issue-dialog-fixed' : ''}`}
             style={{
-                top: position.top,
-                left: position.left,
-                transform: `scale(${scale}) rotate(${angle}deg)`,
+                top: currentPosition.top,
+                left: currentPosition.left,
+                transform: fixed ? 'translateX(-50%)' : `scale(${scale}) rotate(${angle}deg)`,
             }}
         >
             <Form
@@ -132,9 +197,13 @@ function MessageForm(props: Readonly<FormProps>): JSX.Element {
                 <Form.Item name='issue_label_text' label='Label text'>
                     <Select
                         className='cvat-create-issue-dialog-shortcut-selector'
+                        popupClassName='cvat-create-issue-dialog-select-dropdown'
                         placeholder='Select label text'
                         options={labelOptions}
                         showSearch
+                        getPopupContainer={(triggerNode: HTMLElement): HTMLElement => (
+                            dialogRef.current ?? triggerNode.parentElement ?? window.document.body
+                        )}
                         onSelect={(value: string) => {
                             applyLabelText(value);
                         }}
@@ -194,6 +263,7 @@ interface Props {
     left: number;
     angle: number;
     scale: number;
+    fixed?: boolean;
     clientCoordinates: [number, number];
     canvasRect: DOMRect | null;
     labelTexts: string[];
@@ -205,7 +275,7 @@ export default function CreateIssueDialog(props: Props): ReactPortal {
     const isMounted = useIsMounted();
     const dispatch = useDispatch();
     const {
-        top, left, angle, scale, clientCoordinates, canvasRect, labelTexts, onCreateIssue,
+        top, left, angle, scale, fixed, clientCoordinates, canvasRect, labelTexts, onCreateIssue,
     } = props;
     const filteredLabelTexts = useMemo(
         () => Array.from(new Set(labelTexts.filter((label: string) => Boolean(label?.trim())))),
@@ -218,6 +288,7 @@ export default function CreateIssueDialog(props: Props): ReactPortal {
             left={left}
             angle={angle}
             scale={scale}
+            fixed={fixed}
             clientCoordinates={clientCoordinates}
             canvasRect={canvasRect}
             labelTexts={filteredLabelTexts}
@@ -235,6 +306,6 @@ export default function CreateIssueDialog(props: Props): ReactPortal {
                 dispatch(reviewActions.cancelIssue());
             }}
         />,
-        window.document.getElementById('cvat_canvas_attachment_board') as HTMLElement,
+        fixed ? window.document.body : window.document.getElementById('cvat_canvas_attachment_board') as HTMLElement,
     );
 }

@@ -15,6 +15,33 @@ import {
 
 import { CombinedState } from 'reducers';
 
+type Point = { x: number; y: number };
+
+type GestureState =
+    | {
+        mode: 'pan';
+        pointerId: number;
+        startPoint: Point;
+        startPan: Point;
+    }
+    | {
+        mode: 'pinch';
+        startCenter: Point;
+        startDistance: number;
+        startZoom: number;
+        startPan: Point;
+    }
+    | { mode: null };
+
+const getDistance = (first: Point, second: Point): number => (
+    Math.hypot(second.x - first.x, second.y - first.y)
+);
+
+const getCenter = (first: Point, second: Point): Point => ({
+    x: (first.x + second.x) / 2,
+    y: (first.y + second.y) / 2,
+});
+
 function RawFrameView(): JSX.Element {
     const { jobInstance, frameNumber } = useSelector((state: CombinedState) => ({
         jobInstance: state.annotation.job.instance,
@@ -24,20 +51,68 @@ function RawFrameView(): JSX.Element {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [zoom, setZoom] = useState<number>(1);
-    const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
     const [isPanning, setIsPanning] = useState(false);
     const [hasFrame, setHasFrame] = useState(false);
-    const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-    const panOriginRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const rafRef = useRef<number | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
     const zoomRef = useRef<number>(1);
-    const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    const panRef = useRef<Point>({ x: 0, y: 0 });
+    const activePointersRef = useRef<Map<number, Point>>(new Map());
+    const gestureRef = useRef<GestureState>({ mode: null });
 
     const clampZoom = useCallback((value: number): number => (
         Math.min(3, Math.max(0.5, +value.toFixed(2)))
     ), []);
+
+    const getLocalPointer = useCallback((event: React.PointerEvent<HTMLDivElement>): Point => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        return {
+            x: event.clientX - (rect.left + rect.width / 2),
+            y: event.clientY - (rect.top + rect.height / 2),
+        };
+    }, []);
+
+    const applyTransform = useCallback((nextZoom: number, nextPan: Point): void => {
+        zoomRef.current = nextZoom;
+        panRef.current = nextPan;
+        setZoom(nextZoom);
+        setPan(nextPan);
+    }, []);
+
+    const startPanGesture = useCallback((pointerId: number, point: Point): void => {
+        gestureRef.current = {
+            mode: 'pan',
+            pointerId,
+            startPoint: point,
+            startPan: panRef.current,
+        };
+        setIsPanning(true);
+    }, []);
+
+    const startPinchGesture = useCallback((first: Point, second: Point): void => {
+        gestureRef.current = {
+            mode: 'pinch',
+            startCenter: getCenter(first, second),
+            startDistance: Math.max(1, getDistance(first, second)),
+            startZoom: zoomRef.current,
+            startPan: panRef.current,
+        };
+        setIsPanning(true);
+    }, []);
+
+    const restartGestureFromPointers = useCallback((): void => {
+        const entries = Array.from(activePointersRef.current.entries());
+        if (entries.length >= 2) {
+            startPinchGesture(entries[0][1], entries[1][1]);
+        } else if (entries.length === 1) {
+            startPanGesture(entries[0][0], entries[0][1]);
+        } else {
+            gestureRef.current = { mode: null };
+            setIsPanning(false);
+        }
+    }, [startPanGesture, startPinchGesture]);
 
     const handleIconKeyDown = useCallback((event: React.KeyboardEvent) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -88,17 +163,14 @@ function RawFrameView(): JSX.Element {
                 y: pointer.y - (pointer.y - currentPan.y) * zoomRatio,
             };
 
-            panRef.current = nextPan;
-            zoomRef.current = nextZoom;
-            setPan(nextPan);
-            setZoom(nextZoom);
+            applyTransform(nextZoom, nextPan);
         };
 
         content.addEventListener('wheel', handleWheel, { passive: false });
         return () => {
             content.removeEventListener('wheel', handleWheel);
         };
-    }, [clampZoom]);
+    }, [applyTransform, clampZoom]);
 
     useEffect(() => {
         let cancelled = false;
@@ -173,8 +245,10 @@ function RawFrameView(): JSX.Element {
                         <ReloadOutlined
                             onClick={() => {
                                 window.dispatchEvent(new CustomEvent('cvat.canvasLayoutAction', { detail: { action: 'reload' } }));
-                                setZoom(1);
-                                setPan({ x: 0, y: 0 });
+                                activePointersRef.current.clear();
+                                gestureRef.current = { mode: null };
+                                setIsPanning(false);
+                                applyTransform(1, { x: 0, y: 0 });
                             }}
                             onKeyDown={handleIconKeyDown}
                             role='button'
@@ -189,28 +263,61 @@ function RawFrameView(): JSX.Element {
                 ref={contentRef}
                 onPointerDown={(event) => {
                     event.preventDefault();
-                    (event.currentTarget as HTMLDivElement).setPointerCapture(event.pointerId);
-                    setIsPanning(true);
-                    panStartRef.current = { x: event.clientX, y: event.clientY };
-                    panOriginRef.current = { ...pan };
+                    const target = event.currentTarget as HTMLDivElement;
+                    target.setPointerCapture(event.pointerId);
+                    activePointersRef.current.set(event.pointerId, getLocalPointer(event));
+                    restartGestureFromPointers();
                 }}
                 onPointerMove={(event) => {
-                    if (!isPanning) return;
-                    const dx = event.clientX - panStartRef.current.x;
-                    const dy = event.clientY - panStartRef.current.y;
-                    const next = { x: panOriginRef.current.x + dx, y: panOriginRef.current.y + dy };
+                    if (!activePointersRef.current.has(event.pointerId)) return;
+                    activePointersRef.current.set(event.pointerId, getLocalPointer(event));
+                    const gesture = gestureRef.current;
+                    let nextZoom = zoomRef.current;
+                    let nextPan = panRef.current;
+
+                    if (gesture.mode === 'pan') {
+                        const pointer = activePointersRef.current.get(gesture.pointerId);
+                        if (!pointer) return;
+                        nextPan = {
+                            x: gesture.startPan.x + pointer.x - gesture.startPoint.x,
+                            y: gesture.startPan.y + pointer.y - gesture.startPoint.y,
+                        };
+                    } else if (gesture.mode === 'pinch') {
+                        const pointers = Array.from(activePointersRef.current.values());
+                        if (pointers.length < 2) return;
+                        const center = getCenter(pointers[0], pointers[1]);
+                        const distance = Math.max(1, getDistance(pointers[0], pointers[1]));
+                        nextZoom = clampZoom(gesture.startZoom * (distance / gesture.startDistance));
+                        const zoomRatio = nextZoom / gesture.startZoom;
+                        nextPan = {
+                            x: center.x - (gesture.startCenter.x - gesture.startPan.x) * zoomRatio,
+                            y: center.y - (gesture.startCenter.y - gesture.startPan.y) * zoomRatio,
+                        };
+                    } else {
+                        return;
+                    }
+
                     if (rafRef.current) cancelAnimationFrame(rafRef.current);
                     rafRef.current = requestAnimationFrame(() => {
-                        setPan(next);
+                        applyTransform(nextZoom, nextPan);
                     });
                 }}
                 onPointerUp={(event) => {
-                    (event.currentTarget as HTMLDivElement).releasePointerCapture(event.pointerId);
-                    setIsPanning(false);
+                    const target = event.currentTarget as HTMLDivElement;
+                    if (target.hasPointerCapture(event.pointerId)) {
+                        target.releasePointerCapture(event.pointerId);
+                    }
+                    activePointersRef.current.delete(event.pointerId);
+                    restartGestureFromPointers();
                 }}
-                onPointerCancel={() => setIsPanning(false)}
-                onLostPointerCapture={() => setIsPanning(false)}
-                onPointerLeave={() => setIsPanning(false)}
+                onPointerCancel={(event) => {
+                    activePointersRef.current.delete(event.pointerId);
+                    restartGestureFromPointers();
+                }}
+                onLostPointerCapture={(event) => {
+                    activePointersRef.current.delete(event.pointerId);
+                    restartGestureFromPointers();
+                }}
             >
                 <div
                     className='cvat-raw-frame-view-zoomable'

@@ -429,6 +429,12 @@ g.cvat_canvas_shape_occluded {
 
     z-index: 3;
     display: none;
+    touch-action: none;
+    overscroll-behavior: contain;
+
+    canvas {
+        touch-action: none;
+    }
 }
 
 #cvat_canvas_attachment_board {

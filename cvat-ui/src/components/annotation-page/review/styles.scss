@@ -8,6 +8,7 @@
 .cvat-create-issue-dialog {
     position: absolute;
     pointer-events: auto;
+    touch-action: manipulation;
     width: $grid-unit-size * 30;
     padding: $grid-unit-size;
     background: $background-color-2;
@@ -17,7 +18,27 @@
 
     button {
         width: $grid-unit-size * 12;
+        min-height: 44px;
+        touch-action: manipulation;
     }
+
+    input,
+    textarea,
+    .ant-select-selector {
+        touch-action: manipulation;
+        user-select: text;
+    }
+}
+
+.cvat-create-issue-dialog-fixed {
+    position: fixed;
+    z-index: 2000;
+    transform-origin: top center;
+}
+
+.cvat-create-issue-dialog-select-dropdown,
+.cvat-issue-dialog-select-dropdown {
+    z-index: 2001;
 }
 
 .cvat-hidden-issue-label {
@@ -68,6 +89,7 @@
     z-index: 100;
     transition: none;
     pointer-events: auto;
+    touch-action: manipulation;
     background: $background-color-2;
     padding: $grid-unit-size;
     transform-origin: top left;
@@ -117,6 +139,12 @@
     &:hover {
         opacity: 1;
     }
+}
+
+.cvat-issue-dialog-fixed {
+    position: fixed;
+    z-index: 2000;
+    transform-origin: top center;
 }
 
 .cvat-hidden-issue-indicator {

@@ -71,6 +71,7 @@ const componentShortcuts = {
 registerComponentShortcuts(componentShortcuts);
 
 const MIN_BRUSH_SIZE = 1;
+const ISSUE_MASK_BRUSH_COLOR = '#ff0000';
 function BrushTools(): React.ReactPortal | null {
     const dispatch = useDispatch();
     const {
@@ -154,6 +155,7 @@ function BrushTools(): React.ReactPortal | null {
     useEffect(() => {
         const label = labels.find((_label: any) => _label.id === defaultLabelID);
         if (visible && label && canvasInstance instanceof Canvas) {
+            const brushColor = isIssueMaskMode ? ISSUE_MASK_BRUSH_COLOR : label.color as string;
             const onUpdateConfiguration = ({ brushTool }: any): void => {
                 if (brushTool?.size) {
                     setBrushSize(Math.max(MIN_BRUSH_SIZE, brushTool.size));
@@ -169,7 +171,7 @@ function BrushTools(): React.ReactPortal | null {
                         type: currentTool,
                         size: brushSize,
                         form: brushForm,
-                        color: label.color as string,
+                        color: brushColor,
                         onBlockUpdated,
                     },
                     onUpdateConfiguration,
@@ -182,14 +184,14 @@ function BrushTools(): React.ReactPortal | null {
                         type: currentTool,
                         size: brushSize,
                         form: brushForm,
-                        color: label.color as string,
+                        color: brushColor,
                         onBlockUpdated,
                     },
                     onUpdateConfiguration,
                 });
             }
         }
-    }, [currentTool, brushSize, brushForm, visible, defaultLabelID, editableState]);
+    }, [currentTool, brushSize, brushForm, visible, defaultLabelID, editableState, isIssueMaskMode]);
 
     useEffect(() => {
         getCore().config.removeUnderlyingMaskPixels.enabled = removeUnderlyingPixels;

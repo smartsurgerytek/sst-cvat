@@ -172,26 +172,31 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
 
     useEffect(() => {
         if (canvasReady) {
+            const updateCanvasRect = (): void => {
+                const canvasElement = window.document.getElementById('cvat_canvas_wrapper');
+                if (canvasElement) {
+                    setCanvasRect(canvasElement.getBoundingClientRect());
+                }
+            };
             const { geometry: updatedGeometry } = canvasInstance;
             setGeometry(updatedGeometry);
-
-            const canvasElement = window.document.getElementById('cvat_canvas_wrapper');
-            if (canvasElement) {
-                setCanvasRect(canvasElement.getBoundingClientRect());
-            }
+            updateCanvasRect();
 
             const geometryListener = (): void => {
                 setGeometry(canvasInstance.geometry);
+                updateCanvasRect();
             };
 
             canvasInstance.html().addEventListener('canvas.zoom', geometryListener);
             canvasInstance.html().addEventListener('canvas.fit', geometryListener);
             canvasInstance.html().addEventListener('canvas.reshape', geometryListener);
+            window.addEventListener('resize', updateCanvasRect);
 
             return () => {
                 canvasInstance.html().removeEventListener('canvas.zoom', geometryListener);
                 canvasInstance.html().removeEventListener('canvas.fit', geometryListener);
                 canvasInstance.html().removeEventListener('canvas.reshape', geometryListener);
+                window.removeEventListener('resize', updateCanvasRect);
             };
         }
 
@@ -337,6 +342,11 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         return null;
     }
 
+    const fixedCanvasDialogPosition = canvasRect ? {
+        left: canvasRect.left + canvasRect.width / 2,
+        top: canvasRect.top + 16,
+    } : null;
+
     for (const issue of frameIssues) {
         if (issuesHidden) break;
         const issueResolved = issue.resolved;
@@ -364,20 +374,28 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         };
 
         if (expandedIssue === id) {
+            const issueDialogFixedPosition = issue.isMaskIssue === true ? fixedCanvasDialogPosition : null;
+            const issueDialogTop = issueDialogFixedPosition?.top ?? minY;
+            const issueDialogLeft = issueDialogFixedPosition?.left ?? minX;
+            const issueDialogClientCoordinates = issueDialogFixedPosition ? (
+                [issueDialogFixedPosition.left, issueDialogFixedPosition.top] as [number, number]
+            ) : canvasInstance.translateFromSVG([minX, minY]) as [number, number];
+
             issueDialogs.push(
                 <IssueDialog
                     key={issue.id}
                     issue={issue}
-                    top={minY}
-                    left={minX}
-                    angle={-geometry.angle}
-                    scale={1 / geometry.scale}
+                    top={issueDialogTop}
+                    left={issueDialogLeft}
+                    angle={issueDialogFixedPosition ? 0 : -geometry.angle}
+                    scale={issueDialogFixedPosition ? 1 : 1 / geometry.scale}
+                    fixed={!!issueDialogFixedPosition}
                     isFetching={issueFetching !== null}
                     resolved={issueResolved}
                     allowRemoving={isReviewWorkspace}
                     highlight={highlight}
                     blur={blur}
-                    clientCoordinates={canvasInstance.translateFromSVG([minX, minY]) as [number, number]}
+                    clientCoordinates={issueDialogClientCoordinates}
                     canvasRect={canvasRect}
                     collapse={() => {
                         setExpandedIssue(null);
@@ -414,6 +432,8 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         }
     }
 
+    const isCreatingMaskIssue = newIssueSource === NewIssueSource.ISSUE_MASK && !!newIssuePosition;
+    const maskDialogPosition = isCreatingMaskIssue ? fixedCanvasDialogPosition : null;
     const newIssueBounds = issueBounds[0];
     const createLeft = newIssueBounds ? newIssueBounds.maxX + geometry.offset : null;
     const createTop = newIssueBounds ? newIssueBounds.minY + geometry.offset : null;
@@ -440,19 +460,31 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
 
     return (
         <>
-            {[NewIssueSource.ISSUE_TOOL, NewIssueSource.ISSUE_MASK].includes(newIssueSource as NewIssueSource) &&
-            createLeft !== null && createTop !== null ? (
-                    <CreateIssueDialog
-                        top={createTop}
-                        left={createLeft}
-                        angle={-geometry.angle}
-                        scale={1 / geometry.scale}
-                        labelTexts={labelTexts}
-                        onCreateIssue={onCreateIssue}
-                        canvasRect={canvasRect}
-                        clientCoordinates={canvasInstance.translateFromSVG([createLeft, createTop]) as [number, number]}
-                    />
-                ) : null}
+            {newIssueSource === NewIssueSource.ISSUE_TOOL && createLeft !== null && createTop !== null ? (
+                <CreateIssueDialog
+                    top={createTop}
+                    left={createLeft}
+                    angle={-geometry.angle}
+                    scale={1 / geometry.scale}
+                    labelTexts={labelTexts}
+                    onCreateIssue={onCreateIssue}
+                    canvasRect={canvasRect}
+                    clientCoordinates={canvasInstance.translateFromSVG([createLeft, createTop]) as [number, number]}
+                />
+            ) : null}
+            {maskDialogPosition ? (
+                <CreateIssueDialog
+                    top={maskDialogPosition.top}
+                    left={maskDialogPosition.left}
+                    angle={0}
+                    scale={1}
+                    fixed
+                    labelTexts={labelTexts}
+                    onCreateIssue={onCreateIssue}
+                    canvasRect={canvasRect}
+                    clientCoordinates={[maskDialogPosition.left, maskDialogPosition.top]}
+                />
+            ) : null}
             {issueDialogs}
             {issueLabels}
             {conflictLabels}

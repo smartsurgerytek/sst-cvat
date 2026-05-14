@@ -14,11 +14,45 @@ import {
     PropType, computeWrappingBox, zipChannels, expandChannels, imageDataToDataURL,
 } from './shared';
 
+type CanvasInputEvent = MouseEvent | PointerEvent | TouchEvent;
+type FabricCanvasOptions = fabric.ICanvasOptions & { enablePointerEvents?: boolean };
+type MouseEventWithSourceCapabilities = MouseEvent & {
+    sourceCapabilities?: { firesTouchEvents?: boolean };
+};
+
 interface WrappingBBox {
     left: number;
     top: number;
     right: number;
     bottom: number;
+}
+
+function isPointerInputEvent(event: CanvasInputEvent): event is PointerEvent {
+    return typeof PointerEvent !== 'undefined' && event instanceof PointerEvent;
+}
+
+function isTouchInputEvent(event: CanvasInputEvent): event is TouchEvent {
+    return typeof TouchEvent !== 'undefined' && event instanceof TouchEvent;
+}
+
+function isTouchLikeEvent(event: CanvasInputEvent): boolean {
+    if (isPointerInputEvent(event)) {
+        return event.pointerType === 'touch';
+    }
+
+    if (isTouchInputEvent(event)) {
+        return true;
+    }
+
+    return (event as MouseEventWithSourceCapabilities).sourceCapabilities?.firesTouchEvents === true;
+}
+
+function isMouseLikeEvent(event: CanvasInputEvent): boolean {
+    if (isPointerInputEvent(event)) {
+        return !event.pointerType || event.pointerType === 'mouse';
+    }
+
+    return !isTouchLikeEvent(event);
 }
 
 export interface MasksHandler {
@@ -66,6 +100,7 @@ export class MasksHandlerImpl implements MasksHandler {
     private geometry: Geometry;
     private drawingOpacity: number;
     private isHidden: boolean;
+    private activePenPointerID: number | null;
 
     private keepDrawnPolygon(): void {
         const canvasWrapper = this.canvas.getElement().parentElement;
@@ -226,7 +261,7 @@ export class MasksHandlerImpl implements MasksHandler {
         return imageData;
     }
 
-    private updateHidden(value: boolean) {
+    private updateHidden(value: boolean): void {
         this.isHidden = value;
 
         // Need to update style of upper canvas explicitly because update of default cursor is not applied immediately
@@ -338,6 +373,59 @@ export class MasksHandlerImpl implements MasksHandler {
         });
     }
 
+    private trackInputStart(event: CanvasInputEvent): void {
+        if (isPointerInputEvent(event) && event.pointerType === 'pen') {
+            this.activePenPointerID = event.pointerId;
+        }
+    }
+
+    private releaseInput(event: CanvasInputEvent): void {
+        if (isTouchLikeEvent(event) && this.activePenPointerID !== null) {
+            return;
+        }
+
+        if (
+            isPointerInputEvent(event) &&
+            event.pointerType === 'pen' &&
+            this.activePenPointerID !== null &&
+            this.activePenPointerID !== event.pointerId
+        ) {
+            return;
+        }
+
+        if (isPointerInputEvent(event) && event.pointerType === 'pen') {
+            this.activePenPointerID = null;
+        }
+
+        this.isMouseDown = false;
+        this.isBrushSizeChanging = false;
+    }
+
+    private shouldIgnoreDrawingInput(event: CanvasInputEvent): boolean {
+        // Fingers may be navigation or palm contact. Only mouse and pen may create issue-mask strokes.
+        return isTouchLikeEvent(event);
+    }
+
+    private preventIgnoredInput(event: CanvasInputEvent): void {
+        if (event.cancelable) {
+            event.preventDefault();
+        }
+
+        event.stopPropagation();
+    }
+
+    private isPrimaryDrawStart(event: CanvasInputEvent): boolean {
+        if (this.shouldIgnoreDrawingInput(event)) {
+            return false;
+        }
+
+        return 'button' in event && event.button === 0 && !event.altKey;
+    }
+
+    private isBrushResizeStart(event: CanvasInputEvent): boolean {
+        return isMouseLikeEvent(event) && 'button' in event && event.button === 2 && event.altKey;
+    }
+
     private createDrawnObjectsArray(): MasksHandlerImpl['drawnObjects'] {
         const drawnObjects = [];
         const updateBlockedToolsDebounced = debounce(this.updateBlockedTools.bind(this), 250);
@@ -369,35 +457,59 @@ export class MasksHandlerImpl implements MasksHandler {
         this.drawingOpacity = 0.5;
         this.brushMarker = null;
         this.isHidden = false;
+        this.activePenPointerID = null;
         this.colorBy = ColorBy.LABEL;
         this.onDrawDone = onDrawDone;
         this.onDrawRepeat = onDrawRepeat;
         this.onEditDone = onEditDone;
         this.onEditStart = onEditStart;
         this.vectorDrawHandler = vectorDrawHandler;
-        this.canvas = new fabric.Canvas(canvas, {
+        const canvasOptions: FabricCanvasOptions = {
             containerClass: 'cvat_masks_canvas_wrapper',
             fireRightClick: true,
             selection: false,
             defaultCursor: 'inherit',
-        });
+        };
+        if (typeof PointerEvent !== 'undefined') {
+            canvasOptions.enablePointerEvents = true;
+        }
+
+        this.canvas = new fabric.Canvas(canvas, canvasOptions);
         this.canvas.imageSmoothingEnabled = false;
         this.drawnObjects = this.createDrawnObjectsArray();
 
         this.canvas.getElement().parentElement.addEventListener('contextmenu', (e: MouseEvent) => e.preventDefault());
         this.latestMousePos = { x: -1, y: -1 };
-        window.document.addEventListener('mouseup', () => {
-            this.isMouseDown = false;
-            this.isBrushSizeChanging = false;
+        window.document.addEventListener('mouseup', (event: MouseEvent) => {
+            this.releaseInput(event);
+        });
+        window.document.addEventListener('pointerup', (event: PointerEvent) => {
+            this.releaseInput(event);
+        });
+        window.document.addEventListener('pointercancel', (event: PointerEvent) => {
+            this.releaseInput(event);
         });
 
         this.canvas.on('mouse:down', (options: fabric.IEvent<MouseEvent>) => {
             const { isDrawing, isEditing, isInsertion } = this;
-            this.isMouseDown = (isDrawing || isEditing) && options.e.button === 0 && !options.e.altKey;
-            this.isBrushSizeChanging = (isDrawing || isEditing) && options.e.button === 2 && options.e.altKey;
+            const inputEvent = options.e as CanvasInputEvent;
+            this.trackInputStart(inputEvent);
+
+            if (this.shouldIgnoreDrawingInput(inputEvent)) {
+                if (this.activePenPointerID === null) {
+                    this.isMouseDown = false;
+                    this.isBrushSizeChanging = false;
+                }
+
+                this.preventIgnoredInput(inputEvent);
+                return;
+            }
+
+            this.isMouseDown = (isDrawing || isEditing) && this.isPrimaryDrawStart(inputEvent);
+            this.isBrushSizeChanging = (isDrawing || isEditing) && this.isBrushResizeStart(inputEvent);
 
             if (isInsertion) {
-                const continueInserting = options.e.ctrlKey;
+                const continueInserting = 'ctrlKey' in inputEvent && inputEvent.ctrlKey;
                 const wrappingBbox = this.getDrawnObjectsWrappingBox();
                 const imageData = this.imageDataFromCanvas(wrappingBbox);
                 const rle = zipChannels(imageData);
@@ -422,6 +534,17 @@ export class MasksHandlerImpl implements MasksHandler {
         });
 
         this.canvas.on('mouse:move', (e: fabric.IEvent<MouseEvent>) => {
+            const inputEvent = e.e as CanvasInputEvent;
+            if (this.shouldIgnoreDrawingInput(inputEvent)) {
+                if (this.activePenPointerID === null) {
+                    this.isMouseDown = false;
+                    this.isBrushSizeChanging = false;
+                }
+
+                this.preventIgnoredInput(inputEvent);
+                return;
+            }
+
             const { image: { width: imageWidth, height: imageHeight } } = this.geometry;
             const { angle } = this.geometry;
             let [x, y] = [e.pointer.x, e.pointer.y];
@@ -539,8 +662,10 @@ export class MasksHandlerImpl implements MasksHandler {
                 // update the polygon position
                 const points = this.drawablePolygon.get('points');
                 if (points.length) {
-                    points[points.length - 1].setX(e.e.offsetX);
-                    points[points.length - 1].setY(e.e.offsetY);
+                    const offsetX = 'offsetX' in inputEvent ? inputEvent.offsetX : position.x;
+                    const offsetY = 'offsetY' in inputEvent ? inputEvent.offsetY : position.y;
+                    points[points.length - 1].setX(offsetX);
+                    points[points.length - 1].setY(offsetY);
                 }
                 this.canvas.renderAll();
             }
