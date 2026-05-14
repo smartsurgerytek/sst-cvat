@@ -8,6 +8,7 @@ import { Row, Col } from 'antd/lib/grid';
 import { MoreOutlined } from '@ant-design/icons';
 import Dropdown from 'antd/lib/dropdown';
 import Text from 'antd/lib/typography/Text';
+import Checkbox, { CheckboxChangeEvent } from 'antd/lib/checkbox';
 
 import { ColorBy } from 'reducers';
 import CVATTooltip from 'components/common/cvat-tooltip';
@@ -30,6 +31,9 @@ interface Props {
     colorBy: ColorBy;
     type: string;
     locked: boolean;
+    selected?: boolean;
+    multiSelectEnabled?: boolean;
+    onToggleSelection?: () => void;
     changeColorShortcut: string;
     copyShortcut: string;
     pasteShortcut: string;
@@ -67,6 +71,8 @@ function ItemTopComponent(props: Props): JSX.Element {
         colorBy,
         type,
         locked,
+        selected,
+        multiSelectEnabled,
         changeColorShortcut,
         copyShortcut,
         pasteShortcut,
@@ -91,6 +97,7 @@ function ItemTopComponent(props: Props): JSX.Element {
         edit,
         slice,
         jobInstance,
+        onToggleSelection,
     } = props;
 
     const [colorPickerVisible, setColorPickerVisible] = useState(false);
@@ -98,6 +105,25 @@ function ItemTopComponent(props: Props): JSX.Element {
     return (
         <Row align='middle'>
             <Col span={10}>
+                {multiSelectEnabled && (
+                    <span
+                        role='presentation'
+                        onMouseDown={(event): void => {
+                            // Keep checkbox clicks from also activating the row.
+                            event.stopPropagation();
+                        }}
+                    >
+                        <Checkbox
+                            checked={Boolean(selected)}
+                            disabled={readonly}
+                            onChange={(event: CheckboxChangeEvent): void => {
+                                event.stopPropagation();
+                                onToggleSelection?.();
+                            }}
+                            style={{ marginRight: 6 }}
+                        />
+                    </span>
+                )}
                 <Text style={{ fontSize: 12 }}>{clientID}</Text>
                 {isGroundTruth ? <Text style={{ fontSize: 12 }}>&nbsp;GT</Text> : null}
                 <br />
@@ -111,14 +137,25 @@ function ItemTopComponent(props: Props): JSX.Element {
             </Col>
             <Col span={12}>
                 <CVATTooltip title='Change current label'>
-                    <LabelSelector
-                        disabled={locked || readonly || shapeType === ShapeType.SKELETON}
-                        size='small'
-                        labels={labels}
-                        value={labelID}
-                        onChange={changeLabel}
-                        className='cvat-objects-sidebar-state-item-label-selector'
-                    />
+                    <div
+                        role='presentation'
+                        onMouseDown={(event): void => {
+                            // Inline label edits should not also toggle row activation.
+                            event.stopPropagation();
+                        }}
+                        onMouseUp={(event): void => event.stopPropagation()}
+                    >
+                        <LabelSelector
+                            disabled={locked || readonly || shapeType === ShapeType.SKELETON}
+                            size='small'
+                            labels={labels}
+                            value={labelID}
+                            onChange={changeLabel}
+                            className='cvat-objects-sidebar-state-item-label-selector'
+                            popupClassName='cvat-objects-sidebar-state-item-label-selector-dropdown'
+                            popupMatchSelectWidth={false}
+                        />
+                    </div>
                 </CVATTooltip>
             </Col>
             { !isGroundTruth && (

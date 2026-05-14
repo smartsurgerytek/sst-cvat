@@ -38,6 +38,12 @@ interface OwnProps {
     readonly: boolean;
     clientID: number;
     objectStates: ObjectState[];
+    selected?: boolean;
+    multiSelectEnabled?: boolean;
+    onToggleSelection?: () => void;
+    bulkChangeLabel?: (label: Label) => boolean;
+    bulkRemoveObjects?: (force?: boolean) => boolean;
+    clearMultiSelectionState?: () => void;
 }
 
 interface StateToProps {
@@ -223,10 +229,15 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
 
     private remove = (): void => {
         const {
-            objectState, readonly, removeObject,
+            objectState, readonly, removeObject, selected, bulkRemoveObjects,
         } = this.props;
 
         if (!readonly) {
+            // A selected row should respect the current batch selection, not bypass it.
+            const appliedToSelection = Boolean(selected && bulkRemoveObjects?.());
+            if (appliedToSelection) {
+                return;
+            }
             removeObject(objectState);
         }
     };
@@ -317,8 +328,20 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
     };
 
     private changeLabel = (label: any): void => {
-        const { objectState, readonly } = this.props;
+        const {
+            objectState,
+            readonly,
+            selected,
+            bulkChangeLabel,
+            clearMultiSelectionState,
+        } = this.props;
         if (!readonly) {
+            // Selected rows reuse the same batch flow as the floating selector to keep behavior consistent.
+            const appliedToSelection = Boolean(selected && bulkChangeLabel?.(label));
+            if (appliedToSelection) {
+                clearMultiSelectionState?.();
+                return;
+            }
             objectState.label = label;
             this.commit();
         }
@@ -396,6 +419,9 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
             readonly,
             jobInstance,
             workspace,
+            selected,
+            multiSelectEnabled,
+            onToggleSelection,
         } = this.props;
 
         return (
@@ -403,6 +429,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 jobInstance={jobInstance}
                 readonly={readonly}
                 activated={activated}
+                selected={selected}
                 objectType={objectState.objectType}
                 shapeType={objectState.shapeType}
                 clientID={objectState.clientID as number}
@@ -417,6 +444,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 labels={labels}
                 colorBy={colorBy}
                 workspace={workspace}
+                multiSelectEnabled={multiSelectEnabled}
                 activate={this.activate}
                 remove={this.remove}
                 copy={this.copy}
@@ -431,6 +459,7 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
                 slice={this.slice}
                 resetCuboidPerspective={this.resetCuboidPerspective}
                 runAnnotationAction={this.runAnnotationAction}
+                onToggleSelection={onToggleSelection}
             />
         );
     }

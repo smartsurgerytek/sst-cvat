@@ -131,6 +131,24 @@ export class CanvasViewImpl implements CanvasView, Listener {
         );
     };
 
+    private dispatchCanvasClicked = (state: DrawnState, event?: MouseEvent): void => {
+        // Forward modifier keys and pointer position so the sidebar can mirror
+        // canvas multi-select and anchor the floating batch actions near the click.
+        this.canvas.dispatchEvent(
+            new CustomEvent('canvas.clicked', {
+                bubbles: false,
+                cancelable: true,
+                detail: {
+                    state,
+                    ctrlKey: Boolean(event?.ctrlKey),
+                    metaKey: Boolean(event?.metaKey),
+                    clientX: event?.clientX ?? null,
+                    clientY: event?.clientY ?? null,
+                },
+            }),
+        );
+    };
+
     private stateIsLocked(state: any): boolean {
         const { configuration } = this.controller;
         return state.lock || configuration.forceDisableEditing;
@@ -1025,7 +1043,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
                 );
 
                 if (['polygon', 'polyline', 'points'].includes(state.shapeType)) {
-                    if (state.shapeType === 'points' && (e.altKey || e.ctrlKey)) {
+                    if (state.shapeType === 'points' && (e.altKey || e.ctrlKey || e.metaKey)) {
                         const selectedClientID = +((e.target as HTMLElement).parentElement as HTMLElement).getAttribute('clientID');
 
                         if (state.clientID !== selectedClientID) {
@@ -1118,7 +1136,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
 
                     circle.on('mouseenter', (e: MouseEvent): void => {
                         const activeElement = getActiveElement();
-                        if (activeElement !== null && (e.altKey || e.ctrlKey)) {
+                        if (activeElement !== null && (e.altKey || e.ctrlKey || e.metaKey)) {
                             const [state] = getController().objects.filter(
                                 (_state: any): boolean => _state.clientID === activeElement.clientID,
                             );
@@ -1817,7 +1835,8 @@ export class CanvasViewImpl implements CanvasView, Listener {
             this.controller.drag(e.clientX, e.clientY);
 
             if (this.mode !== Mode.IDLE) return;
-            if (e.ctrlKey || e.altKey) return;
+            if (e.altKey) return;
+            if (this.configuration.forceDisableEditing && (e.ctrlKey || e.metaKey)) return;
 
             if (!this.isImageLoading) {
                 const { offset } = this.controller.geometry;
@@ -2706,16 +2725,8 @@ export class CanvasViewImpl implements CanvasView, Listener {
                 }
             }
 
-            this.svgShapes[state.clientID].on('click.canvas', (): void => {
-                this.canvas.dispatchEvent(
-                    new CustomEvent('canvas.clicked', {
-                        bubbles: false,
-                        cancelable: true,
-                        detail: {
-                            state,
-                        },
-                    }),
-                );
+            this.svgShapes[state.clientID].on('click.canvas', (event?: MouseEvent): void => {
+                this.dispatchCanvasClicked(state, event);
             });
 
             if (displayAllText) {
@@ -3501,7 +3512,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
 
                 const mouseover = (e: MouseEvent): void => {
                     const locked = this.drawnStates[state.clientID].lock;
-                    if (!locked && !e.ctrlKey && this.mode === Mode.IDLE) {
+                    if (!locked && !e.ctrlKey && !e.metaKey && this.mode === Mode.IDLE) {
                         circle.attr({
                             'stroke-width': consts.POINTS_SELECTED_STROKE_WIDTH / this.geometry.scale,
                         });
@@ -3538,15 +3549,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
 
                 const click = (e: MouseEvent): void => {
                     e.stopPropagation();
-                    this.canvas.dispatchEvent(
-                        new CustomEvent('canvas.clicked', {
-                            bubbles: false,
-                            cancelable: true,
-                            detail: {
-                                state: element,
-                            },
-                        }),
-                    );
+                    this.dispatchCanvasClicked(element, e);
                 };
 
                 circle.on('mouseover', mouseover);

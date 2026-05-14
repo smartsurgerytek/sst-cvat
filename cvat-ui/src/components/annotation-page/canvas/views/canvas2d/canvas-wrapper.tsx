@@ -18,7 +18,7 @@ import GlobalHotKeys, { KeyMap } from 'utils/mousetrap-react';
 import {
     ColorBy, GridColor, Workspace, ActiveControl, CombinedState,
 } from 'reducers';
-import { EventScope } from 'cvat-logger';
+import { EventScope, logError } from 'cvat-logger';
 import { Canvas, HighlightSeverity, CanvasHint } from 'cvat-canvas-wrapper';
 import { Canvas3d } from 'cvat-canvas3d-wrapper';
 import {
@@ -60,6 +60,10 @@ import { reviewActions } from 'actions/review-actions';
 
 import { filterAnnotations } from 'utils/filter-annotations';
 import { ImageFilter } from 'utils/image-processing';
+import {
+    dispatchObjectsSidebarToggleMultiSelection,
+    getObjectsSidebarItem,
+} from 'utils/objects-sidebar-multi-select';
 import { ShortcutScope } from 'utils/enums';
 import { registerComponentShortcuts } from 'actions/shortcuts-actions';
 import { subKeyMap } from 'utils/component-subkeymap';
@@ -211,7 +215,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         canvasInstance,
         jobInstance,
         frameData,
-        frameAngle: frameAngles[frame - jobInstance.startFrame],
+        frameAngle: frameAngles[frame - (jobInstance?.startFrame ?? frame)] ?? 0,
         canvasIsReady,
         frame,
         activatedStateID,
@@ -811,11 +815,25 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     };
 
     private onCanvasShapeClicked = (e: any): void => {
-        const { clientID, parentID } = e.detail.state; let sidebarItem = null;
-        if (Number.isInteger(parentID)) {
-            sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-element-${clientID}`);
-        } else {
-            sidebarItem = window.document.getElementById(`cvat-objects-sidebar-state-item-${clientID}`);
+        const { workspace } = this.props;
+        const {
+            state, ctrlKey, metaKey, clientX, clientY,
+        } = e.detail;
+        const { sidebarItem, targetSidebarStateID } = getObjectsSidebarItem(window.document, state);
+
+        // Canvas hit-testing decides which object was Ctrl/Cmd-clicked, but the sidebar
+        // owns the batch-selection state and popup placement.
+        if (
+            workspace === Workspace.STANDARD &&
+            (ctrlKey || metaKey) &&
+            Number.isInteger(targetSidebarStateID) &&
+            Number.isFinite(clientX) &&
+            Number.isFinite(clientY)
+        ) {
+            dispatchObjectsSidebarToggleMultiSelection(window.document, {
+                clientID: targetSidebarStateID,
+                position: { x: clientX, y: clientY },
+            });
         }
 
         if (sidebarItem) {
@@ -1012,6 +1030,11 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                                         imageData: newImageBitmap,
                                     };
                                 } catch (error: any) {
+                                    logError(error, false, {
+                                        type: 'canvas_image_processing_error',
+                                        frame,
+                                        filters_count: imageFilters.length,
+                                    });
                                     notification.error({
                                         description: error.toString(),
                                         message: 'Image processing error occurred',

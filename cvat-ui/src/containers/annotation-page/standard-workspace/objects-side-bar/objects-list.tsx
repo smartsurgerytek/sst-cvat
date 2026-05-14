@@ -4,12 +4,17 @@
 // SPDX-License-Identifier: MIT
 
 import React from 'react';
-import PropTypes from 'prop-types';
+import ReactDOM from 'react-dom';
 
-import { connect } from 'react-redux';
+import { connect, ConnectedProps } from 'react-redux';
 import GlobalHotKeys, { KeyMap } from 'utils/mousetrap-react';
+import Button from 'antd/lib/button';
+import message from 'antd/lib/message';
+import Modal from 'antd/lib/modal';
+import { DeleteOutlined } from '@ant-design/icons';
 
 import ObjectsListComponent from 'components/annotation-page/standard-workspace/objects-side-bar/objects-list';
+import LabelSelector from 'components/label-selector/label-selector';
 import {
     updateAnnotationsAsync,
     changeFrameAsync,
@@ -18,6 +23,7 @@ import {
     copyShape as copyShapeAction,
     switchPropagateVisibility as switchPropagateVisibilityAction,
     removeObject as removeObjectAction,
+    removeObjectAsync,
     fetchAnnotationsAsync,
     changeHideActiveObjectAsync,
 } from 'actions/annotation-actions';
@@ -25,12 +31,20 @@ import {
     changeShowGroundTruth as changeShowGroundTruthAction,
 } from 'actions/settings-actions';
 import isAbleToChangeFrame from 'utils/is-able-to-change-frame';
+import logger, { EventScope, logError } from 'cvat-logger';
 import {
     CombinedState, StatesOrdering, ColorBy, Workspace,
     ActiveControl,
 } from 'reducers';
-import { ObjectState, ObjectType, ShapeType } from 'cvat-core-wrapper';
+import {
+    Label, ObjectState, ObjectType, ShapeType,
+} from 'cvat-core-wrapper';
 import { filterAnnotations } from 'utils/filter-annotations';
+import { filterApplicableLabels } from 'utils/filter-applicable-labels';
+import {
+    OBJECTS_SIDEBAR_TOGGLE_MULTI_SELECTION_EVENT,
+    ObjectsSidebarToggleMultiSelectionEventDetail,
+} from 'utils/objects-sidebar-multi-select';
 import { registerComponentShortcuts } from 'actions/shortcuts-actions';
 import { ShortcutScope } from 'utils/enums';
 import { subKeyMap } from 'utils/component-subkeymap';
@@ -42,6 +56,7 @@ interface OwnProps {
 
 interface StateToProps {
     jobInstance: any;
+    labels: Label[];
     frameNumber: any;
     statesHidden: boolean;
     statesLocked: boolean;
@@ -68,6 +83,7 @@ interface DispatchToProps {
     updateAnnotations(states: any[]): void;
     collapseStates(states: any[], value: boolean): void;
     removeObject: (objectState: any, force: boolean) => void;
+    removeObjectImmediately: (objectState: ObjectState, force: boolean) => Promise<void>;
     copyShape: (objectState: any) => void;
     switchPropagateVisibility: (visible: boolean) => void;
     changeFrame(frame: number): void;
@@ -181,6 +197,10 @@ const componentShortcuts = {
     },
 };
 
+const BULK_LABEL_SELECTOR_VIEWPORT_MARGIN = 16;
+const BULK_LABEL_SELECTOR_MAX_WIDTH = 220;
+const BULK_LABEL_SELECTOR_CONTROL_HEIGHT = 40;
+
 registerComponentShortcuts(componentShortcuts);
 
 function mapStateToProps(state: CombinedState): StateToProps {
@@ -195,7 +215,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
                 activatedElementID,
                 zLayer: { min: minZLayer, max: maxZLayer },
             },
-            job: { instance: jobInstance },
+            job: { instance: jobInstance, labels },
             player: {
                 frame: { number: frameNumber },
             },
@@ -239,6 +259,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         objectStates,
         frameNumber,
         jobInstance,
+        labels,
         annotationsFilters,
         colors,
         colorBy,
@@ -266,6 +287,9 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         },
         removeObject(objectState: ObjectState, force: boolean): void {
             dispatch(removeObjectAction(objectState, force));
+        },
+        removeObjectImmediately(objectState: ObjectState, force: boolean): Promise<void> {
+            return dispatch(removeObjectAsync(objectState, force));
         },
         copyShape(objectState: ObjectState): void {
             dispatch(copyShapeAction(objectState));
@@ -304,22 +328,43 @@ function sortAndMap(objectStates: ObjectState[], ordering: StatesOrdering): numb
     return sorted.map((state: any) => state.clientID);
 }
 
-type Props = StateToProps & DispatchToProps & OwnProps;
+interface BulkLabelSelectorState {
+    visible: boolean;
+    // This stores the preferred source item for the popup; render still falls back to another
+    // compatible selected item if the preferred one cannot change labels.
+    sourceStateID: number | null;
+    left: number;
+    top: number;
+}
+
+interface PendingBulkLabelSelectorState {
+    // Preserve the user's last canvas target so keyup can open the popup near that interaction.
+    sourceStateID: number;
+    left: number;
+    top: number;
+}
 
 interface State {
     statesOrdering: StatesOrdering;
     objectStates: ObjectState[];
     filteredStates: ObjectState[];
     sortedStatesID: number[];
+    selectedStateIDs: number[];
+    bulkLabelSelector: BulkLabelSelectorState;
 }
 
-class ObjectsListContainer extends React.PureComponent<Props, State> {
-    static propTypes = {
-        readonly: PropTypes.bool,
-    };
+const connector = connect(mapStateToProps, mapDispatchToProps);
 
-    static defaultProps = {
-        readonly: false,
+type PropsFromRedux = ConnectedProps<typeof connector>;
+type Props = PropsFromRedux & OwnProps;
+
+class ObjectsListContainer extends React.PureComponent<Props, State> {
+    private pendingBulkLabelSelector: PendingBulkLabelSelectorState | null = null;
+    private lastMultiSelectSource: 'canvas' | null = null;
+
+    private lastPointerPosition = {
+        left: 0,
+        top: 0,
     };
 
     public constructor(props: Props) {
@@ -329,34 +374,256 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             objectStates: [],
             filteredStates: [],
             sortedStatesID: [],
+            selectedStateIDs: [],
+            bulkLabelSelector: this.hiddenBulkLabelSelector(),
         };
     }
 
     public componentDidMount(): void {
+        window.addEventListener('keydown', this.onModifierKeyDown);
+        window.addEventListener('keyup', this.onModifierKeyUp);
+        window.addEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
+        window.addEventListener('blur', this.onWindowBlur);
+        window.document.addEventListener(
+            OBJECTS_SIDEBAR_TOGGLE_MULTI_SELECTION_EVENT,
+            this.onCanvasToggleSelection as EventListener,
+        );
         this.updateObjects();
     }
 
-    public componentDidUpdate(): void {
-        const { objectStates } = this.props;
+    public componentDidUpdate(prevProps: Props): void {
+        const {
+            objectStates, workspace, readonly, frameNumber,
+        } = this.props;
         const { objectStates: prevObjectStates } = this.state;
-        if (objectStates !== prevObjectStates) {
-            this.updateObjects();
+        const frameChanged = prevProps.frameNumber !== frameNumber;
+        const workspaceChanged = prevProps.workspace !== workspace;
+        const readonlyChanged = prevProps.readonly !== readonly;
+        const shouldClearSelection = frameChanged || workspaceChanged || readonlyChanged;
+
+        if (
+            objectStates !== prevObjectStates ||
+            frameChanged ||
+            workspaceChanged ||
+            readonlyChanged
+        ) {
+            this.updateObjects({ clearSelection: shouldClearSelection });
         }
     }
 
-    private updateObjects = (): void => {
+    public componentWillUnmount(): void {
+        window.removeEventListener('keydown', this.onModifierKeyDown);
+        window.removeEventListener('keyup', this.onModifierKeyUp);
+        window.removeEventListener('mousedown', this.onOutsideBulkLabelSelectorClick);
+        window.removeEventListener('blur', this.onWindowBlur);
+        window.document.removeEventListener(
+            OBJECTS_SIDEBAR_TOGGLE_MULTI_SELECTION_EVENT,
+            this.onCanvasToggleSelection as EventListener,
+        );
+    }
+
+    private hiddenBulkLabelSelector = (): BulkLabelSelectorState => ({
+        visible: false,
+        sourceStateID: null,
+        left: 0,
+        top: 0,
+    });
+
+    private isSelectionModifierKey = (key: string): boolean => key === 'Control' || key === 'Meta';
+
+    private logInternal = (type: string, payload: Record<string, unknown> = {}): void => {
+        const { jobInstance } = this.props;
+        const targetLogger = jobInstance?.logger?.log ? jobInstance.logger : logger;
+        const eventPayload = {
+            type,
+            source: 'objects_sidebar_multi_select',
+            ...payload,
+        };
+
+        try {
+            targetLogger.log(EventScope.debugInfo, eventPayload, false)
+                .catch((error: unknown) => {
+                    logError(error, false, {
+                        type: 'objects_sidebar_internal_log_failed',
+                        source_type: type,
+                    });
+                });
+        } catch (error: unknown) {
+            logError(error, false, {
+                type: 'objects_sidebar_internal_log_failed_sync',
+                source_type: type,
+            });
+        }
+    };
+
+    private isMultiSelectEnabled = (): boolean => {
+        const { workspace, readonly } = this.props;
+        return workspace === Workspace.STANDARD && !readonly;
+    };
+
+    private getPointerPosition = (
+        event?: Pick<MouseEvent, 'clientX' | 'clientY'> | Pick<React.MouseEvent, 'clientX' | 'clientY'>,
+    ): { left: number; top: number } => {
+        if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+            this.lastPointerPosition = {
+                left: event.clientX,
+                top: event.clientY,
+            };
+        }
+
+        return this.lastPointerPosition;
+    };
+
+    private resolveBulkLabelSourceState = (
+        options: {
+            preferredSourceStateID?: number | null;
+            selectedStateIDs?: number[];
+            states?: ObjectState[];
+        } = {},
+    ): ObjectState | null => {
+        const { labels } = this.props;
+        const {
+            selectedStateIDs: currentSelectedStateIDs,
+            objectStates: currentObjectStates,
+        } = this.state;
+        const {
+            preferredSourceStateID = null,
+            selectedStateIDs = currentSelectedStateIDs,
+            states = currentObjectStates,
+        } = options;
+
+        const selectedSet = new Set(selectedStateIDs);
+        const stateByID = new Map(
+            states.map((state: ObjectState): [number, ObjectState] => [state.clientID as number, state]),
+        );
+        const candidateIDs: number[] = [];
+
+        if (
+            Number.isInteger(preferredSourceStateID) &&
+            selectedSet.has(preferredSourceStateID as number)
+        ) {
+            candidateIDs.push(preferredSourceStateID as number);
+        }
+
+        for (let index = selectedStateIDs.length - 1; index >= 0; index -= 1) {
+            candidateIDs.push(selectedStateIDs[index]);
+        }
+
+        const checkedIDs = new Set<number>();
+
+        // Keep the popup usable even if the last clicked object cannot change labels, such as skeletons.
+        for (const candidateID of candidateIDs) {
+            if (checkedIDs.has(candidateID)) {
+                continue;
+            }
+
+            checkedIDs.add(candidateID);
+            const state = stateByID.get(candidateID);
+            if (
+                state &&
+                state.shapeType !== ShapeType.SKELETON &&
+                filterApplicableLabels(state, labels).length
+            ) {
+                return state;
+            }
+        }
+
+        return null;
+    };
+
+    private clampBulkLabelSelectorPosition = (
+        position: Pick<BulkLabelSelectorState, 'left' | 'top'>,
+    ): { left: number; top: number } => {
+        const availableWidth = Math.max(
+            0,
+            window.innerWidth - BULK_LABEL_SELECTOR_VIEWPORT_MARGIN * 2,
+        );
+        // Keep this in sync with the anchor width in styles.scss.
+        const anchorWidth = Math.min(BULK_LABEL_SELECTOR_MAX_WIDTH, availableWidth);
+        const maxLeft = Math.max(
+            BULK_LABEL_SELECTOR_VIEWPORT_MARGIN,
+            window.innerWidth - anchorWidth - BULK_LABEL_SELECTOR_VIEWPORT_MARGIN,
+        );
+        const maxTop = Math.max(
+            BULK_LABEL_SELECTOR_VIEWPORT_MARGIN,
+            window.innerHeight - BULK_LABEL_SELECTOR_CONTROL_HEIGHT - BULK_LABEL_SELECTOR_VIEWPORT_MARGIN,
+        );
+
+        return {
+            left: Math.min(Math.max(position.left, BULK_LABEL_SELECTOR_VIEWPORT_MARGIN), maxLeft),
+            top: Math.min(Math.max(position.top, BULK_LABEL_SELECTOR_VIEWPORT_MARGIN), maxTop),
+        };
+    };
+
+    private updateObjects = (
+        options: {
+            clearSelection?: boolean;
+        } = {},
+    ): void => {
         const {
             objectStates, frameNumber, workspace,
         } = this.props;
-        const { statesOrdering } = this.state;
+        const { clearSelection = false } = options;
         const filteredStates = filterAnnotations(objectStates, {
             frame: frameNumber,
             workspace,
         });
-        this.setState({
-            objectStates,
-            filteredStates,
-            sortedStatesID: sortAndMap(filteredStates, statesOrdering),
+
+        if (clearSelection) {
+            this.pendingBulkLabelSelector = null;
+            this.lastMultiSelectSource = null;
+        }
+
+        this.setState((prevState) => {
+            const sortedStatesID = sortAndMap(filteredStates, prevState.statesOrdering);
+            // Keep the selection and popup anchor limited to states that still exist
+            // in the current frame/workspace snapshot.
+            const availableStateIDs = new Set(sortedStatesID);
+            const selectedStateIDs = clearSelection ?
+                [] :
+                prevState.selectedStateIDs
+                    .filter((id: number): boolean => availableStateIDs.has(id));
+            const bulkLabelSourceState = this.resolveBulkLabelSourceState({
+                preferredSourceStateID: prevState.bulkLabelSelector.sourceStateID,
+                selectedStateIDs,
+                states: objectStates,
+            });
+            const bulkLabelSelectorValid = Boolean(
+                !clearSelection &&
+                prevState.bulkLabelSelector.visible &&
+                selectedStateIDs.length >= 2 &&
+                bulkLabelSourceState,
+            );
+            const pendingBulkLabelSourceState = this.pendingBulkLabelSelector ?
+                this.resolveBulkLabelSourceState({
+                    preferredSourceStateID: this.pendingBulkLabelSelector.sourceStateID,
+                    selectedStateIDs,
+                    states: objectStates,
+                }) :
+                null;
+            const pendingBulkLabelSelectorValid = Boolean(
+                !clearSelection &&
+                this.pendingBulkLabelSelector &&
+                selectedStateIDs.length >= 2 &&
+                pendingBulkLabelSourceState,
+            );
+
+            if (!pendingBulkLabelSelectorValid) {
+                this.pendingBulkLabelSelector = null;
+            }
+
+            return {
+                objectStates,
+                filteredStates,
+                sortedStatesID,
+                selectedStateIDs,
+                bulkLabelSelector: bulkLabelSelectorValid ?
+                    {
+                        ...prevState.bulkLabelSelector,
+                        sourceStateID: bulkLabelSourceState?.clientID ?? null,
+                    } :
+                    this.hiddenBulkLabelSelector(),
+            };
         });
     };
 
@@ -366,6 +633,344 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             statesOrdering,
             sortedStatesID: sortAndMap(filteredStates, statesOrdering),
         });
+    };
+
+    private resetBulkLabelSelector = (clearSelectedStateIDs = false): void => {
+        this.pendingBulkLabelSelector = null;
+        this.lastMultiSelectSource = null;
+        this.setState((prevState) => ({
+            selectedStateIDs: clearSelectedStateIDs ? [] : prevState.selectedStateIDs,
+            bulkLabelSelector: this.hiddenBulkLabelSelector(),
+        }));
+    };
+
+    private clearMultiSelectionState = (): void => {
+        this.resetBulkLabelSelector(true);
+    };
+
+    private onWindowBlur = (): void => {
+        this.resetBulkLabelSelector(false);
+    };
+
+    private onModifierKeyDown = (event: KeyboardEvent): void => {
+        if (!this.isMultiSelectEnabled()) {
+            this.pendingBulkLabelSelector = null;
+            this.lastMultiSelectSource = null;
+            return;
+        }
+
+        if (!this.isSelectionModifierKey(event.key) || event.repeat) {
+            return;
+        }
+
+        const { selectedStateIDs } = this.state;
+        // A fresh modifier-assisted selection starts a new batch session for both canvas and checkbox flows.
+        if (selectedStateIDs.length) {
+            this.clearMultiSelectionState();
+        }
+    };
+
+    private onModifierKeyUp = (event: KeyboardEvent): void => {
+        if (!this.isMultiSelectEnabled()) {
+            this.pendingBulkLabelSelector = null;
+            this.lastMultiSelectSource = null;
+            return;
+        }
+
+        if (!this.isSelectionModifierKey(event.key) || this.lastMultiSelectSource !== 'canvas') {
+            return;
+        }
+
+        // Checkbox multi-select stays inline; only canvas-driven multi-select opens
+        // the floating batch actions after the modifier key is released.
+        const pending = this.pendingBulkLabelSelector;
+        this.pendingBulkLabelSelector = null;
+        this.lastMultiSelectSource = null;
+
+        this.setState((prevState) => {
+            if (prevState.selectedStateIDs.length < 2) {
+                return {
+                    bulkLabelSelector: this.hiddenBulkLabelSelector(),
+                };
+            }
+
+            const sourceState = this.resolveBulkLabelSourceState({
+                preferredSourceStateID: pending?.sourceStateID ?? null,
+                selectedStateIDs: prevState.selectedStateIDs,
+                states: prevState.objectStates,
+            });
+
+            if (!sourceState) {
+                return {
+                    bulkLabelSelector: this.hiddenBulkLabelSelector(),
+                };
+            }
+
+            return {
+                bulkLabelSelector: {
+                    visible: true,
+                    sourceStateID: sourceState.clientID as number,
+                    left: pending?.left ?? this.lastPointerPosition.left,
+                    top: pending?.top ?? this.lastPointerPosition.top,
+                },
+            };
+        });
+    };
+
+    private onOutsideBulkLabelSelectorClick = (event: MouseEvent): void => {
+        const {
+            bulkLabelSelector: { visible },
+        } = this.state;
+
+        if (!visible || !(event.target instanceof Element)) {
+            return;
+        }
+
+        if (
+            event.target.closest('.cvat-objects-sidebar-bulk-label-selector-anchor') ||
+            event.target.closest('.cvat-objects-sidebar-bulk-label-selector-dropdown')
+        ) {
+            return;
+        }
+
+        this.resetBulkLabelSelector(false);
+    };
+
+    private toggleMultiSelection = (
+        clientID: number,
+        pointerPosition: { left: number; top: number },
+        deferBulkLabelOpen: boolean,
+    ): void => {
+        if (!this.isMultiSelectEnabled()) {
+            this.lastMultiSelectSource = null;
+            return;
+        }
+
+        this.setState((prevState) => {
+            if (!prevState.filteredStates.some((state: ObjectState): boolean => state.clientID === clientID)) {
+                this.logInternal('objects_sidebar_toggle_multi_select_state_not_found', {
+                    clientID,
+                    deferBulkLabelOpen,
+                    filteredStatesCount: prevState.filteredStates.length,
+                });
+                return null;
+            }
+
+            const nextSelectedStateIDs = prevState.selectedStateIDs.includes(clientID) ?
+                prevState.selectedStateIDs.filter((id: number): boolean => id !== clientID) :
+                [...prevState.selectedStateIDs, clientID];
+
+            const nextBulkLabelSelector = this.hiddenBulkLabelSelector();
+
+            return {
+                selectedStateIDs: nextSelectedStateIDs,
+                bulkLabelSelector: nextBulkLabelSelector,
+            };
+        }, () => {
+            const { selectedStateIDs } = this.state;
+            if (!selectedStateIDs.length) {
+                this.pendingBulkLabelSelector = null;
+                this.lastMultiSelectSource = null;
+                return;
+            }
+
+            if (deferBulkLabelOpen && selectedStateIDs.length >= 2) {
+                // Let users keep Ctrl/Cmd-clicking on the canvas without fighting the popup;
+                // the selector appears once the modifier key is released.
+                this.lastMultiSelectSource = 'canvas';
+                const previousPendingSourceID = this.pendingBulkLabelSelector?.sourceStateID;
+                let sourceStateID = clientID;
+
+                if (!selectedStateIDs.includes(clientID)) {
+                    if (
+                        typeof previousPendingSourceID === 'number' &&
+                        selectedStateIDs.includes(previousPendingSourceID)
+                    ) {
+                        sourceStateID = previousPendingSourceID;
+                    } else {
+                        sourceStateID = selectedStateIDs[selectedStateIDs.length - 1]!;
+                    }
+                }
+
+                this.pendingBulkLabelSelector = {
+                    sourceStateID,
+                    left: pointerPosition.left,
+                    top: pointerPosition.top,
+                };
+            } else {
+                this.pendingBulkLabelSelector = null;
+                this.lastMultiSelectSource = deferBulkLabelOpen ? 'canvas' : null;
+            }
+        });
+    };
+
+    private onSidebarToggleSelection = (clientID: number): void => {
+        this.toggleMultiSelection(clientID, this.lastPointerPosition, false);
+    };
+
+    private onCanvasToggleSelection = (event: Event): void => {
+        if (!this.isMultiSelectEnabled()) {
+            return;
+        }
+
+        const customEvent = event as CustomEvent<ObjectsSidebarToggleMultiSelectionEventDetail>;
+        const { detail } = customEvent;
+        if (!detail || typeof detail !== 'object') {
+            this.logInternal('objects_sidebar_canvas_multi_select_invalid_payload', {
+                reason: 'detail_is_not_object',
+            });
+            return;
+        }
+
+        const { clientID, position } = detail;
+        if (
+            !Number.isInteger(clientID) ||
+            !position ||
+            typeof position !== 'object' ||
+            !Number.isFinite(position.x) ||
+            !Number.isFinite(position.y)
+        ) {
+            this.logInternal('objects_sidebar_canvas_multi_select_invalid_payload', {
+                reason: 'detail_fields_invalid',
+                clientIDIsInteger: Number.isInteger(clientID),
+                hasPosition: Boolean(position && typeof position === 'object'),
+                positionXIsFinite: Number.isFinite(position?.x),
+                positionYIsFinite: Number.isFinite(position?.y),
+            });
+            return;
+        }
+
+        const pointerPosition = this.getPointerPosition({
+            clientX: position.x,
+            clientY: position.y,
+        });
+        this.toggleMultiSelection(clientID, pointerPosition, true);
+    };
+
+    private onBulkLabelSelectorChange = (label: Label): void => {
+        this.bulkChangeLabel(label);
+        this.clearMultiSelectionState();
+    };
+
+    private onBulkRemoveButtonMouseDown = (event: React.MouseEvent<HTMLButtonElement>): void => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.bulkRemoveObjects(false);
+    };
+
+    private getSelectedStates = (): ObjectState[] => {
+        const { filteredStates, selectedStateIDs } = this.state;
+        const selectedSet = new Set(selectedStateIDs);
+
+        return filteredStates.filter(
+            (state: ObjectState): boolean => selectedSet.has(state.clientID as number),
+        );
+    };
+
+    private removeSelectedStates = async (statesToRemove: ObjectState[], force: boolean): Promise<void> => {
+        const { removeObjectImmediately } = this.props;
+
+        this.clearMultiSelectionState();
+
+        // Preserve the same ordered async behavior as repeated single-object deletes.
+        for (const state of statesToRemove) {
+            await removeObjectImmediately(state, force);
+        }
+    };
+
+    private bulkRemoveObjects = (force = false): boolean => {
+        if (!this.isMultiSelectEnabled()) {
+            return false;
+        }
+
+        const selectedStates = this.getSelectedStates();
+        if (selectedStates.length < 2) {
+            return false;
+        }
+
+        const lockedCount = selectedStates.filter((state: ObjectState): boolean => state.lock).length;
+        const trackCount = selectedStates.filter(
+            (state: ObjectState): boolean => state.objectType === ObjectType.TRACK,
+        ).length;
+
+        if (!force && (lockedCount > 0 || trackCount > 0)) {
+            Modal.confirm({
+                title: 'Remove selected objects',
+                className: 'cvat-modal-confirm-remove-object',
+                content: (
+                    <>
+                        <p>{`Are you sure you want to remove ${selectedStates.length} selected object(s)?`}</p>
+                        {trackCount > 0 ? (
+                            <p>
+                                {`${trackCount} selected object(s) are tracks. `}
+                                Removing them also removes drawn objects on other frames.
+                            </p>
+                        ) : null}
+                        {lockedCount > 0 ? (
+                            <p>{`${lockedCount} selected object(s) are locked and will be force removed.`}</p>
+                        ) : null}
+                    </>
+                ),
+                okType: 'primary',
+                okText: 'Remove selected',
+                cancelText: 'Cancel',
+                onOk: () => this.removeSelectedStates(selectedStates, true),
+            });
+        } else {
+            this.removeSelectedStates(selectedStates, force);
+        }
+
+        return true;
+    };
+
+    private bulkChangeLabel = (label: Label): boolean => {
+        const { updateAnnotations, labels } = this.props;
+        const { objectStates, selectedStateIDs } = this.state;
+        const sourceState = this.resolveBulkLabelSourceState();
+
+        if (!this.isMultiSelectEnabled() || selectedStateIDs.length < 2 || !sourceState) {
+            return false;
+        }
+
+        const selectedSet = new Set(selectedStateIDs);
+        const selectedStates = objectStates.filter(
+            (state: ObjectState): boolean => selectedSet.has(state.clientID as number),
+        );
+        const updatedStates: ObjectState[] = [];
+
+        for (const state of selectedStates) {
+            const labelIsApplicable = state.shapeType !== ShapeType.SKELETON &&
+                filterApplicableLabels(state, labels).some((applicableLabel: Label): boolean => (
+                    applicableLabel.id === label.id
+                ));
+
+            // Batch relabel is best-effort: incompatible or locked states are skipped
+            // instead of aborting the whole selection.
+            if (!state.lock && labelIsApplicable) {
+                state.label = label;
+                updatedStates.push(state);
+            }
+        }
+
+        if (updatedStates.length) {
+            updateAnnotations(updatedStates);
+        }
+
+        const skipped = selectedStates.length - updatedStates.length;
+        if (skipped > 0) {
+            this.logInternal('objects_sidebar_batch_label_partial_skip', {
+                sourceStateID: sourceState.clientID,
+                selectedCount: selectedStates.length,
+                updatedCount: updatedStates.length,
+                skippedCount: skipped,
+                labelID: label.id,
+            });
+            message.warning(
+                `Updated ${updatedStates.length} object(s). Skipped ${skipped} incompatible or locked object(s).`,
+            );
+        }
+
+        return updatedStates.length > 0;
     };
 
     private onLockAllStates = (): void => {
@@ -443,6 +1048,7 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             keyMap,
             normalizedKeyMap,
             colors,
+            labels,
             colorBy,
             readonly,
             statesCollapsedAll,
@@ -456,8 +1062,23 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             workspace,
         } = this.props;
         const {
-            objectStates, sortedStatesID, statesOrdering, filteredStates,
+            objectStates, sortedStatesID, statesOrdering, filteredStates, selectedStateIDs, bulkLabelSelector,
         } = this.state;
+        const multiSelectEnabled = this.isMultiSelectEnabled();
+        const bulkLabelSelectorPosition = this.clampBulkLabelSelectorPosition(bulkLabelSelector);
+        const sourceState = this.resolveBulkLabelSourceState({
+            preferredSourceStateID: bulkLabelSelector.sourceStateID,
+        });
+        const labelSelectorLabels = sourceState && sourceState.shapeType !== ShapeType.SKELETON ?
+            filterApplicableLabels(sourceState, labels) :
+            [];
+        const shouldRenderBulkLabelSelector = Boolean(
+            multiSelectEnabled &&
+            bulkLabelSelector.visible &&
+            selectedStateIDs.length >= 2 &&
+            sourceState &&
+            labelSelectorLabels.length,
+        );
 
         const preventDefault = (event: KeyboardEvent | undefined): void => {
             if (event) {
@@ -551,6 +1172,10 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             },
             DELETE_OBJECT_STANDARD_WORKSPACE: (event: KeyboardEvent | undefined) => {
                 preventDefault(event);
+                if (!readonly && this.bulkRemoveObjects(Boolean(event?.shiftKey))) {
+                    return;
+                }
+
                 const state = activatedState(true);
                 if (state && !readonly) {
                     removeObject(state, event ? event.shiftKey : false);
@@ -645,8 +1270,14 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     workspace={workspace}
                     statesOrdering={statesOrdering}
                     sortedStatesID={sortedStatesID}
+                    selectedStateIDs={selectedStateIDs}
+                    multiSelectEnabled={multiSelectEnabled}
                     showGroundTruth={showGroundTruth}
                     objectStates={filteredStates}
+                    onToggleSelection={multiSelectEnabled ? this.onSidebarToggleSelection : undefined}
+                    clearMultiSelectionState={multiSelectEnabled ? this.clearMultiSelectionState : undefined}
+                    bulkChangeLabel={multiSelectEnabled ? this.bulkChangeLabel : undefined}
+                    bulkRemoveObjects={multiSelectEnabled ? this.bulkRemoveObjects : undefined}
                     switchHiddenAllShortcut={normalizedKeyMap.SWITCH_ALL_HIDDEN}
                     switchLockAllShortcut={normalizedKeyMap.SWITCH_ALL_LOCK}
                     changeStatesOrdering={this.onChangeStatesOrdering}
@@ -658,11 +1289,52 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     showAllStates={this.onShowAllStates}
                     changeShowGroundTruth={this.changeShowGroundTruth}
                 />
+                {shouldRenderBulkLabelSelector && ReactDOM.createPortal(
+                    <div
+                        className='cvat-objects-sidebar-bulk-label-selector-anchor'
+                        style={{
+                            left: bulkLabelSelectorPosition.left,
+                            top: bulkLabelSelectorPosition.top,
+                        }}
+                    >
+                        <LabelSelector
+                            autoFocus
+                            open
+                            size='middle'
+                            labels={labelSelectorLabels}
+                            value={sourceState?.label?.id ?? null}
+                            popupClassName='cvat-objects-sidebar-bulk-label-selector-dropdown'
+                            className='cvat-objects-sidebar-bulk-label-selector'
+                            onChange={this.onBulkLabelSelectorChange}
+                            dropdownRender={(menu): JSX.Element => (
+                                <div>
+                                    {menu}
+                                    <div className='cvat-objects-sidebar-bulk-label-selector-actions'>
+                                        <Button
+                                            block
+                                            danger
+                                            type='primary'
+                                            icon={<DeleteOutlined />}
+                                            className='cvat-objects-sidebar-bulk-remove-button'
+                                            onMouseDown={this.onBulkRemoveButtonMouseDown}
+                                        >
+                                            Remove
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                            onDropdownVisibleChange={(open: boolean): void => {
+                                if (!open) {
+                                    this.resetBulkLabelSelector(false);
+                                }
+                            }}
+                        />
+                    </div>,
+                    window.document.body,
+                )}
             </>
         );
     }
 }
 
-export default connect<StateToProps, DispatchToProps, OwnProps, CombinedState>(
-    mapStateToProps, mapDispatchToProps,
-)(ObjectsListContainer);
+export default connector(ObjectsListContainer);
