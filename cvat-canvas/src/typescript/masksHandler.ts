@@ -379,6 +379,11 @@ export class MasksHandlerImpl implements MasksHandler {
         }
     }
 
+    private resetLatestMousePos(): void {
+        this.latestMousePos.x = -1;
+        this.latestMousePos.y = -1;
+    }
+
     private releaseInput(event: CanvasInputEvent): void {
         if (isTouchLikeEvent(event) && this.activePenPointerID !== null) {
             return;
@@ -399,6 +404,7 @@ export class MasksHandlerImpl implements MasksHandler {
 
         this.isMouseDown = false;
         this.isBrushSizeChanging = false;
+        this.resetLatestMousePos();
     }
 
     private shouldIgnoreDrawingInput(event: CanvasInputEvent): boolean {
@@ -505,8 +511,12 @@ export class MasksHandlerImpl implements MasksHandler {
                 return;
             }
 
-            this.isMouseDown = (isDrawing || isEditing) && this.isPrimaryDrawStart(inputEvent);
+            const primaryDrawStart = (isDrawing || isEditing) && this.isPrimaryDrawStart(inputEvent);
+            this.isMouseDown = primaryDrawStart;
             this.isBrushSizeChanging = (isDrawing || isEditing) && this.isBrushResizeStart(inputEvent);
+            if (primaryDrawStart) {
+                this.resetLatestMousePos();
+            }
 
             if (isInsertion) {
                 const continueInserting = 'ctrlKey' in inputEvent && inputEvent.ctrlKey;
