@@ -96,6 +96,11 @@ image.cvat_canvas_shape_selection {
     stroke-width: 0;
 }
 
+.cvat_canvas_review_brush_issue {
+    opacity: .85;
+    pointer-events: none;
+}
+
 circle.cvat_canvas_issue_region {
     opacity: 1 !important;
 }
@@ -429,11 +434,11 @@ g.cvat_canvas_shape_occluded {
 
     z-index: 3;
     display: none;
-    touch-action: none;
+    touch-action: pinch-zoom;
     overscroll-behavior: contain;
 
     canvas {
-        touch-action: none;
+        touch-action: pinch-zoom;
     }
 }
 

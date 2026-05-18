@@ -61,6 +61,7 @@ export interface MasksHandler {
     configure(configuration: Configuration): void;
     transform(geometry: Geometry): void;
     cancel(): void;
+    destroy(): void;
     enabled: boolean;
 }
 
@@ -413,10 +414,6 @@ export class MasksHandlerImpl implements MasksHandler {
     }
 
     private preventIgnoredInput(event: CanvasInputEvent): void {
-        if (event.cancelable) {
-            event.preventDefault();
-        }
-
         event.stopPropagation();
     }
 
@@ -475,6 +472,7 @@ export class MasksHandlerImpl implements MasksHandler {
             fireRightClick: true,
             selection: false,
             defaultCursor: 'inherit',
+            allowTouchScrolling: true,
         };
         if (typeof PointerEvent !== 'undefined') {
             canvasOptions.enablePointerEvents = true;
@@ -610,12 +608,14 @@ export class MasksHandlerImpl implements MasksHandler {
 
             if (isMouseDown && !this.isHidden && !isBrushSizeChanging && ['brush', 'eraser'].includes(tool?.type)) {
                 const color = fabric.Color.fromHex(tool.color);
-                color.setAlpha(tool.type === 'eraser' ? 1 : 0.5);
+                color.setAlpha(tool.type === 'eraser' || tool.paintMode ? 1 : 0.5);
 
                 const commonProperties = {
                     selectable: false,
                     evented: false,
-                    globalCompositeOperation: tool.type === 'eraser' ? 'destination-out' : 'xor',
+                    globalCompositeOperation: tool.type === 'eraser' ?
+                        'destination-out' :
+                        tool.paintMode ? 'source-over' : 'xor',
                 };
 
                 const shapeProperties = {
@@ -884,5 +884,9 @@ export class MasksHandlerImpl implements MasksHandler {
         if (this.isEditing) {
             this.releaseEdit();
         }
+    }
+
+    public destroy(): void {
+        this.canvas.dispose();
     }
 }
