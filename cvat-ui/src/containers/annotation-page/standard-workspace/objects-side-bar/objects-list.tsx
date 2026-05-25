@@ -11,7 +11,8 @@ import GlobalHotKeys, { KeyMap } from 'utils/mousetrap-react';
 import Button from 'antd/lib/button';
 import message from 'antd/lib/message';
 import Modal from 'antd/lib/modal';
-import { DeleteOutlined } from '@ant-design/icons';
+import Text from 'antd/lib/typography/Text';
+import { CloseOutlined, DeleteOutlined } from '@ant-design/icons';
 
 import ObjectsListComponent from 'components/annotation-page/standard-workspace/objects-side-bar/objects-list';
 import LabelSelector from 'components/label-selector/label-selector';
@@ -200,6 +201,7 @@ const componentShortcuts = {
 const BULK_LABEL_SELECTOR_VIEWPORT_MARGIN = 16;
 const BULK_LABEL_SELECTOR_MAX_WIDTH = 220;
 const BULK_LABEL_SELECTOR_CONTROL_HEIGHT = 40;
+const MULTI_SELECTION_SUMMARY_LIMIT = 8;
 
 registerComponentShortcuts(componentShortcuts);
 
@@ -858,13 +860,29 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
         this.bulkRemoveObjects(false);
     };
 
+    private onClearMultiSelectionMouseDown = (event: React.MouseEvent<HTMLButtonElement>): void => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.clearMultiSelectionState();
+    };
+
     private getSelectedStates = (): ObjectState[] => {
         const { filteredStates, selectedStateIDs } = this.state;
-        const selectedSet = new Set(selectedStateIDs);
-
-        return filteredStates.filter(
-            (state: ObjectState): boolean => selectedSet.has(state.clientID as number),
+        const stateByID = new Map(
+            filteredStates.map((state: ObjectState): [number, ObjectState] => [state.clientID as number, state]),
         );
+
+        return selectedStateIDs
+            .map((id: number): ObjectState | undefined => stateByID.get(id))
+            .filter((state: ObjectState | undefined): state is ObjectState => typeof state !== 'undefined');
+    };
+
+    private getObjectTypeText = (state: ObjectState): string => {
+        if (state.objectType === ObjectType.TAG) {
+            return ObjectType.TAG.toUpperCase();
+        }
+
+        return `${String(state.shapeType).toUpperCase()} ${String(state.objectType).toUpperCase()}`;
     };
 
     private removeSelectedStates = async (statesToRemove: ObjectState[], force: boolean): Promise<void> => {
@@ -1065,6 +1083,12 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             objectStates, sortedStatesID, statesOrdering, filteredStates, selectedStateIDs, bulkLabelSelector,
         } = this.state;
         const multiSelectEnabled = this.isMultiSelectEnabled();
+        const selectedStates = this.getSelectedStates();
+        const visibleSelectedStates = selectedStates.slice(0, MULTI_SELECTION_SUMMARY_LIMIT);
+        const hiddenSelectedStatesCount = selectedStates.length - visibleSelectedStates.length;
+        const selectionSummaryTitle = selectedStates.length === 1 ?
+            'Selected object (1)' :
+            `Selected objects (${selectedStates.length})`;
         const bulkLabelSelectorPosition = this.clampBulkLabelSelectorPosition(bulkLabelSelector);
         const sourceState = this.resolveBulkLabelSourceState({
             preferredSourceStateID: bulkLabelSelector.sourceStateID,
@@ -1078,6 +1102,10 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
             selectedStateIDs.length >= 2 &&
             sourceState &&
             labelSelectorLabels.length,
+        );
+        const shouldRenderMultiSelectionSummary = Boolean(
+            multiSelectEnabled &&
+            selectedStates.length >= 1,
         );
 
         const preventDefault = (event: KeyboardEvent | undefined): void => {
@@ -1289,6 +1317,63 @@ class ObjectsListContainer extends React.PureComponent<Props, State> {
                     showAllStates={this.onShowAllStates}
                     changeShowGroundTruth={this.changeShowGroundTruth}
                 />
+                {shouldRenderMultiSelectionSummary && ReactDOM.createPortal(
+                    <div className='cvat-objects-sidebar-multi-selection-window'>
+                        <div className='cvat-objects-sidebar-multi-selection-window-header'>
+                            <Text strong>{selectionSummaryTitle}</Text>
+                            <Button
+                                type='text'
+                                size='small'
+                                title='Clear selection'
+                                icon={<CloseOutlined />}
+                                className='cvat-objects-sidebar-multi-selection-window-clear'
+                                onMouseDown={this.onClearMultiSelectionMouseDown}
+                            />
+                        </div>
+                        <div className='cvat-objects-sidebar-multi-selection-window-list'>
+                            {visibleSelectedStates.map((state: ObjectState): JSX.Element => (
+                                <div
+                                    key={state.clientID as number}
+                                    className='cvat-objects-sidebar-multi-selection-window-item'
+                                >
+                                    <span
+                                        aria-hidden
+                                        className='cvat-objects-sidebar-multi-selection-window-color'
+                                        style={{ backgroundColor: state.label.color }}
+                                    />
+                                    <Text
+                                        strong
+                                        className='cvat-objects-sidebar-multi-selection-window-id'
+                                    >
+                                        {`#${state.clientID}`}
+                                    </Text>
+                                    <Text
+                                        className='cvat-objects-sidebar-multi-selection-window-label'
+                                        title={state.label.name}
+                                    >
+                                        {state.label.name}
+                                    </Text>
+                                    <Text
+                                        type='secondary'
+                                        className='cvat-objects-sidebar-multi-selection-window-type'
+                                    >
+                                        {this.getObjectTypeText(state)}
+                                        {state.isGroundTruth ? ' GT' : ''}
+                                    </Text>
+                                </div>
+                            ))}
+                            {hiddenSelectedStatesCount > 0 && (
+                                <Text
+                                    type='secondary'
+                                    className='cvat-objects-sidebar-multi-selection-window-more'
+                                >
+                                    {`+${hiddenSelectedStatesCount} more`}
+                                </Text>
+                            )}
+                        </div>
+                    </div>,
+                    window.document.body,
+                )}
                 {shouldRenderBulkLabelSelector && ReactDOM.createPortal(
                     <div
                         className='cvat-objects-sidebar-bulk-label-selector-anchor'
