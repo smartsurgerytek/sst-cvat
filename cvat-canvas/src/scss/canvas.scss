@@ -338,6 +338,23 @@ g.cvat_canvas_shape_occluded {
     position: relative;
 }
 
+#cvat_canvas_background,
+#cvat_canvas_grid,
+#cvat_canvas_content,
+#cvat_canvas_bitmap,
+#cvat_canvas_attachment_board {
+    transform-origin: center center;
+}
+
+#cvat_canvas_wrapper.cvat-canvas-touch-zoom-enabled,
+#cvat_canvas_wrapper.cvat-canvas-touch-zoom-enabled > #cvat_canvas_background,
+#cvat_canvas_wrapper.cvat-canvas-touch-zoom-enabled > #cvat_canvas_masks_content,
+#cvat_canvas_wrapper.cvat-canvas-touch-zoom-enabled > #cvat_canvas_content,
+#cvat_canvas_wrapper.cvat-canvas-touch-zoom-enabled > #cvat_canvas_bitmap {
+    touch-action: none;
+    overscroll-behavior: contain;
+}
+
 .cvat-canvas-highlight-enabled {
     svg {
         >rect:not(.cvat_canvas_issue_region,.cvat_canvas_conflicted,.cvat_canvas_warned),
