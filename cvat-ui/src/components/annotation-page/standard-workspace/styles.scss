@@ -100,6 +100,7 @@
     border-radius: $border-radius-base;
     transform: scale(0.65);
     padding: 2px;
+    touch-action: manipulation;
 
     &:hover:not(.cvat-disabled-canvas-control) {
         background: $header-color;

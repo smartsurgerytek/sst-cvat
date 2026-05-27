@@ -33,6 +33,10 @@ import { isLikelyRle } from 'utils/masks';
 import { useDialogPositioning } from './use-dialog-positioning';
 
 const core = getCore();
+const isSelectEventTarget = (target: EventTarget | null): boolean => (
+    target instanceof HTMLElement && !!target.closest('.ant-select, .ant-select-dropdown')
+);
+const SELECT_PEN_SUPPRESSION_MS = 500;
 
 interface Props {
     issue: Issue;
@@ -59,6 +63,8 @@ export default function IssueDialog(props: Props): JSX.Element {
     const [convertModalVisible, setConvertModalVisible] = useState(false);
     const [selectedLabelId, setSelectedLabelId] = useState<number | null>(null);
     const [resolveAfterConvert, setResolveAfterConvert] = useState(false);
+    const selectPenSuppressedUntilRef = useRef(0);
+    const convertLabelSelectRef = useRef<HTMLDivElement>(null);
     const dispatch = useDispatch();
     const { labels, workspace } = useSelector((state: CombinedState) => ({
         labels: state.annotation.job.labels,
@@ -96,7 +102,6 @@ export default function IssueDialog(props: Props): JSX.Element {
         clientCoordinates,
         canvasRect,
     });
-
     useEffect(() => {
         if (!resolved) {
             setTimeout(highlight);
@@ -106,19 +111,101 @@ export default function IssueDialog(props: Props): JSX.Element {
     }, [resolved]);
 
     useEffect(() => {
-        const listener = (event: WheelEvent): void => {
+        const blockPenSelectInteraction = (event: Event): void => {
+            if (!isSelectEventTarget(event.target)) {
+                return;
+            }
+
+            const isPenPointerEvent = typeof PointerEvent !== 'undefined' &&
+                event instanceof PointerEvent &&
+                event.pointerType === 'pen';
+            const isFollowUpMouseEvent = ['mousedown', 'mouseup', 'click'].includes(event.type) &&
+                Date.now() < selectPenSuppressedUntilRef.current;
+
+            if (!isPenPointerEvent && !isFollowUpMouseEvent) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            selectPenSuppressedUntilRef.current = Date.now() + SELECT_PEN_SUPPRESSION_MS;
+        };
+        const listener = (event: Event): void => {
+            if (isSelectEventTarget(event.target)) {
+                return;
+            }
+
             event.stopPropagation();
         };
+        const eventTypes = [
+            'wheel',
+            'pointerdown',
+            'pointermove',
+            'pointerup',
+            'mousedown',
+            'mousemove',
+            'mouseup',
+            'touchstart',
+            'touchmove',
+            'touchend',
+        ];
 
         if (ref.current) {
             const { current } = ref;
-            current.addEventListener('wheel', listener);
+            eventTypes.forEach((eventType: string) => {
+                current.addEventListener(eventType, listener);
+            });
+            ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click'].forEach((eventType: string) => {
+                current.addEventListener(eventType, blockPenSelectInteraction, true);
+            });
             return () => {
-                current.removeEventListener('wheel', listener);
+                eventTypes.forEach((eventType: string) => {
+                    current.removeEventListener(eventType, listener);
+                });
+                ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click'].forEach((eventType: string) => {
+                    current.removeEventListener(eventType, blockPenSelectInteraction, true);
+                });
             };
         }
         return () => {};
     }, [ref.current]);
+
+    useEffect(() => {
+        if (!convertModalVisible || !convertLabelSelectRef.current) {
+            return () => {};
+        }
+
+        const blockPenSelectInteraction = (event: Event): void => {
+            if (!isSelectEventTarget(event.target)) {
+                return;
+            }
+
+            const isPenPointerEvent = typeof PointerEvent !== 'undefined' &&
+                event instanceof PointerEvent &&
+                event.pointerType === 'pen';
+            const isFollowUpMouseEvent = ['mousedown', 'mouseup', 'click'].includes(event.type) &&
+                Date.now() < selectPenSuppressedUntilRef.current;
+
+            if (!isPenPointerEvent && !isFollowUpMouseEvent) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            selectPenSuppressedUntilRef.current = Date.now() + SELECT_PEN_SUPPRESSION_MS;
+        };
+        const { current } = convertLabelSelectRef;
+        ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click'].forEach((eventType: string) => {
+            current.addEventListener(eventType, blockPenSelectInteraction, true);
+        });
+        return () => {
+            ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click'].forEach((eventType: string) => {
+                current.removeEventListener(eventType, blockPenSelectInteraction, true);
+            });
+        };
+    }, [convertModalVisible]);
 
     const onDeleteIssue = useCallback((): void => {
         const issueNumber = typeof id === 'number' ? ` #${id}` : '';
@@ -308,7 +395,11 @@ export default function IssueDialog(props: Props): JSX.Element {
 
     return ReactDOM.createPortal(
         <div
-            style={{ top: position.top, left: position.left, transform: `scale(${scale}) rotate(${angle}deg)` }}
+            style={{
+                top: position.top,
+                left: position.left,
+                transform: `scale(${scale}) rotate(${angle}deg)`,
+            }}
             ref={ref}
             className='cvat-issue-dialog'
         >
@@ -397,15 +488,22 @@ export default function IssueDialog(props: Props): JSX.Element {
                         <Text>Select target mask label</Text>
                     </Col>
                     <Col span={24}>
-                        <Select
-                            style={{ width: '100%' }}
-                            value={selectedLabelId ?? undefined}
-                            options={maskLabels.map((label) => ({
-                                label: label.name,
-                                value: label.id as number,
-                            }))}
-                            onChange={(value: number): void => setSelectedLabelId(value)}
-                        />
+                        <div ref={convertLabelSelectRef}>
+                            <Select
+                                style={{ width: '100%' }}
+                                value={selectedLabelId ?? undefined}
+                                options={maskLabels.map((label) => ({
+                                    label: label.name,
+                                    value: label.id as number,
+                                }))}
+                                getPopupContainer={(triggerNode: HTMLElement): HTMLElement => (
+                                    convertLabelSelectRef.current ??
+                                    triggerNode.parentElement ??
+                                    window.document.body
+                                )}
+                                onChange={(value: number): void => setSelectedLabelId(value)}
+                            />
+                        </div>
                     </Col>
                     {!resolved && (
                         <Col span={24}>

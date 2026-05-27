@@ -172,26 +172,31 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
 
     useEffect(() => {
         if (canvasReady) {
+            const updateCanvasRect = (): void => {
+                const canvasElement = window.document.getElementById('cvat_canvas_wrapper');
+                if (canvasElement) {
+                    setCanvasRect(canvasElement.getBoundingClientRect());
+                }
+            };
             const { geometry: updatedGeometry } = canvasInstance;
             setGeometry(updatedGeometry);
-
-            const canvasElement = window.document.getElementById('cvat_canvas_wrapper');
-            if (canvasElement) {
-                setCanvasRect(canvasElement.getBoundingClientRect());
-            }
+            updateCanvasRect();
 
             const geometryListener = (): void => {
                 setGeometry(canvasInstance.geometry);
+                updateCanvasRect();
             };
 
             canvasInstance.html().addEventListener('canvas.zoom', geometryListener);
             canvasInstance.html().addEventListener('canvas.fit', geometryListener);
             canvasInstance.html().addEventListener('canvas.reshape', geometryListener);
+            window.addEventListener('resize', updateCanvasRect);
 
             return () => {
                 canvasInstance.html().removeEventListener('canvas.zoom', geometryListener);
                 canvasInstance.html().removeEventListener('canvas.fit', geometryListener);
                 canvasInstance.html().removeEventListener('canvas.reshape', geometryListener);
+                window.removeEventListener('resize', updateCanvasRect);
             };
         }
 
@@ -417,6 +422,8 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
     const newIssueBounds = issueBounds[0];
     const createLeft = newIssueBounds ? newIssueBounds.maxX + geometry.offset : null;
     const createTop = newIssueBounds ? newIssueBounds.minY + geometry.offset : null;
+    const shouldShowCreateIssueDialog = [NewIssueSource.ISSUE_TOOL, NewIssueSource.ISSUE_MASK]
+        .includes(newIssueSource as NewIssueSource) && createLeft !== null && createTop !== null;
 
     for (const conflict of conflictMapping) {
         const isConflictHighlighted = highlightedObjectsIDs?.includes(conflict.serverID) || false;
@@ -440,19 +447,18 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
 
     return (
         <>
-            {[NewIssueSource.ISSUE_TOOL, NewIssueSource.ISSUE_MASK].includes(newIssueSource as NewIssueSource) &&
-            createLeft !== null && createTop !== null ? (
-                    <CreateIssueDialog
-                        top={createTop}
-                        left={createLeft}
-                        angle={-geometry.angle}
-                        scale={1 / geometry.scale}
-                        labelTexts={labelTexts}
-                        onCreateIssue={onCreateIssue}
-                        canvasRect={canvasRect}
-                        clientCoordinates={canvasInstance.translateFromSVG([createLeft, createTop]) as [number, number]}
-                    />
-                ) : null}
+            {shouldShowCreateIssueDialog ? (
+                <CreateIssueDialog
+                    top={createTop}
+                    left={createLeft}
+                    angle={-geometry.angle}
+                    scale={1 / geometry.scale}
+                    labelTexts={labelTexts}
+                    onCreateIssue={onCreateIssue}
+                    canvasRect={canvasRect}
+                    clientCoordinates={canvasInstance.translateFromSVG([createLeft, createTop]) as [number, number]}
+                />
+            ) : null}
             {issueDialogs}
             {issueLabels}
             {conflictLabels}

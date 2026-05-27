@@ -71,6 +71,13 @@ const componentShortcuts = {
 registerComponentShortcuts(componentShortcuts);
 
 const MIN_BRUSH_SIZE = 1;
+const ISSUE_MASK_BRUSH_COLOR = '#ff0000';
+type MaskDrawingTool = 'brush' | 'eraser' | 'polygon-plus' | 'polygon-minus';
+
+function isPolygonTool(tool: MaskDrawingTool): boolean {
+    return ['polygon-plus', 'polygon-minus'].includes(tool);
+}
+
 function BrushTools(): React.ReactPortal | null {
     const dispatch = useDispatch();
     const {
@@ -88,7 +95,8 @@ function BrushTools(): React.ReactPortal | null {
 
     const [editableState, setEditableState] = useState<any | null>(null);
     const isIssueMaskMode = activeControl === ActiveControl.OPEN_ISSUE_MASK;
-    const [currentTool, setCurrentTool] = useState<'brush' | 'eraser' | 'polygon-plus' | 'polygon-minus'>('brush');
+    const [currentTool, setCurrentTool] = useState<MaskDrawingTool>('brush');
+    const effectiveTool = isIssueMaskMode && isPolygonTool(currentTool) ? 'brush' : currentTool;
     const [brushForm, setBrushForm] = useState<'circle' | 'square'>('circle');
     const [[top, left], setTopLeft] = useState([0, 0]);
     const [brushSize, setBrushSize] = useState(10);
@@ -105,12 +113,16 @@ function BrushTools(): React.ReactPortal | null {
             setCurrentTool('eraser');
         }
     }, [setCurrentTool, blockedTools.eraser]);
-    const setPolygonTool = useCallback(() => setCurrentTool('polygon-plus'), [setCurrentTool]);
+    const setPolygonTool = useCallback(() => {
+        if (!isIssueMaskMode) {
+            setCurrentTool('polygon-plus');
+        }
+    }, [setCurrentTool, isIssueMaskMode]);
     const setPolygonRemoveTool = useCallback(() => {
-        if (!blockedTools['polygon-minus']) {
+        if (!isIssueMaskMode && !blockedTools['polygon-minus']) {
             setCurrentTool('polygon-minus');
         }
-    }, [setCurrentTool, blockedTools['polygon-minus']]);
+    }, [setCurrentTool, blockedTools['polygon-minus'], isIssueMaskMode]);
 
     const hideMask = useCallback((hide: boolean) => {
         dispatch(changeHideActiveObjectAsync(hide));
@@ -154,6 +166,7 @@ function BrushTools(): React.ReactPortal | null {
     useEffect(() => {
         const label = labels.find((_label: any) => _label.id === defaultLabelID);
         if (visible && label && canvasInstance instanceof Canvas) {
+            const brushColor = isIssueMaskMode ? ISSUE_MASK_BRUSH_COLOR : label.color as string;
             const onUpdateConfiguration = ({ brushTool }: any): void => {
                 if (brushTool?.size) {
                     setBrushSize(Math.max(MIN_BRUSH_SIZE, brushTool.size));
@@ -166,10 +179,10 @@ function BrushTools(): React.ReactPortal | null {
                     shapeType: ShapeType.MASK,
                     crosshair: false,
                     brushTool: {
-                        type: currentTool,
+                        type: effectiveTool,
                         size: brushSize,
                         form: brushForm,
-                        color: label.color as string,
+                        color: brushColor,
                         onBlockUpdated,
                     },
                     onUpdateConfiguration,
@@ -179,17 +192,23 @@ function BrushTools(): React.ReactPortal | null {
                     enabled: true,
                     state: editableState,
                     brushTool: {
-                        type: currentTool,
+                        type: effectiveTool,
                         size: brushSize,
                         form: brushForm,
-                        color: label.color as string,
+                        color: brushColor,
                         onBlockUpdated,
                     },
                     onUpdateConfiguration,
                 });
             }
         }
-    }, [currentTool, brushSize, brushForm, visible, defaultLabelID, editableState]);
+    }, [effectiveTool, brushSize, brushForm, visible, defaultLabelID, editableState, isIssueMaskMode]);
+
+    useEffect(() => {
+        if (isIssueMaskMode && isPolygonTool(currentTool)) {
+            setCurrentTool('brush');
+        }
+    }, [currentTool, isIssueMaskMode]);
 
     useEffect(() => {
         getCore().config.removeUnderlyingMaskPixels.enabled = removeUnderlyingPixels;
@@ -209,7 +228,7 @@ function BrushTools(): React.ReactPortal | null {
         return () => {
             dispatch(updateCanvasBrushTools({ visible: false }));
         };
-    }, []);
+    }, [dispatch]);
 
     useEffect(() => {
         const resetCurrentTool = (): void => {
@@ -319,7 +338,7 @@ function BrushTools(): React.ReactPortal | null {
             <CVATTooltip title={`Brush tool ${normalizedKeyMap.ACTIVATE_BRUSH_TOOL_STANDARD_CONTROLS}`}>
                 <Button
                     type='text'
-                    className={['cvat-brush-tools-brush', ...(currentTool === 'brush' ? ['cvat-brush-tools-active-tool'] : [])].join(' ')}
+                    className={['cvat-brush-tools-brush', ...(effectiveTool === 'brush' ? ['cvat-brush-tools-active-tool'] : [])].join(' ')}
                     icon={<Icon component={BrushIcon} />}
                     onClick={setBrushTool}
                 />
@@ -327,32 +346,36 @@ function BrushTools(): React.ReactPortal | null {
             <CVATTooltip title={`Eraser tool ${normalizedKeyMap.ACTIVATE_ERASER_TOOL_STANDARD_CONTROLS}`}>
                 <Button
                     type='text'
-                    className={['cvat-brush-tools-eraser', ...(currentTool === 'eraser' ? ['cvat-brush-tools-active-tool'] : [])].join(' ')}
+                    className={['cvat-brush-tools-eraser', ...(effectiveTool === 'eraser' ? ['cvat-brush-tools-active-tool'] : [])].join(' ')}
                     icon={<Icon component={EraserIcon} />}
                     onClick={setEraserTool}
                     disabled={blockedTools.eraser}
                 />
             </CVATTooltip>
-            <CVATTooltip title={`Polygon tool ${normalizedKeyMap.ACTIVATE_POLYGON_TOOL_STANDARD_CONTROLS}`}>
-                <Button
-                    type='text'
-                    className={['cvat-brush-tools-polygon-plus', ...(currentTool === 'polygon-plus' ? ['cvat-brush-tools-active-tool'] : [])].join(' ')}
-                    icon={<Icon component={PolygonPlusIcon} />}
-                    onClick={setPolygonTool}
-                />
-            </CVATTooltip>
-            <CVATTooltip
-                title={`Polygon remove tool ${normalizedKeyMap.ACTIVATE_POLYGON_REMOVE_TOOL_STANDARD_CONTROLS}`}
-            >
-                <Button
-                    type='text'
-                    className={['cvat-brush-tools-polygon-minus', ...(currentTool === 'polygon-minus' ? ['cvat-brush-tools-active-tool'] : [])].join(' ')}
-                    icon={<Icon component={PolygonMinusIcon} />}
-                    onClick={setPolygonRemoveTool}
-                    disabled={blockedTools['polygon-minus']}
-                />
-            </CVATTooltip>
-            { ['brush', 'eraser'].includes(currentTool) ? (
+            {!isIssueMaskMode && (
+                <>
+                    <CVATTooltip title={`Polygon tool ${normalizedKeyMap.ACTIVATE_POLYGON_TOOL_STANDARD_CONTROLS}`}>
+                        <Button
+                            type='text'
+                            className={['cvat-brush-tools-polygon-plus', ...(effectiveTool === 'polygon-plus' ? ['cvat-brush-tools-active-tool'] : [])].join(' ')}
+                            icon={<Icon component={PolygonPlusIcon} />}
+                            onClick={setPolygonTool}
+                        />
+                    </CVATTooltip>
+                    <CVATTooltip
+                        title={`Polygon remove tool ${normalizedKeyMap.ACTIVATE_POLYGON_REMOVE_TOOL_STANDARD_CONTROLS}`}
+                    >
+                        <Button
+                            type='text'
+                            className={['cvat-brush-tools-polygon-minus', ...(effectiveTool === 'polygon-minus' ? ['cvat-brush-tools-active-tool'] : [])].join(' ')}
+                            icon={<Icon component={PolygonMinusIcon} />}
+                            onClick={setPolygonRemoveTool}
+                            disabled={blockedTools['polygon-minus']}
+                        />
+                    </CVATTooltip>
+                </>
+            )}
+            { ['brush', 'eraser'].includes(effectiveTool) ? (
                 <CVATTooltip title='Brush size [Hold Alt + Right Mouse Click + Drag Left/Right]'>
                     <InputNumber
                         className='cvat-brush-tools-brush-size'
@@ -366,7 +389,7 @@ function BrushTools(): React.ReactPortal | null {
                     />
                 </CVATTooltip>
             ) : null}
-            { !isIssueMaskMode && ['brush', 'eraser'].includes(currentTool) ? (
+            { !isIssueMaskMode && ['brush', 'eraser'].includes(effectiveTool) ? (
                 <Select value={brushForm} onChange={(value: 'circle' | 'square') => setBrushForm(value)}>
                     <Select.Option value='circle'>Circle</Select.Option>
                     <Select.Option value='square'>Square</Select.Option>

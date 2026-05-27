@@ -36,7 +36,7 @@ import {
     clamp,
 } from './shared';
 import {
-    CanvasModel, Geometry, UpdateReasons, FrameZoom, ActiveElement,
+    CanvasModel, Geometry, Position, UpdateReasons, FrameZoom, ActiveElement,
     DrawData, MergeData, SplitData, Mode, Size, Configuration,
     InteractionResult, InteractionData, ColorBy, HighlightedElements,
     HighlightSeverity, GroupData, JoinData, CanvasHint,
@@ -90,6 +90,9 @@ export class CanvasViewImpl implements CanvasView, Listener {
     private draggableShape: SVG.Shape | null;
     private resizableShape: SVG.Shape | null;
     private ctrlPressed: boolean;
+    private touchPanPosition: Position | null;
+    private touchZoomDistance: number | null;
+    private activeTouchPointers: Map<number, Position>;
     private innerObjectsFlags: {
         drawHidden: Record<number, boolean>;
         editHidden: Record<number, boolean>;
@@ -162,6 +165,19 @@ export class CanvasViewImpl implements CanvasView, Listener {
     private translateFromCanvas(points: number[]): number[] {
         const { offset } = this.controller.geometry;
         return translateFromCanvas(offset, points);
+    }
+
+    private updateTouchZoomClass(): void {
+        this.canvas.classList.toggle(
+            'cvat-canvas-touch-zoom-enabled',
+            !!this.configuration.forceDisableEditing,
+        );
+
+        if (!this.configuration.forceDisableEditing) {
+            this.touchPanPosition = null;
+            this.touchZoomDistance = null;
+            this.activeTouchPointers.clear();
+        }
     }
 
     private translatePointsFromRotatedShape(
@@ -1593,6 +1609,432 @@ export class CanvasViewImpl implements CanvasView, Listener {
         }
     };
 
+    private shouldHandleTouchZoom(): boolean {
+        return !this.isImageLoading && !!this.configuration.forceDisableEditing;
+    }
+
+    private shouldIgnoreTouchGestureTarget(target: EventTarget | null): boolean {
+        if (!(target instanceof Element)) {
+            return false;
+        }
+
+        return !!target.closest([
+            '.cvat-create-issue-dialog',
+            '.cvat-issue-dialog',
+            '.ant-select-dropdown',
+            '.ant-modal',
+            'input',
+            'textarea',
+            'button',
+            '[role="button"]',
+            '[contenteditable="true"]',
+        ].join(', '));
+    }
+
+    private getTouchDistance(touches: TouchList): number {
+        const [touch1, touch2] = [touches[0], touches[1]];
+        return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
+    }
+
+    private getTouchPointerDistance(points: Position[]): number {
+        const [touch1, touch2] = points;
+        return Math.hypot(touch2.x - touch1.x, touch2.y - touch1.y);
+    }
+
+    private getTouchCenter(touches: TouchList): { x: number; y: number } {
+        const [touch1, touch2] = [touches[0], touches[1]];
+        return {
+            x: (touch1.clientX + touch2.clientX) / 2,
+            y: (touch1.clientY + touch2.clientY) / 2,
+        };
+    }
+
+    private getTouchPointerCenter(points: Position[]): Position {
+        const [touch1, touch2] = points;
+        return {
+            x: (touch1.x + touch2.x) / 2,
+            y: (touch1.y + touch2.y) / 2,
+        };
+    }
+
+    private getContentTransformOrigin(geometry: Geometry): { x: number; y: number } {
+        return {
+            x: geometry.image.width / 2 + geometry.offset,
+            y: geometry.image.height / 2 + geometry.offset,
+        };
+    }
+
+    private getTouchAnchor(center: { x: number; y: number }, geometry: Geometry): number[] {
+        const canvasRect = this.canvas.getBoundingClientRect();
+        const origin = this.getContentTransformOrigin(geometry);
+        const angle = (geometry.angle * Math.PI) / 180;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const transformedX = center.x - canvasRect.left - geometry.left + geometry.offset - origin.x;
+        const transformedY = center.y - canvasRect.top - geometry.top + geometry.offset - origin.y;
+
+        return [
+            origin.x + (cos * transformedX + sin * transformedY) / geometry.scale,
+            origin.y + (-sin * transformedX + cos * transformedY) / geometry.scale,
+        ];
+    }
+
+    private getTouchZoomGeometry(anchor: number[], center: { x: number; y: number }, scale: number): Geometry {
+        const canvasRect = this.canvas.getBoundingClientRect();
+        const origin = this.getContentTransformOrigin(this.geometry);
+        const angle = (this.geometry.angle * Math.PI) / 180;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const localX = anchor[0] - origin.x;
+        const localY = anchor[1] - origin.y;
+        const transformedX = scale * (cos * localX - sin * localY);
+        const transformedY = scale * (sin * localX + cos * localY);
+
+        return {
+            ...this.geometry,
+            left: center.x - canvasRect.left + this.geometry.offset - origin.x - transformedX,
+            top: center.y - canvasRect.top + this.geometry.offset - origin.y - transformedY,
+            scale,
+        };
+    }
+
+    private applyTouchZoom(center: { x: number; y: number }, scale: number): void {
+        const anchor = this.getTouchAnchor(center, this.geometry);
+        const geometry = this.getTouchZoomGeometry(anchor, center, scale);
+
+        this.controller.geometry = geometry;
+        this.geometry = geometry;
+        this.moveCanvas();
+        this.transformCanvas();
+    }
+
+    private startTouchPan(x: number, y: number): void {
+        this.touchPanPosition = {
+            x,
+            y,
+        };
+        this.touchZoomDistance = null;
+        this.controller.enableDrag(x, y);
+    }
+
+    private stopTouchPan(): void {
+        this.touchPanPosition = null;
+        this.controller.disableDrag();
+    }
+
+    private resetTouchPointerGesture(): void {
+        this.activeTouchPointers.clear();
+        this.touchZoomDistance = null;
+        this.stopTouchPan();
+    }
+
+    private shouldUsePointerTouchGestures(): boolean {
+        return typeof PointerEvent !== 'undefined';
+    }
+
+    private preventHandledTouch(event: TouchEvent): void {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    private preventHandledPointer(event: PointerEvent): void {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    private captureTouchPointer(event: PointerEvent): void {
+        this.activeTouchPointers.set(event.pointerId, {
+            x: event.clientX,
+            y: event.clientY,
+        });
+
+        try {
+            this.canvas.setPointerCapture(event.pointerId);
+        } catch {
+            // Pointer capture is best-effort; capture-phase listeners still handle in-bounds movement.
+        }
+    }
+
+    private releaseTouchPointer(event: PointerEvent): void {
+        this.activeTouchPointers.delete(event.pointerId);
+
+        try {
+            this.canvas.releasePointerCapture(event.pointerId);
+        } catch {
+            // The browser or target element may already have released this pointer.
+        }
+    }
+
+    private onPointerDown = (event: PointerEvent): void => {
+        if (event.pointerType === 'pen') {
+            this.resetTouchPointerGesture();
+            return;
+        }
+
+        if (event.pointerType !== 'touch') {
+            return;
+        }
+
+        if (this.shouldIgnoreTouchGestureTarget(event.target)) {
+            this.resetTouchPointerGesture();
+            return;
+        }
+
+        if (!this.shouldHandleTouchZoom()) {
+            this.resetTouchPointerGesture();
+            return;
+        }
+
+        this.captureTouchPointer(event);
+        const points = Array.from(this.activeTouchPointers.values());
+
+        if (points.length === 1) {
+            const [touch] = points;
+            this.startTouchPan(touch.x, touch.y);
+        } else if (points.length === 2) {
+            this.stopTouchPan();
+            this.touchZoomDistance = this.getTouchPointerDistance(points);
+        } else {
+            this.stopTouchPan();
+            this.touchZoomDistance = null;
+        }
+
+        this.preventHandledPointer(event);
+    };
+
+    private onPointerMove = (event: PointerEvent): void => {
+        if (event.pointerType === 'pen') {
+            this.resetTouchPointerGesture();
+            return;
+        }
+
+        if (event.pointerType !== 'touch' || !this.activeTouchPointers.has(event.pointerId)) {
+            return;
+        }
+
+        if (!this.shouldHandleTouchZoom()) {
+            this.resetTouchPointerGesture();
+            return;
+        }
+
+        this.activeTouchPointers.set(event.pointerId, {
+            x: event.clientX,
+            y: event.clientY,
+        });
+
+        const points = Array.from(this.activeTouchPointers.values());
+
+        if (points.length === 1 && this.touchPanPosition) {
+            const [touch] = points;
+            this.controller.drag(touch.x, touch.y);
+            this.touchPanPosition = touch;
+            this.preventHandledPointer(event);
+            return;
+        }
+
+        if (points.length !== 2) {
+            this.stopTouchPan();
+            this.touchZoomDistance = null;
+            this.preventHandledPointer(event);
+            return;
+        }
+
+        this.touchPanPosition = null;
+
+        const distance = this.getTouchPointerDistance(points);
+        const previousDistance = this.touchZoomDistance;
+        this.touchZoomDistance = distance;
+
+        if (!previousDistance || distance <= 0) {
+            this.preventHandledPointer(event);
+            return;
+        }
+
+        const scaleRatio = distance / previousDistance;
+        if (!Number.isFinite(scaleRatio) || scaleRatio <= 0) {
+            return;
+        }
+
+        const center = this.getTouchPointerCenter(points);
+        const scale = clamp(this.geometry.scale * scaleRatio, FrameZoom.MIN, FrameZoom.MAX);
+
+        if (scale !== this.geometry.scale) {
+            this.applyTouchZoom(center, scale);
+            this.canvas.dispatchEvent(
+                new CustomEvent('canvas.zoom', {
+                    bubbles: false,
+                    cancelable: true,
+                }),
+            );
+        }
+
+        this.preventHandledPointer(event);
+    };
+
+    private onPointerUp = (event: PointerEvent): void => {
+        if (event.pointerType !== 'touch' || !this.activeTouchPointers.has(event.pointerId)) {
+            return;
+        }
+
+        this.releaseTouchPointer(event);
+
+        if (!this.shouldHandleTouchZoom()) {
+            this.resetTouchPointerGesture();
+            return;
+        }
+
+        if (this.activeTouchPointers.size < 2) {
+            this.touchZoomDistance = null;
+        }
+
+        if (this.activeTouchPointers.size === 1) {
+            const [touch] = Array.from(this.activeTouchPointers.values());
+            this.startTouchPan(touch.x, touch.y);
+        } else {
+            this.stopTouchPan();
+        }
+
+        this.preventHandledPointer(event);
+    };
+
+    private onPointerCancel = (event: PointerEvent): void => {
+        if (event.pointerType !== 'touch') {
+            return;
+        }
+
+        this.releaseTouchPointer(event);
+
+        if (this.activeTouchPointers.size === 0) {
+            this.resetTouchPointerGesture();
+        }
+    };
+
+    private onTouchStart = (event: TouchEvent): void => {
+        if (this.shouldUsePointerTouchGestures()) {
+            return;
+        }
+
+        if (this.shouldIgnoreTouchGestureTarget(event.target)) {
+            this.touchZoomDistance = null;
+            this.stopTouchPan();
+            return;
+        }
+
+        if (!this.shouldHandleTouchZoom()) {
+            this.touchPanPosition = null;
+            this.touchZoomDistance = null;
+            return;
+        }
+
+        if (event.touches.length === 1) {
+            const [touch] = event.touches;
+            this.startTouchPan(touch.clientX, touch.clientY);
+            this.preventHandledTouch(event);
+        } else if (event.touches.length === 2) {
+            const distance = this.getTouchDistance(event.touches);
+
+            if (distance > 0) {
+                this.stopTouchPan();
+                this.touchZoomDistance = distance;
+                this.preventHandledTouch(event);
+            }
+        } else {
+            this.stopTouchPan();
+            this.touchZoomDistance = null;
+        }
+    };
+
+    private onTouchMove = (event: TouchEvent): void => {
+        if (this.shouldUsePointerTouchGestures()) {
+            return;
+        }
+
+        if (!this.shouldHandleTouchZoom()) {
+            this.stopTouchPan();
+            this.touchZoomDistance = null;
+            return;
+        }
+
+        if (event.touches.length === 1 && this.touchPanPosition) {
+            const [touch] = event.touches;
+            this.controller.drag(touch.clientX, touch.clientY);
+            this.touchPanPosition = {
+                x: touch.clientX,
+                y: touch.clientY,
+            };
+            this.preventHandledTouch(event);
+            return;
+        }
+
+        if (event.touches.length !== 2) {
+            this.stopTouchPan();
+            this.touchZoomDistance = null;
+            return;
+        }
+
+        this.touchPanPosition = null;
+
+        const distance = this.getTouchDistance(event.touches);
+        const previousDistance = this.touchZoomDistance;
+        this.touchZoomDistance = distance;
+
+        if (!previousDistance || distance <= 0) {
+            this.preventHandledTouch(event);
+            return;
+        }
+
+        const scaleRatio = distance / previousDistance;
+        if (!Number.isFinite(scaleRatio) || scaleRatio <= 0) {
+            return;
+        }
+
+        const center = this.getTouchCenter(event.touches);
+        const scale = clamp(this.geometry.scale * scaleRatio, FrameZoom.MIN, FrameZoom.MAX);
+
+        if (scale !== this.geometry.scale) {
+            this.applyTouchZoom(center, scale);
+            this.canvas.dispatchEvent(
+                new CustomEvent('canvas.zoom', {
+                    bubbles: false,
+                    cancelable: true,
+                }),
+            );
+        }
+
+        this.preventHandledTouch(event);
+    };
+
+    private onTouchEnd = (event: TouchEvent): void => {
+        if (this.shouldUsePointerTouchGestures()) {
+            return;
+        }
+
+        if (event.touches.length < 2) {
+            this.touchZoomDistance = null;
+        }
+
+        if (!this.shouldHandleTouchZoom()) {
+            this.stopTouchPan();
+            return;
+        }
+
+        if (event.touches.length === 1) {
+            const [touch] = event.touches;
+            this.startTouchPan(touch.clientX, touch.clientY);
+        } else {
+            this.stopTouchPan();
+        }
+    };
+
+    private onTouchCancel = (): void => {
+        if (this.shouldUsePointerTouchGestures()) {
+            return;
+        }
+
+        this.touchZoomDistance = null;
+        this.stopTouchPan();
+    };
+
     public constructor(model: CanvasModel & Master, controller: CanvasController) {
         this.controller = controller;
         this.geometry = controller.geometry;
@@ -1612,6 +2054,9 @@ export class CanvasViewImpl implements CanvasView, Listener {
         this.mode = Mode.IDLE;
         this.snapToAngleResize = consts.SNAP_TO_ANGLE_RESIZE_DEFAULT;
         this.ctrlPressed = false;
+        this.touchPanPosition = null;
+        this.touchZoomDistance = null;
+        this.activeTouchPointers = new Map();
         this.innerObjectsFlags = {
             drawHidden: {},
             editHidden: {},
@@ -1696,6 +2141,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
 
         // Setup wrappers
         this.canvas.setAttribute('id', 'cvat_canvas_wrapper');
+        this.updateTouchZoomClass();
 
         // Unite created HTML elements together
         this.grid.appendChild(gridDefs);
@@ -1797,6 +2243,15 @@ export class CanvasViewImpl implements CanvasView, Listener {
         window.document.addEventListener('mouseup', this.onMouseUp);
         window.document.addEventListener('keydown', this.onKeyDown);
         window.document.addEventListener('keyup', this.onKeyUp);
+        this.canvas.addEventListener('pointerdown', this.onPointerDown, { capture: true });
+        this.canvas.addEventListener('pointermove', this.onPointerMove, { capture: true });
+        this.canvas.addEventListener('pointerup', this.onPointerUp, { capture: true });
+        this.canvas.addEventListener('pointercancel', this.onPointerCancel, { capture: true });
+        this.canvas.addEventListener('lostpointercapture', this.onPointerCancel, { capture: true });
+        this.canvas.addEventListener('touchstart', this.onTouchStart, { capture: true, passive: false });
+        this.canvas.addEventListener('touchmove', this.onTouchMove, { capture: true, passive: false });
+        this.canvas.addEventListener('touchend', this.onTouchEnd, { capture: true, passive: false });
+        this.canvas.addEventListener('touchcancel', this.onTouchCancel, { capture: true, passive: false });
 
         for (const eventName of ['wheel', 'mousedown', 'dblclick', 'contextmenu']) {
             this.attachmentBoard.addEventListener(eventName, (event) => {
@@ -1931,6 +2386,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
             }
 
             this.configuration = configuration;
+            this.updateTouchZoomClass();
             if (withUpdatingShapeViews) {
                 updateShapeViews(Object.values(this.drawnStates));
             }
@@ -2300,6 +2756,16 @@ export class CanvasViewImpl implements CanvasView, Listener {
             window.document.removeEventListener('keydown', this.onKeyDown);
             window.document.removeEventListener('keyup', this.onKeyUp);
             window.document.removeEventListener('mouseup', this.onMouseUp);
+            this.canvas.removeEventListener('pointerdown', this.onPointerDown, true);
+            this.canvas.removeEventListener('pointermove', this.onPointerMove, true);
+            this.canvas.removeEventListener('pointerup', this.onPointerUp, true);
+            this.canvas.removeEventListener('pointercancel', this.onPointerCancel, true);
+            this.canvas.removeEventListener('lostpointercapture', this.onPointerCancel, true);
+            this.canvas.removeEventListener('touchstart', this.onTouchStart, true);
+            this.canvas.removeEventListener('touchmove', this.onTouchMove, true);
+            this.canvas.removeEventListener('touchend', this.onTouchEnd, true);
+            this.canvas.removeEventListener('touchcancel', this.onTouchCancel, true);
+            this.masksHandler.destroy();
             this.interactionHandler.destroy();
         }
 

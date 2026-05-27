@@ -37,6 +37,7 @@
         align-items: center;
         justify-content: center;
         margin: 0 3px;
+        touch-action: manipulation;
 
         &.cvat-button-active {
             color: $border-color-hover;
@@ -548,6 +549,13 @@
                 }
             }
         }
+    }
+}
+
+.cvat-modal-content-finish-job {
+    .ant-btn {
+        min-height: $grid-unit-size * 5;
+        touch-action: manipulation;
     }
 }
 

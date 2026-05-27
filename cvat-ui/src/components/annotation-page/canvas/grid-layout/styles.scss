@@ -30,6 +30,91 @@
     }
 }
 
+.cvat-raw-compare-layout {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, var(--cvat-raw-compare-left)) $grid-unit-size minmax(0, var(--cvat-raw-compare-right));
+    gap: 0;
+    padding: $grid-unit-size * 0.5;
+    min-height: 0;
+
+    .cvat-canvas-grid-item {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .cvat-canvas-grid-fullscreen-item {
+        position: absolute;
+        inset: $grid-unit-size * 0.5;
+        width: auto !important;
+        height: auto !important;
+        transform: none !important;
+        z-index: 2;
+    }
+
+    .cvat-grid-item-fullscreen-handler,
+    .cvat-grid-item-close-button {
+        top: $grid-unit-size;
+        width: $grid-unit-size * 3;
+        height: $grid-unit-size * 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: $grid-unit-size * 3;
+    }
+
+    .cvat-raw-frame-view-header {
+        height: $grid-unit-size * 3;
+        margin-bottom: $grid-unit-size;
+        padding: 0 $grid-unit-size * 5;
+        align-items: center;
+    }
+
+    .cvat-raw-frame-view-title {
+        line-height: $grid-unit-size * 3;
+    }
+
+    .cvat-raw-frame-view-controls {
+        position: absolute;
+        top: $grid-unit-size;
+        right: $grid-unit-size * 5;
+        height: $grid-unit-size * 3;
+
+        > span {
+            display: flex;
+            align-items: center;
+            height: $grid-unit-size * 3;
+            line-height: $grid-unit-size * 3;
+        }
+    }
+}
+
+.cvat-raw-compare-divider {
+    position: relative;
+    cursor: ew-resize;
+    touch-action: none;
+    z-index: 3;
+
+    &::after {
+        content: '';
+        position: absolute;
+        top: $grid-unit-size * 2;
+        bottom: $grid-unit-size * 2;
+        left: calc(50% - 3px);
+        width: 6px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 28%);
+    }
+
+    &:hover::after,
+    &:focus::after {
+        background: rgba(24, 144, 255, 85%);
+    }
+}
+
 .cvat-grid-layout-common-setups {
     position: absolute;
     top: 0;
@@ -94,6 +179,8 @@
         justify-content: center;
         overflow: hidden;
         position: relative;
+        touch-action: none;
+        overscroll-behavior: contain;
 
         img {
             max-width: 100%;
@@ -176,17 +263,84 @@
     }
 
     .cvat-grid-item-resize-handler.react-resizable-handle {
-        bottom: -3px;
-        right: -3px;
-        cursor: se-resize;
+        z-index: 1000;
+        margin: 0;
+        padding: 0;
+        background-image: none;
+        transform: none;
 
         &::after {
+            display: none;
+            content: '';
+        }
+
+        &.react-resizable-handle-se,
+        &.react-resizable-handle-sw {
+            bottom: -3px;
+            transform: none;
+        }
+
+        &.react-resizable-handle-se {
+            right: -3px;
+            cursor: se-resize;
+        }
+
+        &.react-resizable-handle-sw {
+            left: -3px;
+            cursor: sw-resize;
+        }
+
+        &.react-resizable-handle-e,
+        &.react-resizable-handle-w {
+            top: $grid-unit-size * 4;
+            bottom: $grid-unit-size;
+            width: $grid-unit-size;
+            height: auto;
+            cursor: ew-resize;
+            transform: none;
+        }
+
+        &.react-resizable-handle-e {
+            right: -3px;
+        }
+
+        &.react-resizable-handle-w {
+            left: -3px;
+        }
+
+        &.react-resizable-handle-s {
+            right: $grid-unit-size;
+            bottom: -3px;
+            left: $grid-unit-size;
+            width: auto;
+            height: $grid-unit-size;
+            cursor: ns-resize;
+            transform: none;
+        }
+
+        &.react-resizable-handle-se::after,
+        &.react-resizable-handle-sw::after {
+            display: block;
+            position: absolute;
             bottom: 0;
-            right: 0;
             width: 9px;
             height: 10px;
-            border-right: 2px solid rgba(0, 0, 0, 100%);
-            border-bottom: 2px solid rgba(0, 0, 0, 100%);
+            background: transparent;
+            border-bottom: 2px solid rgba(0, 0, 0, 40%);
+        }
+
+        &.react-resizable-handle-se::after {
+            left: auto;
+            right: 0;
+            border-right: 2px solid rgba(0, 0, 0, 40%);
+            border-left: 0;
+        }
+
+        &.react-resizable-handle-sw::after {
+            left: 0;
+            right: auto;
+            border-right: 0;
+            border-left: 2px solid rgba(0, 0, 0, 40%);
         }
     }
 }

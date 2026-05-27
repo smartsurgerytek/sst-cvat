@@ -11,44 +11,80 @@ export default function useDraggable(
     component: JSX.Element,
 ): JSX.Element {
     const ref = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        if (!ref.current) return () => {};
-        const click = [0, 0];
-        const position = getPosition();
+    const getPositionRef = useRef(getPosition);
+    const onDragRef = useRef(onDrag);
 
-        const mouseMoveListener = (event: MouseEvent): void => {
+    useEffect(() => {
+        getPositionRef.current = getPosition;
+        onDragRef.current = onDrag;
+    }, [getPosition, onDrag]);
+
+    useEffect(() => {
+        const element = ref.current;
+        if (!element) return () => {};
+
+        const click = [0, 0];
+        const position = getPositionRef.current();
+        let activePointerID: number | null = null;
+
+        const pointerMoveListener = (event: PointerEvent): void => {
+            if (event.pointerId !== activePointerID) {
+                return;
+            }
+
             const dy = event.clientY - click[0];
             const dx = event.clientX - click[1];
-            onDrag(position[0] + dy, position[1] + dx);
+            onDragRef.current(position[0] + dy, position[1] + dx);
             event.stopPropagation();
             event.preventDefault();
         };
 
-        const mouseDownListener = (event: MouseEvent): void => {
-            const [initialTop, initialLeft] = getPosition();
+        const finishDrag = (event?: PointerEvent): void => {
+            if (activePointerID === null || (event && event.pointerId !== activePointerID)) {
+                return;
+            }
+
+            if (element.hasPointerCapture(activePointerID)) {
+                element.releasePointerCapture(activePointerID);
+            }
+
+            window.removeEventListener('pointermove', pointerMoveListener);
+            window.removeEventListener('pointerup', finishDrag);
+            window.removeEventListener('pointercancel', finishDrag);
+            activePointerID = null;
+        };
+
+        const pointerDownListener = (event: PointerEvent): void => {
+            if (activePointerID !== null) {
+                return;
+            }
+
+            const [initialTop, initialLeft] = getPositionRef.current();
             position[0] = initialTop;
             position[1] = initialLeft;
             click[0] = event.clientY;
             click[1] = event.clientX;
-            window.addEventListener('mousemove', mouseMoveListener);
+            activePointerID = event.pointerId;
+            element.setPointerCapture(activePointerID);
+            window.addEventListener('pointermove', pointerMoveListener);
+            window.addEventListener('pointerup', finishDrag);
+            window.addEventListener('pointercancel', finishDrag);
             event.stopPropagation();
             event.preventDefault();
         };
 
-        const mouseUpListener = (): void => {
-            window.removeEventListener('mousemove', mouseMoveListener);
-        };
-
-        window.document.addEventListener('mouseup', mouseUpListener);
-        ref.current.addEventListener('mousedown', mouseDownListener);
+        element.addEventListener('pointerdown', pointerDownListener);
 
         return () => {
-            window.document.removeEventListener('mouseup', mouseUpListener);
-            if (ref.current) {
-                ref.current.removeEventListener('mousedown', mouseDownListener);
+            element.removeEventListener('pointerdown', pointerDownListener);
+            window.removeEventListener('pointermove', pointerMoveListener);
+            window.removeEventListener('pointerup', finishDrag);
+            window.removeEventListener('pointercancel', finishDrag);
+            if (activePointerID !== null && element.hasPointerCapture(activePointerID)) {
+                element.releasePointerCapture(activePointerID);
             }
         };
-    }, [ref.current]);
+    }, []);
 
     return (
         <div ref={ref}>
