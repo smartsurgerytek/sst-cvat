@@ -333,12 +333,12 @@
     box-shadow: $box-shadow-base;
 }
 
-.cvat-objects-sidebar-multi-selection-window {
+.cvat-objects-sidebar-selection-summary-window {
     position: fixed;
     left: $grid-unit-size * 8;
     bottom: $grid-unit-size * 2;
-    width: 280px;
-    max-width: calc(100vw - $grid-unit-size * 12);
+    width: 17.5rem;
+    max-width: max(0px, calc(100vw - $grid-unit-size * 12));
     z-index: 900;
     background: $background-color-2;
     border: 1px solid $border-color-1;
@@ -347,7 +347,7 @@
     padding: $grid-unit-size;
 }
 
-.cvat-objects-sidebar-multi-selection-window-header {
+.cvat-objects-sidebar-selection-summary-window-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -356,63 +356,63 @@
     border-bottom: 1px solid $border-color-1;
 }
 
-.cvat-objects-sidebar-multi-selection-window-clear.ant-btn {
+.cvat-objects-sidebar-selection-summary-window-clear.ant-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     color: $text-color;
 }
 
-.cvat-objects-sidebar-multi-selection-window-list {
+.cvat-objects-sidebar-selection-summary-window-list {
     display: flex;
     flex-direction: column;
     gap: $grid-unit-size * 0.5;
-    max-height: 208px;
+    max-height: 13rem;
     margin-top: $grid-unit-size;
     overflow-y: auto;
 }
 
-.cvat-objects-sidebar-multi-selection-window-item {
+.cvat-objects-sidebar-selection-summary-window-item {
     display: grid;
-    grid-template-columns: 10px auto minmax(0, 1fr);
+    grid-template-columns: 0.625rem auto minmax(0, 1fr);
     grid-template-rows: auto auto;
     column-gap: $grid-unit-size;
     align-items: center;
     min-height: $grid-unit-size * 5;
 }
 
-.cvat-objects-sidebar-multi-selection-window-color {
+.cvat-objects-sidebar-selection-summary-window-color {
     grid-row: 1 / span 2;
-    width: 10px;
-    height: 10px;
+    width: 0.625rem;
+    height: 0.625rem;
     border: 1px solid $border-color-1;
     border-radius: 50%;
 }
 
-.cvat-objects-sidebar-multi-selection-window-id {
-    line-height: 16px;
+.cvat-objects-sidebar-selection-summary-window-id {
+    line-height: 1rem;
 }
 
-.cvat-objects-sidebar-multi-selection-window-label {
+.cvat-objects-sidebar-selection-summary-window-label {
     min-width: 0;
     overflow: hidden;
-    line-height: 16px;
+    line-height: 1rem;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.cvat-objects-sidebar-multi-selection-window-type {
+.cvat-objects-sidebar-selection-summary-window-type {
     grid-column: 2 / span 2;
     overflow: hidden;
-    font-size: 11px;
-    line-height: 14px;
+    font-size: 0.6875rem;
+    line-height: 0.875rem;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.cvat-objects-sidebar-multi-selection-window-more {
+.cvat-objects-sidebar-selection-summary-window-more {
     padding-left: $grid-unit-size * 2.25;
-    font-size: 11px;
+    font-size: 0.6875rem;
 }
 
 .cvat-objects-sidebar-state-item-collapse,
