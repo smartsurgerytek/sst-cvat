@@ -60,6 +60,7 @@ import AnnotationGuidePage from 'components/md-guide/annotation-guide-page';
 import InvitationsPage from 'components/invitations-page/invitations-page';
 
 import RequestsPage from 'components/requests-page/requests-page';
+import HistoryPage from 'components/history-page/history-page';
 
 import AnnotationPageContainer from 'containers/annotation-page/annotation-page';
 import { Organization, getCore } from 'cvat-core-wrapper';
@@ -530,19 +531,33 @@ class CVATApplication extends React.PureComponent<CVATAppProps & RouteComponentP
                                         <Route exact path='/projects/:id' component={ProjectPageComponent} />
                                         <Route exact path='/projects/:id/webhooks' component={WebhooksPage} />
                                         <Route exact path='/projects/:id/guide' component={AnnotationGuidePage} />
-                                        <Route exact path='/projects/:pid/quality-control' component={QualityControlPage} />
+                                        <Route
+                                            exact
+                                            path='/projects/:pid/quality-control'
+                                            component={QualityControlPage}
+                                        />
                                         <Route exact path='/projects/:pid/analytics' component={AnalyticsReportPage} />
                                         <Route exact path='/tasks' component={TasksPageContainer} />
                                         <Route exact path='/tasks/create' component={CreateTaskPageContainer} />
                                         <Route exact path='/tasks/:id' component={TaskPageComponent} />
-                                        <Route exact path='/tasks/:tid/quality-control' component={QualityControlPage} />
+                                        <Route
+                                            exact
+                                            path='/tasks/:tid/quality-control'
+                                            component={QualityControlPage}
+                                        />
                                         <Route exact path='/tasks/:tid/analytics' component={AnalyticsReportPage} />
                                         <Route exact path='/tasks/:tid/consensus' component={ConsensusManagementPage} />
                                         <Route exact path='/tasks/:id/jobs/create' component={CreateJobPage} />
                                         <Route exact path='/tasks/:id/guide' component={AnnotationGuidePage} />
                                         <Route exact path='/tasks/:tid/jobs/:jid' component={AnnotationPageContainer} />
-                                        <Route exact path='/tasks/:tid/jobs/:jid/analytics' component={AnalyticsReportPage} />
+                                        <Route
+                                            exact
+                                            path='/tasks/:tid/jobs/:jid/analytics'
+                                            component={AnalyticsReportPage}
+                                        />
                                         <Route exact path='/jobs' component={JobsPageComponent} />
+                                        {/* History spans multiple resource levels, so give it its own page. */}
+                                        <Route exact path='/history' component={HistoryPage} />
                                         <Route exact path='/cloudstorages' component={CloudStoragesPageComponent} />
                                         <Route
                                             exact
@@ -610,7 +625,11 @@ class CVATApplication extends React.PureComponent<CVATAppProps & RouteComponentP
                                 <Route exact path='/auth/register' component={RegisterPageContainer} />
                             )}
                             <Route exact path='/auth/email-verification-sent' component={EmailVerificationSentPage} />
-                            <Route exact path='/auth/incorrect-email-confirmation' component={IncorrectEmailConfirmationPage} />
+                            <Route
+                                exact
+                                path='/auth/incorrect-email-confirmation'
+                                component={IncorrectEmailConfirmationPage}
+                            />
                             <Route exact path='/auth/login' component={LoginPageContainer} />
                             {isPasswordResetEnabled && (
                                 <Route exact path='/auth/password/reset' component={ResetPasswordPageComponent} />
@@ -626,7 +645,11 @@ class CVATApplication extends React.PureComponent<CVATAppProps & RouteComponentP
                             <Route exact path='/auth/email-confirmation' component={EmailConfirmationPage} />
                             { routesToRender }
                             <Redirect
-                                to={location.pathname.length > 1 ? `/auth/login?next=${location.pathname}` : '/auth/login'}
+                                to={
+                                    location.pathname.length > 1 ?
+                                        `/auth/login?next=${location.pathname}` :
+                                        '/auth/login'
+                                }
                             />
                         </Switch>
                         <InvitationWatcher />

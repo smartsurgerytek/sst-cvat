@@ -19,6 +19,7 @@ import {
     SerializedInvitationData, SerializedCloudStorage, SerializedFramesMetaData, SerializedCollection,
     SerializedQualitySettingsData, APIQualitySettingsFilter, SerializedQualityConflictData, APIQualityConflictsFilter,
     SerializedQualityReportData, APIQualityReportsFilter, APIAnalyticsEventsFilter, APIConsensusSettingsFilter,
+    APIAnalyticsEventsQuery, SerializedAnalyticsEventsPage,
     SerializedRequest, SerializedJobValidationLayout, SerializedTaskValidationLayout, SerializedConsensusSettingsData,
     SerializedApiToken, APIApiTokensFilter,
 } from './server-response-types';
@@ -76,7 +77,7 @@ function fetchAll<T extends { id: number | string }>(url, filter = {}): Promise<
     }
 
     return new Promise((resolve, reject) => {
-        const fetchPage = (page: number) => {
+        const fetchPage = (page: number): void => {
             Axios.get(url, {
                 params: {
                     ...filter,
@@ -234,7 +235,7 @@ function generateError(errorData: AxiosError): ServerError {
     return new ServerError(message, 0);
 }
 
-function prepareData(details) {
+function prepareData(details): FormData {
     const data = new FormData();
     for (const [key, value] of Object.entries(details)) {
         if (Array.isArray(value)) {
@@ -276,7 +277,7 @@ class WorkerWrappedAxios {
             return requestId++;
         }
 
-        async function get(url: string, requestConfig) {
+        async function get(url: string, requestConfig): Promise<{ data: unknown; headers: unknown }> {
             return new Promise((resolve, reject) => {
                 const newRequestId = getRequestId();
                 requests[newRequestId] = { resolve, reject };
@@ -879,7 +880,7 @@ async function mergeConsensusJobs(id: number, instanceType: string): Promise<str
     const requestBody = (instanceType === 'task') ? { task_id: id } : { job_id: id };
 
     return new Promise<string>((resolve, reject) => {
-        async function request() {
+        async function request(): Promise<void> {
             try {
                 const response = await Axios.post(url, requestBody);
                 const rqID = response.data.rq_id;
@@ -949,7 +950,7 @@ function exportDataset(instanceType: 'projects' | 'jobs' | 'tasks') {
             save_images: saveImages,
         };
         return new Promise<string | void>((resolve, reject) => {
-            async function request() {
+            async function request(): Promise<void> {
                 Axios.post(baseURL, {}, {
                     params,
                 })
@@ -1046,7 +1047,7 @@ async function backupTask(
     const url = `${backendAPI}/tasks/${id}/backup/export`;
 
     return new Promise<string | void>((resolve, reject) => {
-        async function request() {
+        async function request(): Promise<void> {
             try {
                 const response = await Axios.post(url, {}, {
                     params,
@@ -1130,7 +1131,7 @@ async function backupProject(
     const url = `${backendAPI}/projects/${id}/backup/export`;
 
     return new Promise<string | void>((resolve, reject) => {
-        async function request() {
+        async function request(): Promise<void> {
             try {
                 const response = await Axios.post(url, {}, {
                     params,
@@ -1253,7 +1254,7 @@ async function createTask(
         message: 'CVAT is uploading task data to the server',
     });
 
-    async function bulkUpload(taskId, files) {
+    async function bulkUpload(taskId, files): Promise<void> {
         const fileBulks = files.reduce((fileGroups, file) => {
             const lastBulk = fileGroups[fileGroups.length - 1];
             if (chunkSize - lastBulk.size >= file.size) {
@@ -1371,7 +1372,7 @@ async function getJobs(
     return response.data.results;
 }
 
-async function getIssues(filter) {
+async function getIssues(filter): Promise<any[]> {
     const { backendAPI } = config;
 
     let response = null;
@@ -1411,7 +1412,7 @@ async function getIssues(filter) {
     return response.results;
 }
 
-async function createComment(data) {
+async function createComment(data): Promise<any> {
     const { backendAPI } = config;
 
     let response = null;
@@ -1424,7 +1425,7 @@ async function createComment(data) {
     return response.data;
 }
 
-async function createIssue(data) {
+async function createIssue(data): Promise<any> {
     const { backendAPI } = config;
 
     let response = null;
@@ -1447,7 +1448,7 @@ async function createIssue(data) {
     return response.data;
 }
 
-async function updateIssue(issueID, data) {
+async function updateIssue(issueID, data): Promise<any> {
     const { backendAPI } = config;
 
     let response = null;
@@ -1782,6 +1783,18 @@ async function saveEvents(events: {
     }
 }
 
+async function listEvents(params: APIAnalyticsEventsQuery): Promise<SerializedAnalyticsEventsPage> {
+    const { backendAPI } = config;
+
+    try {
+        // History reads event rows from JSON. CSV download still goes through exportEvents().
+        const response = await Axios.get(`${backendAPI}/events/entries`, { params });
+        return response.data;
+    } catch (errorData) {
+        throw generateError(errorData);
+    }
+}
+
 const eventsExportRequests: Record<string, { promise: Promise<string> }> = {};
 function exportEvents(params: APIAnalyticsEventsFilter): Promise<string> {
     const { backendAPI } = config;
@@ -1799,7 +1812,7 @@ function exportEvents(params: APIAnalyticsEventsFilter): Promise<string> {
                 query_id: response.data.query_id,
             };
 
-            const checkCallback = () => {
+            const checkCallback = (): void => {
                 Axios.get(`${backendAPI}/events`, { params: paramsWithQuery }).then((checkResponse) => {
                     if (checkResponse.status === 202) {
                         setTimeout(checkCallback, 10000);
@@ -1829,7 +1842,7 @@ function exportEvents(params: APIAnalyticsEventsFilter): Promise<string> {
     return promise;
 }
 
-async function getLambdaFunctions() {
+async function getLambdaFunctions(): Promise<any[]> {
     const { backendAPI } = config;
 
     try {
@@ -1843,7 +1856,7 @@ async function getLambdaFunctions() {
     }
 }
 
-async function runLambdaRequest(body) {
+async function runLambdaRequest(body): Promise<any> {
     const { backendAPI } = config;
 
     try {
@@ -1855,7 +1868,7 @@ async function runLambdaRequest(body) {
     }
 }
 
-async function callLambdaFunction(funId, body) {
+async function callLambdaFunction(funId, body): Promise<any> {
     const { backendAPI } = config;
 
     try {
@@ -1867,7 +1880,7 @@ async function callLambdaFunction(funId, body) {
     }
 }
 
-async function getLambdaRequests() {
+async function getLambdaRequests(): Promise<any> {
     const { backendAPI } = config;
 
     try {
@@ -1878,7 +1891,7 @@ async function getLambdaRequests() {
     }
 }
 
-async function getLambdaRequestStatus(requestID) {
+async function getLambdaRequestStatus(requestID): Promise<any> {
     const { backendAPI } = config;
 
     try {
@@ -1889,7 +1902,7 @@ async function getLambdaRequestStatus(requestID) {
     }
 }
 
-async function cancelLambdaRequest(requestId) {
+async function cancelLambdaRequest(requestId): Promise<void> {
     const { backendAPI } = config;
 
     try {
@@ -1899,7 +1912,7 @@ async function cancelLambdaRequest(requestId) {
     }
 }
 
-async function installedApps() {
+async function installedApps(): Promise<any> {
     const { backendAPI } = config;
     try {
         const response = await Axios.get(`${backendAPI}/server/plugins`);
@@ -1920,7 +1933,7 @@ async function getApiSchema(): Promise<SerializedAPISchema> {
     }
 }
 
-async function createCloudStorage(storageDetail) {
+async function createCloudStorage(storageDetail): Promise<any> {
     const { backendAPI } = config;
 
     const storageDetailData = prepareData(storageDetail);
@@ -1932,7 +1945,7 @@ async function createCloudStorage(storageDetail) {
     }
 }
 
-async function updateCloudStorage(id, storageDetail) {
+async function updateCloudStorage(id, storageDetail): Promise<void> {
     const { backendAPI } = config;
 
     const storageDetailData = prepareData(storageDetail);
@@ -1985,7 +1998,7 @@ Promise<{ content: SerializedRemoteFile[], next: string | null }> {
     return response.data;
 }
 
-async function getCloudStorageStatus(id) {
+async function getCloudStorageStatus(id): Promise<any> {
     const { backendAPI } = config;
 
     let response = null;
@@ -1999,7 +2012,7 @@ async function getCloudStorageStatus(id) {
     return response.data;
 }
 
-async function deleteCloudStorage(id) {
+async function deleteCloudStorage(id): Promise<void> {
     const { backendAPI } = config;
 
     try {
@@ -2009,7 +2022,7 @@ async function deleteCloudStorage(id) {
     }
 }
 
-async function getOrganizations(filter) {
+async function getOrganizations(filter): Promise<any> {
     const { backendAPI } = config;
 
     let response = null;
@@ -2067,7 +2080,7 @@ async function deleteOrganization(id: number): Promise<void> {
     }
 }
 
-async function getOrganizationMembers(params = {}) {
+async function getOrganizationMembers(params = {}): Promise<any> {
     const { backendAPI } = config;
 
     let response = null;
@@ -2082,7 +2095,7 @@ async function getOrganizationMembers(params = {}) {
     return response.data;
 }
 
-async function inviteOrganizationMembers(orgId, data) {
+async function inviteOrganizationMembers(orgId, data): Promise<void> {
     const { backendAPI } = config;
     try {
         await Axios.post(
@@ -2097,7 +2110,7 @@ async function inviteOrganizationMembers(orgId, data) {
     }
 }
 
-async function resendOrganizationInvitation(key) {
+async function resendOrganizationInvitation(key): Promise<void> {
     const { backendAPI } = config;
     try {
         await Axios.post(`${backendAPI}/invitations/${key}/resend`);
@@ -2106,7 +2119,7 @@ async function resendOrganizationInvitation(key) {
     }
 }
 
-async function updateOrganizationMembership(membershipId, data) {
+async function updateOrganizationMembership(membershipId, data): Promise<any> {
     const { backendAPI } = config;
     let response = null;
     try {
@@ -2557,6 +2570,7 @@ export default Object.freeze({
 
     events: Object.freeze({
         save: saveEvents,
+        list: listEvents,
         export: exportEvents,
     }),
 

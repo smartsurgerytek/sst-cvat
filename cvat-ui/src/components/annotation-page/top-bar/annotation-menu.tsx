@@ -81,20 +81,25 @@ function AnnotationMenuComponent(): JSX.Element {
 
     const changeState = useCallback((state: JobState) => {
         dispatch(updateJobAsync(jobInstance, { state })).then(() => {
-            message.info('Job state updated', 2);
+            message.info('Job state saved', 2);
         });
-    }, [jobInstance]);
+    }, [dispatch, jobInstance]);
 
     const changeJobState = useCallback((state: JobState) => () => {
+        if (state === jobState) {
+            return;
+        }
+
+        // This change is saved right away, so ask before writing it.
         Modal.confirm({
-            title: 'Would you like to update current job state?',
-            content: `Job state will be switched to "${state}"`,
-            okText: 'Continue',
+            title: 'Save job state change?',
+            content: `Job state will be updated to "${state}" and recorded in history.`,
+            okText: 'Save',
             cancelText: 'Cancel',
             className: 'cvat-modal-content-change-job-state',
             onOk: () => changeState(state),
         });
-    }, [changeState]);
+    }, [changeState, jobState]);
 
     const computeClassName = (menuItemState: string): string => {
         if (menuItemState === jobState) return 'cvat-submenu-current-job-state-item';
@@ -205,21 +210,25 @@ function AnnotationMenuComponent(): JSX.Element {
             key: `state:${JobState.NEW}`,
             label: JobState.NEW,
             className: computeClassName(JobState.NEW),
+            disabled: jobState === JobState.NEW,
             onClick: changeJobState(JobState.NEW),
         }, {
             key: `state:${JobState.IN_PROGRESS}`,
             label: JobState.IN_PROGRESS,
             className: computeClassName(JobState.IN_PROGRESS),
+            disabled: jobState === JobState.IN_PROGRESS,
             onClick: changeJobState(JobState.IN_PROGRESS),
         }, {
             key: `state:${JobState.REJECTED}`,
             label: JobState.REJECTED,
             className: computeClassName(JobState.REJECTED),
+            disabled: jobState === JobState.REJECTED,
             onClick: changeJobState(JobState.REJECTED),
         }, {
             key: `state:${JobState.COMPLETED}`,
             label: JobState.COMPLETED,
             className: computeClassName(JobState.COMPLETED),
+            disabled: jobState === JobState.COMPLETED,
             onClick: changeJobState(JobState.COMPLETED),
         }],
     }, 60]);

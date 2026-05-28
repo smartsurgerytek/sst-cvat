@@ -30,6 +30,61 @@ class EventSerializer(serializers.Serializer):
     payload = serializers.CharField(required=False, allow_null=True)
 
 
+class EventListQuerySerializer(serializers.Serializer):
+    # Keep this query small and explicit because it powers the interactive History page.
+    org_id = serializers.IntegerField(required=False, min_value=1)
+    project_id = serializers.IntegerField(required=False, min_value=1)
+    task_id = serializers.IntegerField(required=False, min_value=1)
+    job_id = serializers.IntegerField(required=False, min_value=1)
+    user_id = serializers.IntegerField(required=False, min_value=1)
+    obj_name = serializers.CharField(required=False, allow_blank=False)
+    cursor = serializers.CharField(required=False, allow_blank=False)
+    from_ = serializers.DateTimeField(required=False, source="from")
+    to = serializers.DateTimeField(required=False)
+    page = serializers.IntegerField(required=False, min_value=1, default=1)
+    page_size = serializers.IntegerField(required=False, min_value=1, max_value=100, default=25)
+    scope = serializers.CharField(required=False, allow_blank=False)
+    include_count = serializers.BooleanField(required=False, default=True)
+
+    def validate(self, attrs):
+        start = attrs.get("from")
+        end = attrs.get("to")
+        if start and end and start > end:
+            raise serializers.ValidationError("'from' must be before than 'to'")
+
+        return attrs
+
+
+class EventReadSerializer(serializers.Serializer):
+    scope = serializers.CharField(required=True)
+    obj_name = serializers.CharField(required=False, allow_null=True)
+    obj_id = serializers.IntegerField(required=False, allow_null=True)
+    obj_val = serializers.CharField(required=False, allow_null=True)
+    source = serializers.CharField(required=False, allow_null=True)
+    timestamp = serializers.DateTimeField(required=True)
+    count = serializers.IntegerField(required=False, allow_null=True)
+    duration = serializers.IntegerField(required=False, allow_null=True)
+    project_id = serializers.IntegerField(required=False, allow_null=True)
+    task_id = serializers.IntegerField(required=False, allow_null=True)
+    job_id = serializers.IntegerField(required=False, allow_null=True)
+    user_id = serializers.IntegerField(required=False, allow_null=True)
+    user_name = serializers.CharField(required=False, allow_null=True)
+    user_email = serializers.CharField(required=False, allow_null=True)
+    org_id = serializers.IntegerField(required=False, allow_null=True)
+    org_slug = serializers.CharField(required=False, allow_null=True)
+    payload = serializers.JSONField(required=False, allow_null=True)
+
+
+class PaginatedEventReadSerializer(serializers.Serializer):
+    # Match the paginated shape the frontend already uses for other list endpoints.
+    count = serializers.IntegerField()
+    page = serializers.IntegerField()
+    page_size = serializers.IntegerField()
+    has_more = serializers.BooleanField()
+    next_cursor = serializers.CharField(required=False, allow_null=True)
+    results = EventReadSerializer(many=True)
+
+
 class ClientEventsSerializer(serializers.Serializer):
     ALLOWED_SCOPES = {
         "client": frozenset(
