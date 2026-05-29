@@ -5,7 +5,7 @@
 
 import React from 'react';
 
-import SVGCVATIcon from './assets/iLabel-icon.svg';
+import SVGCVATIcon from './assets/cvat-icon.svg';
 import SVGCursorIcon from './assets/cursor-icon.svg';
 import SVGMoveIcon from './assets/move-icon.svg';
 import SVGRotateIcon from './assets/rotate-icon.svg';
