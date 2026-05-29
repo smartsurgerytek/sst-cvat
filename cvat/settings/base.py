@@ -769,7 +769,7 @@ TMP_FILE_OR_DIR_RETENTION_DAYS = 3
 
 LOGO_FILENAME = "logo.svg"
 ABOUT_INFO = {
-    "subtitle": "Smart Surgery Annotation Platform",
+    "subtitle": "Open Data Annotation Platform",
 }
 
 if ONE_RUNNING_JOB_IN_QUEUE_PER_USER:
