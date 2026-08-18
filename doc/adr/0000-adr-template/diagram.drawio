@@ -1,0 +1,43 @@
+<mxfile host="drawio-plugin" modified="2025-08-22T04:20:54.036Z" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" etag="E3xfDKCJ-jzsdPJYbSw5" version="22.1.22" type="embed">
+  <diagram id="mermaid-converted" name="Page-1">
+    <mxGraphModel dx="642" dy="576" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="A" value="Christmas" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="300" y="30" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="B" value="Go shopping" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="300" y="120" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="C" value="Let me think" style="shape=rhombus;perimeter=rhombusPerimeter;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="290" y="210" width="140" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="D" value="Laptop" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="100" y="360" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="E" value="iPhone" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="300" y="360" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="F" value="Car" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="500" y="360" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="Get money" style="endArrow=block;html=1;rounded=0;" parent="1" source="A" target="B" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="" style="endArrow=block;html=1;rounded=0;" parent="1" source="B" target="C" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="One" style="endArrow=block;html=1;rounded=0;edgeStyle=orthogonalEdgeStyle;" parent="1" source="C" target="D" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="Two" style="endArrow=block;html=1;rounded=0;edgeStyle=orthogonalEdgeStyle;" parent="1" source="C" target="E" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="Three" style="endArrow=block;html=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#000000;" parent="1" source="C" target="F" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
