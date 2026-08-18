@@ -16,38 +16,64 @@
 
 ## Context
 
-PR #12 同時包含 MSA-736、MSA-737 與 MSA-738；本 ADR 僅記錄 MSA-738 的 **Issue Mask**，不涵蓋 Finish Job、Raw Compare，亦不涵蓋後續 MSA-739 Reviewer tablet branch 的 touch／S Pen 強化。
+PR #12 同時包含 MSA-736、MSA-737 與 MSA-738；本 ADR 僅記錄 MSA-738 的 **Issue Mask**，
+不涵蓋 Finish Job、Raw Compare，亦不涵蓋後續 MSA-739 Reviewer tablet branch 的 touch／S Pen 強化。
 
-既有 Review issue 以 `Issue.position` 儲存座標，建立時通常會轉成 convex hull。這適合框選或多邊形問題區域，但無法準確保留不規則、凹形或彼此分離的像素區域。Reviewer 若發現 mask annotation 的局部問題，需要先以 brush 描繪精確區域、留下 issue 訊息，之後再由非 Review workspace 的處理者選擇合適的 mask label，建立可編輯的 annotation。
+既有 Review issue 以 `Issue.position` 儲存座標，建立時通常會轉成 convex hull。
+這適合框選或多邊形問題區域，但無法準確保留不規則、凹形或彼此分離的像素區域。
+Reviewer 若發現 mask annotation 的局部問題，需要先以 brush 描繪精確區域、留下 issue 訊息，
+之後再由非 Review workspace 的處理者選擇合適的 mask label，建立可編輯的 annotation。
 
-Issue Mask 在建立時是 **Issue**，不是 annotation。它需要經既有 Issue API 儲存、重新載入及顯示；選擇 **Convert to mask** 後，系統才會另外建立一筆 Mask Annotation。兩者具有不同的生命週期，且 Issue 本身不預先綁定 annotation label。
+Issue Mask 在建立時是 **Issue**，不是 annotation。它需要經既有 Issue API 儲存、重新載入及顯示；
+選擇 **Convert to mask** 後，系統才會另外建立一筆 Mask Annotation。
+兩者具有不同的生命週期，且 Issue 本身不預先綁定 annotation label。
 
-CVAT 既有 mask points 採用 RLE run lengths，並在陣列末端附上 `left, top, right, bottom` raster bounds。本功能需要讓 `Issue.position` 同時能承載既有 polygon coordinates 或此 RLE 格式，又要讓舊 Issue 資料維持原有語意。
+CVAT 既有 mask points 採用 RLE run lengths，並在陣列末端附上 `left, top, right, bottom` raster bounds。
+本功能需要讓 `Issue.position` 同時能承載既有 polygon coordinates 或此 RLE 格式，
+又要讓舊 Issue 資料維持原有語意。
 
 ---
 
 ## Decision
 
-在 Review workspace 的左側 controls sidebar 新增 **Open an issue (mask)** 工具，重用 2D Canvas 的 Mask brush 建立問題區域；後端則在既有 Issue contract 加入 `is_mask_issue` 判別欄位。
+在 Review workspace 的左側 controls sidebar 新增 **Open an issue (mask)** 工具，
+重用 2D Canvas 的 Mask brush 建立問題區域；後端則在既有 Issue contract 加入 `is_mask_issue` 判別欄位。
 
 採用以下行為與架構：
 
-1. 在既有 `Issue` model 新增 `is_mask_issue: boolean`，預設為 `false`。Migration 會讓既有 Issue 保持一般 geometry 語意；不新增 Issue Mask 專用資料表或 REST endpoint。
+1. 在既有 `Issue` model 新增 `is_mask_issue: boolean`，預設為 `false`。
+   Migration 會讓既有 Issue 保持一般 geometry 語意；不新增 Issue Mask 專用資料表或 REST endpoint。
 2. `Issue.position` 維持共用的數字陣列：
    - `is_mask_issue !== true` 時，沿用一般 Issue 的座標語意；
    - `is_mask_issue === true` 時，前端將其解讀為 RLE runs 加 raster bounds。
-3. Read、create 與 partial-update serializers、OpenAPI schema 及 `cvat-core` 的 `Issue` class 都公開此欄位；新 Issue Mask 仍透過既有 `/api/issues` 與 `jobInstance.openIssue()` 儲存。
+3. Read、create 與 partial-update serializers、OpenAPI schema 及 `cvat-core` 的 `Issue` class 都公開此欄位；
+   新 Issue Mask 仍透過既有 `/api/issues` 與 `jobInstance.openIssue()` 儲存。
 4. Issue Mask control 只支援 2D Job；非 2D Job 或目前 frame 已刪除時顯示為 disabled。使用者可點擊圖示或使用 `m` shortcut 開始／結束繪製。
-5. 繪製時沿用既有 Mask brush、eraser 與 polygon brush tools，但隱藏 annotation-specific label、remove-underlying 與 hide-mask controls。Canvas wrapper 不把本次繪製當成 annotation 建立。
-6. 收到 `canvas.drawn` 後，前端保留完整 RLE，不再轉成 convex hull。若 RLE 形成封閉區域，會以由影像邊界開始的 flood fill 填入內部孔洞，再以 `NewIssueSource.ISSUE_MASK` 啟動建立 Issue 流程。
-7. Create Issue dialog 要求輸入 description，並可從目前 Job 的 label names 選擇文字插入游標位置。Label text 只協助填寫 issue message，不會決定之後轉換出的 annotation label。
-8. `finishIssueAsync` 建立 `is_mask_issue: true` 的 core Issue，將 RLE position 與第一則 comment 寫入既有 Issue API；一般 Issue 仍沿用原本的 hull 流程。
-9. 顯示已儲存的 Issue Mask 時，前端先以共用 `isLikelyRle()` 檢查格式，再使用 OpenCV 從 mask 擷取一個或多個 contours，讓 disconnected regions 以同一個 Issue ID 呈現。Contour 擷取失敗時記錄內部錯誤並退回 raster bounding box。
-10. 只有非 Review workspace 且 `issue.isMaskIssue === true` 時提供 **Convert to mask**。Canvas issue dialog 與 Standard workspace Issues sidebar 都提供入口；使用者必須從與 Mask 相容的 labels（`mask` 或 `any`）選擇目標 label。
-11. 轉換時優先沿用有效的 Issue RLE，否則嘗試把 position 視為 polygon rasterize 成 RLE，再以既有 `createAnnotationsAsync` 將 Mask Annotation 加入目前 annotation session。使用者仍須執行既有 **Save** 才能將 annotation 持久化。
-12. 使用者可選擇在轉換後 resolve Issue；annotation 建立與 Issue resolve 是兩個循序操作，不建立 Issue-to-Annotation 關聯，也不提供跨兩者的 transaction 或重複轉換防護。
+5. 繪製時沿用既有 Mask brush、eraser 與 polygon brush tools，
+   但隱藏 annotation-specific label、remove-underlying 與 hide-mask controls。
+   Canvas wrapper 不把本次繪製當成 annotation 建立。
+6. 收到 `canvas.drawn` 後，前端保留完整 RLE，不再轉成 convex hull。
+   若 RLE 形成封閉區域，會以由影像邊界開始的 flood fill 填入內部孔洞，
+   再以 `NewIssueSource.ISSUE_MASK` 啟動建立 Issue 流程。
+7. Create Issue dialog 要求輸入 description，並可從目前 Job 的 label names 選擇文字插入游標位置。
+   Label text 只協助填寫 issue message，不會決定之後轉換出的 annotation label。
+8. `finishIssueAsync` 建立 `is_mask_issue: true` 的 core Issue，
+   將 RLE position 與第一則 comment 寫入既有 Issue API；一般 Issue 仍沿用原本的 hull 流程。
+9. 顯示已儲存的 Issue Mask 時，前端先以共用 `isLikelyRle()` 檢查格式，
+   再使用 OpenCV 從 mask 擷取一個或多個 contours，讓 disconnected regions 以同一個 Issue ID 呈現。
+   Contour 擷取失敗時記錄內部錯誤並退回 raster bounding box。
+10. 只有非 Review workspace 且 `issue.isMaskIssue === true` 時提供 **Convert to mask**。
+    Canvas issue dialog 與 Standard workspace Issues sidebar 都提供入口；
+    使用者必須從與 Mask 相容的 labels（`mask` 或 `any`）選擇目標 label。
+11. 轉換時優先沿用有效的 Issue RLE，否則嘗試把 position 視為 polygon rasterize 成 RLE，
+    再以既有 `createAnnotationsAsync` 將 Mask Annotation 加入目前 annotation session。
+    使用者仍須執行既有 **Save** 才能將 annotation 持久化。
+12. 使用者可選擇在轉換後 resolve Issue；annotation 建立與 Issue resolve 是兩個循序操作，
+    不建立 Issue-to-Annotation 關聯，也不提供跨兩者的 transaction 或重複轉換防護。
 
-Backend migration、serializer、schema、core 與 UI 必須同版部署。若新版 UI 先連到舊 backend，`is_mask_issue` 可能被忽略，RLE position 便會失去可靠的 geometry discriminator。
+Backend migration、serializer、schema、core 與 UI 必須同版部署。
+若新版 UI 先連到舊 backend，`is_mask_issue` 可能被忽略，
+RLE position 便會失去可靠的 geometry discriminator。
 
 ---
 
@@ -64,16 +90,22 @@ Backend migration、serializer、schema、core 與 UI 必須同版部署。若�
 
 ### Negative:
 
-- `Issue.position` 同時承載 polygon coordinates 與 RLE，資料語意完全依賴 `is_mask_issue`。後端目前只驗證非空數字陣列，不驗證 RLE 結構或旗標一致性，而且兩者皆可被 PATCH；不一致資料可能被錯誤繪製或轉換。
+- `Issue.position` 同時承載 polygon coordinates 與 RLE，資料語意完全依賴 `is_mask_issue`。
+  後端目前只驗證非空數字陣列，不驗證 RLE 結構或旗標一致性，而且兩者皆可被 PATCH；
+  不一致資料可能被錯誤繪製或轉換。
 - Issue API 不支援依 `is_mask_issue` query filter；需要先取得 Issues 再由 client 判斷類型。
 - RLE payload、前端解碼及 OpenCV contour extraction 會增加網路、CPU 與記憶體成本；大型或複雜 mask 的上限尚未量測。
 - Flood fill 會填滿未與 raster 邊界連通的背景。這可把封閉筆劃轉成實心區域，但也可能移除使用者刻意保留的孔洞。
 - Invalid RLE 的 fallback 會嘗試把同一數字陣列視為 polygon coordinates；在缺少 server-side invariant 的情況下，可能產生無意義的 geometry。
-- 轉換只把 Mask Annotation 加入目前 annotation session；Issue 可在 annotation 尚未 Save 前就被 resolve。瀏覽器關閉、Save 失敗或 resolve 失敗都可能留下兩邊狀態不一致。
+- 轉換只把 Mask Annotation 加入目前 annotation session；Issue 可在 annotation 尚未 Save 前就被 resolve。
+  瀏覽器關閉、Save 失敗或 resolve 失敗都可能留下兩邊狀態不一致。
 - Issue 與新 Annotation 沒有關聯 ID 或 converted marker；同一 Issue 可重複轉換，形成重複 mask annotations。
-- Canvas issue dialog 與 Issues sidebar 各自實作 polygon-to-RLE、label selection、conversion 及 optional resolve，未來修正可能只套用到其中一個入口。
+- Canvas issue dialog 與 Issues sidebar 各自實作 polygon-to-RLE、label selection、conversion 及 optional resolve，
+  未來修正可能只套用到其中一個入口。
 - 建立與轉換的主要 gating 是 workspace，而不是 job stage 的硬性條件；若其他導覽路徑允許以非預期 stage 進入相應 workspace，工具仍可能出現。
-- 功能只支援 2D；3D、touch 與 S Pen 行為不在本次決策的驗證範圍。Sidebar control 是帶 click handler 的 icon，缺少原生 button semantics 與明確 `aria-label`，keyboard focus 與 screen reader 仍需驗證。
+- 功能只支援 2D；3D、touch 與 S Pen 行為不在本次決策的驗證範圍。
+  Sidebar control 是帶 click handler 的 icon，缺少原生 button semantics 與明確 `aria-label`，
+  keyboard focus 與 screen reader 仍需驗證。
 
 ---
 
@@ -113,9 +145,16 @@ Backend migration、serializer、schema、core 與 UI 必須同版部署。若�
 
 ### Known Implementation Issues
 
-- Canvas issue dialog 的 `resolve` prop 回傳 `void`，只 dispatch 非同步 `resolveIssueAsync`。轉換流程用同步 `try/catch` 呼叫它，因此無法等待或捕捉 resolve PATCH 失敗，預期的 **Mask created, issue not resolved** warning 在此入口不可靠；Issues sidebar 的 direct flow 則會 `await` resolve。
-- API 沒有驗證 `is_mask_issue` 與 RLE position 的不變條件，也允許獨立 PATCH 兩者。建立 server-side validator 或 typed geometry contract 前，資料修復與第三方 API client 都必須同時維護旗標及 position。
-- PR #12 將 `cvat/schema.yml` 的 API metadata version 從 base 的 `2.55.1` 變為 `2.54.1`，但 `cvat-ui/package.json` 仍為 `2.55.1`。這不是 Issue Mask 決策的一部分，仍應在發布前校正以避免 API 文件版本漂移。
+- Canvas issue dialog 的 `resolve` prop 回傳 `void`，只 dispatch 非同步 `resolveIssueAsync`。
+  轉換流程用同步 `try/catch` 呼叫它，因此無法等待或捕捉 resolve PATCH 失敗，
+  預期的 **Mask created, issue not resolved** warning 在此入口不可靠；
+  Issues sidebar 的 direct flow 則會 `await` resolve。
+- API 沒有驗證 `is_mask_issue` 與 RLE position 的不變條件，也允許獨立 PATCH 兩者。
+  建立 server-side validator 或 typed geometry contract 前，
+  資料修復與第三方 API client 都必須同時維護旗標及 position。
+- PR #12 將 `cvat/schema.yml` 的 API metadata version 從 base 的 `2.55.1` 變為 `2.54.1`，
+  但 `cvat-ui/package.json` 仍為 `2.55.1`。這不是 Issue Mask 決策的一部分，
+  仍應在發布前校正以避免 API 文件版本漂移。
 
 本 ADR 只記錄上述既存問題，沒有修改功能程式碼。
 
@@ -135,7 +174,8 @@ Backend migration、serializer、schema、core 與 UI 必須同版部署。若�
 - Label-text selector 的檢查是條件式；Canvas dialog conversion 不存在時也會改走 sidebar，因此無法單獨保證各入口存在且正常。
 - Spec 以再次點擊 control 完成繪製，沒有驗證 `m` shortcut；也沒有建立一般 Issue 來確認其不會顯示 **Convert to mask**。
 - Reload 後只確認 Mask object 數量，沒有斷言變更後的確切 label、RLE／pixel geometry 或 area。
-- 尚未覆蓋 invalid RLE、OpenCV／API／Save／resolve failure、重試、無 Mask label、resolve-after-convert、重複轉換、3D／deleted-frame guard、權限、唯讀模式、accessibility、responsive、touch、S Pen 或大型 mask 效能。
+- 尚未覆蓋 invalid RLE、OpenCV／API／Save／resolve failure、重試、無 Mask label、resolve-after-convert、
+  重複轉換、3D／deleted-frame guard、權限、唯讀模式、accessibility、responsive、touch、S Pen 或大型 mask 效能。
 - 沒有新增後端 serializer／migration unit test。
 
 單獨執行現有 spec：
@@ -152,10 +192,13 @@ yarn run cypress:run:chrome --spec cypress/e2e/features2/review_controls_issue_m
 ## Alternatives Considered
 
 - **沿用一般 Issue 的 polygon／convex hull**：不需資料模型變更，但會擴張凹形區域並合併 disconnected regions，無法保留 reviewer 畫出的像素範圍。
-- **Review 時直接建立 Mask Annotation**：資料立即具有 label 與 annotation lifecycle，但會把「指出問題」與「修正標註」混成同一操作，也不利於保留獨立的 issue discussion／resolve workflow。
-- **新增獨立 IssueMask model 或 typed geometry union**：可在後端建立強型別與 RLE validator，避免旗標和 position 不一致；代價是更多 table、serializer、API 與相容性遷移。
+- **Review 時直接建立 Mask Annotation**：資料立即具有 label 與 annotation lifecycle，
+  但會把「指出問題」與「修正標註」混成同一操作，也不利於保留獨立的 issue discussion／resolve workflow。
+- **新增獨立 IssueMask model 或 typed geometry union**：可在後端建立強型別與 RLE validator，
+  避免旗標和 position 不一致；代價是更多 table、serializer、API 與相容性遷移。
 - **把 RLE 轉成 contours 後再儲存 polygons**：讀取與一般 Issue 較一致，但轉換可能失真、資料量不可預測，也會失去原始 mask raster 語意。
-- **新增 server-side Convert Issue to Mask transaction API**：可原子地建立 annotation、建立關聯並 resolve Issue，也能提供 idempotency；但需要新的 domain model、權限、rollback 與 API contract，超出本次前端導向需求。
+- **新增 server-side Convert Issue to Mask transaction API**：可原子地建立 annotation、建立關聯並 resolve Issue，
+  也能提供 idempotency；但需要新的 domain model、權限、rollback 與 API contract，超出本次前端導向需求。
 
 ## Embedded Attachments
 

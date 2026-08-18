@@ -18,7 +18,9 @@
 
 PR #12 同時包含 MSA-736、MSA-737 與 MSA-738；本 ADR 僅記錄 MSA-736 的 **Finish Job button**，不涵蓋 Raw Frame Compare 或 Issue Mask。
 
-在此變更之前，Annotation page 已經可以從 Actions menu 選擇 **Finish the job**，並已有共用的 `finishCurrentJobAsync` 流程。該流程會先儲存標註，再將 job state 更新為 `completed`。然而，完成 Job 的操作藏在選單內，使用者無法從主要操作列直接辨識與執行。
+在此變更之前，Annotation page 已經可以從 Actions menu 選擇 **Finish the job**，並已有共用的
+`finishCurrentJobAsync` 流程。該流程會先儲存標註，再將 job state 更新為 `completed`。然而，完成 Job 的操作藏在選單內，
+使用者無法從主要操作列直接辨識與執行。
 
 我們需要在不複製 domain logic、不新增後端 API 的前提下，提供較容易發現的入口。同時，完成 Job 會寫入標註並改變持久化狀態，因此必須保留明確的確認步驟，降低誤觸風險。
 
@@ -44,7 +46,8 @@ PR #12 同時包含 MSA-736、MSA-737 與 MSA-738；本 ADR 僅記錄 MSA-736 �
 6. 保留 Actions menu 中原有的 **Finish the job** 入口，以維持既有使用流程；兩個入口共用同一個 Redux thunk。
 7. 不新增 Finish-specific backend endpoint、資料表、migration 或 schema。
 
-雖然 PR 與 Cypress spec 將此功能放在 Review workflow 脈絡下驗證，按鈕本身沒有 `workspace === Review` 條件，因此實際上會出現在所有使用此 top bar 的 Annotation workspaces。
+雖然 PR 與 Cypress spec 將此功能放在 Review workflow 脈絡下驗證，按鈕本身沒有 `workspace === Review`
+條件，因此實際上會出現在所有使用此 top bar 的 Annotation workspaces。
 
 ---
 
@@ -91,7 +94,9 @@ PR #12 同時包含 MSA-736、MSA-737 與 MSA-738；本 ADR 僅記錄 MSA-736 �
 - 點擊後會顯示預期的確認視窗與兩個操作按鈕；
 - 選擇 **Cancel** 後視窗關閉。
 
-該 spec **尚未**驗證按下 **Finish job** 後的 annotation persistence、job state update、成功提示、plugin veto、錯誤處理、重複完成、其他 workspace、權限差異或響應式版面。這些項目不能因靜態檢查或現有 cancel-path 測試而視為已通過。
+該 spec **尚未**驗證按下 **Finish job** 後的 annotation persistence、job state update、成功提示、plugin veto、
+錯誤處理、重複完成、其他 workspace、權限差異或響應式版面。這些項目不能因靜態檢查或現有 cancel-path
+測試而視為已通過。
 
 單獨執行現有 spec：
 

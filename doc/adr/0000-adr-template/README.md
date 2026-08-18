@@ -9,6 +9,7 @@
 #### Related Ticket
 `N/A`
 [MSA-NNN](url-to-jira-ticket)
+
 ---
 
 ## Context
@@ -32,11 +33,11 @@
 
 ---
 
-## [optional] Implementation Notes
+## \[optional] Implementation Notes
 
 ---
 
-## [optional] Alternatives Considered
+## \[optional] Alternatives Considered
 
 - .....
 - .....
@@ -45,7 +46,7 @@
 
 ### Mermaid Diagram
 
--  can use `<div style="zoom:50%;"> </div>` to scale down the diagram
+- can use `<div style="zoom:50%;"> </div>` to scale down the diagram
 
 <div style="zoom:50%;">
 
