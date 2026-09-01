@@ -19,6 +19,7 @@ import { ColorBy, CombinedState, Workspace } from 'reducers';
 import { DimensionType, Job } from 'cvat-core-wrapper';
 import { OrientationVisibility } from 'cvat-canvas3d-wrapper';
 import { collapseAppearance as collapseAppearanceAction } from 'actions/annotation-actions';
+import ColorSettingsBlock from 'components/annotation-page/color-settings-block';
 import {
     changeShapesColorBy as changeShapesColorByAction,
     changeShapesOpacity as changeShapesOpacityAction,
@@ -264,6 +265,13 @@ function AppearanceBlock(props: Props): JSX.Element {
                             >
                                 Show projections
                             </Checkbox>
+                        )}
+                        {is2D && (
+                            <>
+                                <hr style={{ margin: '16px 0' }} />
+                                <Text type='secondary' strong>Color settings</Text>
+                                <ColorSettingsBlock />
+                            </>
                         )}
                     </div>
                 ),
