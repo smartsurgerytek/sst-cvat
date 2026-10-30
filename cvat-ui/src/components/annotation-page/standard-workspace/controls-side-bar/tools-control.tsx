@@ -101,7 +101,13 @@ const sam1Model = new core.classes.MLModel({
     help_message: 'Left click: foreground. Right click: background. Click SAM1 again: finish. Esc: cancel.',
 });
 function SAM1Icon(): JSX.Element {
-    return <span style={{ fontSize: 10, fontWeight: 700 }}>SAM1</span>;
+    return (
+        <svg viewBox='0 0 40 40' width='1em' height='1em' fill='currentColor' aria-hidden='true'>
+            <text x='20' y='20' textAnchor='middle' dominantBaseline='central' fontSize='12' fontWeight='700'>
+                SAM1
+            </text>
+        </svg>
+    );
 }
 
 function mapStateToProps(state: CombinedState, ownProps: OwnProps): StateToProps {
