@@ -32,7 +32,7 @@ import Organization, { Invitation } from './organization';
 import Webhook from './webhook';
 import { ArgumentError } from './exceptions';
 import {
-    AnalyticsEventsFilter, QualityConflictsFilter,
+    AnalyticsEvent, AnalyticsEventsFilter, AnalyticsEventsQuery, QualityConflictsFilter,
     SerializedAsset, ConsensusSettingsFilter, SerializedOrganization,
 } from './server-response-types';
 import QualityReport from './quality-report';
@@ -579,6 +579,53 @@ export default function implementAPI(cvat: CVATCore): CVATCore {
 
         const params = fieldsToSnakeCase(filter);
         return serverProxy.events.export(params);
+    });
+    implementationMixin(cvat.analytics.events.list, async (
+        filter: AnalyticsEventsQuery,
+    ): ReturnType<CVATCore['analytics']['events']['list']> => {
+        checkFilter(filter, {
+            orgId: isInteger,
+            userId: isInteger,
+            jobId: isInteger,
+            taskId: isInteger,
+            projectId: isInteger,
+            from: isString,
+            to: isString,
+            scope: isString,
+            objName: isString,
+            page: isInteger,
+            pageSize: isPageSize,
+            cursor: isString,
+            includeCount: isBoolean,
+        });
+
+        const params = fieldsToSnakeCase(filter);
+        const result = await serverProxy.events.list(params);
+        // Convert backend field names to the camelCase shape used in the UI.
+        const events = result.results.map((event) => ({
+            scope: event.scope,
+            timestamp: event.timestamp,
+            objName: event.obj_name ?? null,
+            objId: event.obj_id ?? null,
+            objVal: event.obj_val ?? null,
+            source: event.source ?? null,
+            count: event.count ?? null,
+            duration: event.duration ?? null,
+            projectId: event.project_id ?? null,
+            taskId: event.task_id ?? null,
+            jobId: event.job_id ?? null,
+            userId: event.user_id ?? null,
+            userName: event.user_name ?? null,
+            userEmail: event.user_email ?? null,
+            orgId: event.org_id ?? null,
+            orgSlug: event.org_slug ?? null,
+            payload: event.payload ?? null,
+        }) as AnalyticsEvent);
+        return Object.assign(events, {
+            count: result.count,
+            hasMore: result.has_more,
+            nextCursor: result.next_cursor ?? null,
+        }) as PaginatedResource<AnalyticsEvent> & { hasMore: boolean; nextCursor?: string | null };
     });
     implementationMixin(cvat.frames.getMeta, async (type: 'job' | 'task', id: number) => {
         const result = await getFramesMeta(type, id);

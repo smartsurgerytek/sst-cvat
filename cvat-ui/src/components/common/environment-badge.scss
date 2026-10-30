@@ -1,0 +1,20 @@
+// Copyright (C) CVAT.ai Corporation
+//
+// SPDX-License-Identifier: MIT
+
+@import '../../base';
+
+.cvat-environment-badge {
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 16px;
+    padding: 0 $grid-unit-size * 0.75;
+    margin-left: $grid-unit-size;
+    margin-right: 0;
+    border-radius: 4px;
+    vertical-align: middle;
+
+    &.ant-tag {
+        margin-inline-end: 0;
+    }
+}

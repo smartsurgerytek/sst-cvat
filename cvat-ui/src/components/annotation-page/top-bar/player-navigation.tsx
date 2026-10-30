@@ -27,6 +27,8 @@ import { ShortcutScope } from 'utils/enums';
 import { subKeyMap } from 'utils/component-subkeymap';
 import { Chapter } from 'cvat-core/src/frames';
 import { usePlugins } from 'utils/hooks';
+import { useSelector } from 'react-redux';
+import { originalVideoCachedRanges, originalVideoSource } from 'cvat-core/src/original-video';
 
 interface Props {
     startFrame: number;
@@ -107,7 +109,38 @@ function PlayerNavigation(props: Props): JSX.Element {
         showSearchFrameByName,
     } = props;
 
+    const jobID = useSelector((state: CombinedState) => state.annotation.job.instance?.id);
+    const originalVideo = jobID ? originalVideoSource(jobID) : undefined;
+    const [cachedVideoRanges, setCachedVideoRanges] = useState<[number, number][]>([]);
+    useEffect(() => {
+        const refresh = (): void => setCachedVideoRanges(jobID ? originalVideoCachedRanges(jobID) : []);
+        refresh();
+        const timer = window.setInterval(refresh, 500);
+        return () => window.clearInterval(timer);
+    }, [jobID]);
+    const timeAt = (frame: number): number => originalVideo?.timestamps[frame] || 0;
+    const frameAt = (time: number): number => {
+        const index = originalVideo!.timestamps.findIndex((value) => value >= time);
+        return index < 0 ? stopFrame : index;
+    };
     const [frameInputValue, setFrameInputValue] = useState<number>(frameNumber);
+
+    const cacheRanges = originalVideo ? cachedVideoRanges.map(([start, end]) => {
+        const min = timeAt(startFrame);
+        const max = timeAt(stopFrame);
+        const duration = max - min;
+        return {
+            start: (Math.max(0, start - min) / duration) * 1000,
+            width: (Math.max(0, Math.min(end, max) - Math.max(start, min)) / duration) * 1000,
+        };
+    }).filter((range) => Number.isFinite(range.width) && range.width > 0) : ranges.split(';').filter(Boolean).map((range) => {
+        const [start, stop] = range.split(':').map(Number);
+        const count = stopFrame - startFrame + 1;
+        return {
+            start: (Math.max(0, start - startFrame) / count) * 1000,
+            width: ((stop - start + 1) / count) * 1000,
+        };
+    });
 
     const playerSliderPlugins = usePlugins(
         (state: CombinedState) => state.plugins.components.annotationPage.player.slider,
@@ -209,24 +242,33 @@ function PlayerNavigation(props: Props): JSX.Element {
                     <Col style={{ position: 'relative' }}>
                         <Slider
                             className='cvat-player-slider'
-                            min={startFrame}
-                            max={stopFrame}
-                            marks={marks}
-                            value={frameNumber || 0}
-                            onChange={workspace !== Workspace.SINGLE_SHAPE ? onSliderChange : undefined}
+                            min={originalVideo ? timeAt(startFrame) : startFrame}
+                            max={originalVideo ? timeAt(stopFrame) : stopFrame}
+                            step={originalVideo ? 0.001 : 1}
+                            marks={originalVideo ? undefined : marks}
+                            value={originalVideo ? timeAt(frameNumber) : (frameNumber || 0)}
+                            onChange={workspace !== Workspace.SINGLE_SHAPE ? (value) => (
+                                onSliderChange(originalVideo ? frameAt(value) : value)
+                            ) : undefined}
+                            tooltip={{ formatter: (value) => (originalVideo ? `${value?.toFixed(3)} s` : value) }}
                         />
-                        {!!ranges && (
-                            <svg className='cvat-player-slider-progress' viewBox='0 0 1000 16' xmlns='http://www.w3.org/2000/svg'>
-                                {ranges.split(';').map((range) => {
-                                    const [rangeStart, rangeStop] = range.split(':').map((num) => +num);
-                                    const totalSegments = stopFrame - startFrame + 1;
-                                    const segmentWidth = 1000 / totalSegments;
-                                    const width = (rangeStop - rangeStart + 1) * segmentWidth;
-                                    const offset = (Math.max((rangeStart - startFrame), 0) / totalSegments) * 1000;
-                                    return (
-                                        <rect rx={10} key={rangeStart} x={offset} y={0} height={16} width={width} />
-                                    );
-                                })}
+                        {!!cacheRanges.length && (
+                            <svg
+                                className='cvat-player-slider-progress'
+                                viewBox='0 0 1000 16'
+                                xmlns='http://www.w3.org/2000/svg'
+                                aria-label='Downloaded frames (green)'
+                            >
+                                {cacheRanges.map((range) => (
+                                    <rect
+                                        rx={10}
+                                        key={range.start}
+                                        x={range.start}
+                                        y={0}
+                                        height={16}
+                                        width={range.width}
+                                    />
+                                ))}
                             </svg>
                         )}
                         {playerSliderPlugins
@@ -240,7 +282,11 @@ function PlayerNavigation(props: Props): JSX.Element {
                 <Row justify='center'>
                     <Col className='cvat-player-filename-wrapper'>
                         <CVATTooltip title={`${frameFilename}`}>
-                            <Text type='secondary'>{frameFilename}</Text>
+                            <Text type='secondary'>
+                                {originalVideo ?
+                                    `${timeAt(frameNumber).toFixed(3)} / ${originalVideo.duration.toFixed(3)} s` :
+                                    frameFilename}
+                            </Text>
                         </CVATTooltip>
                     </Col>
                     <Col className='cvat-player-frame-actions' offset={1}>
@@ -261,13 +307,16 @@ function PlayerNavigation(props: Props): JSX.Element {
                         className='cvat-player-frame-selector'
                         type='number'
                         disabled={workspace === Workspace.SINGLE_SHAPE}
-                        value={frameInputValue}
-                        min={startFrame}
-                        max={stopFrame}
+                        value={originalVideo ? +timeAt(frameInputValue).toFixed(3) : frameInputValue}
+                        aria-label={originalVideo ? 'Video time in seconds' : 'Frame number'}
+                        min={originalVideo ? timeAt(startFrame) : startFrame}
+                        max={originalVideo ? timeAt(stopFrame) : stopFrame}
+                        step={originalVideo ? 0.001 : 1}
                         style={{ ['--frame-input-width' as string]: `${stopFrame.toString().length + 2}ch` }}
                         onChange={(value: number | undefined | string | null) => {
                             if (typeof value !== 'undefined' && value !== null) {
-                                setFrameInputValue(Math.floor(clamp(+value, startFrame, stopFrame)));
+                                setFrameInputValue(originalVideo ?
+                                    frameAt(+value) : Math.floor(clamp(+value, startFrame, stopFrame)));
                             }
                         }}
                         onFocus={() => inputFrameRef.current?.select()}

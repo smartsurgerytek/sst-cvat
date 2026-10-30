@@ -20,6 +20,7 @@ interface RawIssueData {
     owner?: any;
     resolved?: boolean;
     created_date?: string;
+    is_mask_issue?: boolean;
 }
 
 export default class Issue {
@@ -30,6 +31,7 @@ export default class Issue {
     public readonly comments: Comment[];
     public readonly resolved?: boolean;
     public readonly createdDate?: string;
+    public readonly isMaskIssue?: boolean;
     public position?: number[];
     private readonly __internal: RawIssueData & { comments: Comment[] };
 
@@ -42,6 +44,7 @@ export default class Issue {
             created_date: undefined,
             owner: undefined,
             resolved: undefined,
+            is_mask_issue: undefined,
             comments: undefined,
         };
 
@@ -95,6 +98,9 @@ export default class Issue {
                 },
                 resolved: {
                     get: () => data.resolved,
+                },
+                isMaskIssue: {
+                    get: () => data.is_mask_issue,
                 },
                 __internal: {
                     get: () => data,
@@ -160,6 +166,9 @@ export default class Issue {
         }
         if (typeof this.resolved === 'boolean') {
             data.resolved = this.resolved;
+        }
+        if (typeof this.isMaskIssue === 'boolean') {
+            data.is_mask_issue = this.isMaskIssue;
         }
         if (this.owner instanceof User) {
             data.owner = this.owner.serialize().id;

@@ -105,14 +105,15 @@ export default function (state: ReviewState = defaultState, action: any): Review
             const { frame, issue } = action.payload;
             const issues = [...state.issues, issue];
             const frameIssues = issues.filter((_issue: any): boolean => _issue.frame === frame);
+            const firstMessage = issue.comments[0]?.message || '';
 
             return {
                 ...state,
-                latestComments: state.latestComments.includes(issue.comments[0].message) ?
+                latestComments: !firstMessage || state.latestComments.includes(firstMessage) ?
                     state.latestComments :
                     Array.from(
                         new Set(
-                            [...state.latestComments, issue.comments[0].message].filter(
+                            [...state.latestComments, firstMessage].filter(
                                 (message: string): boolean => ![
                                     config.QUICK_ISSUE_INCORRECT_POSITION_TEXT,
                                     config.QUICK_ISSUE_INCORRECT_ATTRIBUTE_TEXT,

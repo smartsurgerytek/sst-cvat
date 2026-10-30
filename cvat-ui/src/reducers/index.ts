@@ -779,6 +779,7 @@ export enum ActiveControl {
     SLICE = 'slice',
     EDIT = 'edit',
     OPEN_ISSUE = 'open_issue',
+    OPEN_ISSUE_MASK = 'open_issue_mask',
     AI_TOOLS = 'ai_tools',
     PHOTO_CONTEXT = 'PHOTO_CONTEXT',
     OPENCV_TOOLS = 'opencv_tools',
@@ -1040,6 +1041,7 @@ export enum ReviewStatus {
 export enum NewIssueSource {
     ISSUE_TOOL = 'tool',
     QUICK_ISSUE = 'quick_issue',
+    ISSUE_MASK = 'issue_mask',
 }
 
 export interface ReviewState {

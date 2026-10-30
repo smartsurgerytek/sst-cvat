@@ -23,7 +23,7 @@ import {
     PlusIcon, CheckIcon, MoveIcon,
 } from 'icons';
 import CVATTooltip from 'components/common/cvat-tooltip';
-import { CombinedState } from 'reducers';
+import { ActiveControl, CombinedState } from 'reducers';
 import LabelSelector from 'components/label-selector/label-selector';
 import { changeHideActiveObjectAsync, rememberObject, updateCanvasBrushTools } from 'actions/annotation-actions';
 import { ShortcutScope } from 'utils/enums';
@@ -74,7 +74,7 @@ const MIN_BRUSH_SIZE = 1;
 function BrushTools(): React.ReactPortal | null {
     const dispatch = useDispatch();
     const {
-        defaultLabelID, visible, canvasInstance, labels, activeObjectHidden, keyMap, normalizedKeyMap,
+        defaultLabelID, visible, canvasInstance, labels, activeObjectHidden, keyMap, normalizedKeyMap, activeControl,
     } = useSelector((state: CombinedState) => ({
         defaultLabelID: state.annotation.drawing.activeLabelID,
         visible: state.annotation.canvas.brushTools.visible,
@@ -83,9 +83,11 @@ function BrushTools(): React.ReactPortal | null {
         activeObjectHidden: state.annotation.canvas.activeObjectHidden,
         keyMap: state.shortcuts.keyMap,
         normalizedKeyMap: state.shortcuts.normalizedKeyMap,
+        activeControl: state.annotation.canvas.activeControl,
     }), shallowEqual);
 
     const [editableState, setEditableState] = useState<any | null>(null);
+    const isIssueMaskMode = activeControl === ActiveControl.OPEN_ISSUE_MASK;
     const [currentTool, setCurrentTool] = useState<'brush' | 'eraser' | 'polygon-plus' | 'polygon-minus'>('brush');
     const [brushForm, setBrushForm] = useState<'circle' | 'square'>('circle');
     const [[top, left], setTopLeft] = useState([0, 0]);
@@ -364,27 +366,31 @@ function BrushTools(): React.ReactPortal | null {
                     />
                 </CVATTooltip>
             ) : null}
-            { ['brush', 'eraser'].includes(currentTool) ? (
+            { !isIssueMaskMode && ['brush', 'eraser'].includes(currentTool) ? (
                 <Select value={brushForm} onChange={(value: 'circle' | 'square') => setBrushForm(value)}>
                     <Select.Option value='circle'>Circle</Select.Option>
                     <Select.Option value='square'>Square</Select.Option>
                 </Select>
             ) : null}
-            <Button
-                type='text'
-                className={['cvat-brush-tools-underlying-pixels', ...(removeUnderlyingPixels ? ['cvat-brush-tools-active-tool'] : [])].join(' ')}
-                icon={<VerticalAlignBottomOutlined />}
-                onClick={() => setRemoveUnderlyingPixels(!removeUnderlyingPixels)}
-            />
-            <CVATTooltip title={`Hide mask ${normalizedKeyMap.SWITCH_HIDDEN}`}>
+            { !isIssueMaskMode ? (
                 <Button
                     type='text'
-                    className={['cvat-brush-tools-hide', ...(activeObjectHidden ? ['cvat-brush-tools-active-tool'] : [])].join(' ')}
-                    icon={activeObjectHidden ? <EyeInvisibleFilled /> : <EyeOutlined />}
-                    onClick={() => hideMask(!activeObjectHidden)}
+                    className={['cvat-brush-tools-underlying-pixels', ...(removeUnderlyingPixels ? ['cvat-brush-tools-active-tool'] : [])].join(' ')}
+                    icon={<VerticalAlignBottomOutlined />}
+                    onClick={() => setRemoveUnderlyingPixels(!removeUnderlyingPixels)}
                 />
-            </CVATTooltip>
-            { !editableState && !!applicableLabels.length && (
+            ) : null}
+            { !isIssueMaskMode ? (
+                <CVATTooltip title={`Hide mask ${normalizedKeyMap.SWITCH_HIDDEN}`}>
+                    <Button
+                        type='text'
+                        className={['cvat-brush-tools-hide', ...(activeObjectHidden ? ['cvat-brush-tools-active-tool'] : [])].join(' ')}
+                        icon={activeObjectHidden ? <EyeInvisibleFilled /> : <EyeOutlined />}
+                        onClick={() => hideMask(!activeObjectHidden)}
+                    />
+                </CVATTooltip>
+            ) : null}
+            { !isIssueMaskMode && !editableState && !!applicableLabels.length && (
                 <LabelSelector
                     labels={applicableLabels}
                     value={defaultLabelID}

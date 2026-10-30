@@ -7,6 +7,7 @@ import React from 'react';
 import { connect } from 'react-redux';
 import { withRouter } from 'react-router';
 import { RouteComponentProps } from 'react-router-dom';
+import message from 'antd/lib/message';
 
 import {
     changeFrameAsync,
@@ -17,6 +18,7 @@ import {
     redoActionAsync,
     restoreFrameAsync,
     saveAnnotationsAsync,
+    finishCurrentJobAsync,
     searchAnnotationsAsync,
     searchChaptersAsync,
     setForceExitAnnotationFlag as setForceExitAnnotationFlagAction,
@@ -42,6 +44,8 @@ import { writeLatestFrame } from 'utils/remember-latest-frame';
 import { finishDraw } from 'utils/drawing';
 import { toClipboard } from 'utils/to-clipboard';
 import { Chapter } from 'cvat-core/src/frames';
+import { originalVideoSource } from 'cvat-core/src/original-video';
+import { videoFrameAtTime } from 'utils/sam2-video-timing';
 
 interface StateToProps {
     chapters: Chapter[];
@@ -106,6 +110,7 @@ interface DispatchToProps {
     restoreFrame(frame: number): void;
     switchNavigationBlocked(blocked: boolean): void;
     setNavigationType(navigationType: NavigationType): void;
+    onFinishJob(): void;
 }
 
 function mapStateToProps(state: CombinedState): StateToProps {
@@ -256,6 +261,16 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         setNavigationType(navigationType: NavigationType): void {
             dispatch(setNavigationTypeAction(navigationType));
         },
+        onFinishJob(): void {
+            dispatch(finishCurrentJobAsync(() => {
+                message.open({
+                    duration: 1,
+                    type: 'success',
+                    content: 'You tagged the job as completed',
+                    className: 'cvat-annotation-job-finished-success',
+                });
+            }));
+        },
     };
 }
 
@@ -265,6 +280,9 @@ class AnnotationTopBarContainer extends React.PureComponent<Props> {
     private autoSaveInterval: number | undefined;
     private isWaitingForPlayDelay: boolean;
     private unblock: any;
+    private playbackClock: { wall: number; media: number; rate: number } | null = null;
+    private playbackGeneration = 0;
+    private disposed = false;
 
     constructor(props: Props) {
         super(props);
@@ -304,16 +322,30 @@ class AnnotationTopBarContainer extends React.PureComponent<Props> {
     }
 
     public componentDidUpdate(prevProps: Props): void {
-        const { autoSaveInterval } = this.props;
+        const {
+            autoSaveInterval, playing, frameSpeed, jobInstance, frameNumber,
+        } = this.props;
 
         if (autoSaveInterval !== prevProps.autoSaveInterval) {
             if (this.autoSaveInterval) window.clearInterval(this.autoSaveInterval);
             this.autoSaveInterval = window.setInterval(this.autoSave.bind(this), autoSaveInterval);
         }
+        if (playing !== prevProps.playing || frameSpeed !== prevProps.frameSpeed) {
+            this.playbackGeneration += 1;
+            const source = originalVideoSource(jobInstance.id);
+            this.playbackClock = playing && source ? {
+                wall: performance.now(),
+                media: source.timestamps[frameNumber],
+                rate: frameSpeed / FrameSpeed.Usual,
+            } : null;
+        }
         this.handlePlayIfNecessary();
     }
 
     public componentWillUnmount(): void {
+        this.disposed = true;
+        this.playbackGeneration += 1;
+        this.playbackClock = null;
         window.clearInterval(this.autoSaveInterval);
         window.removeEventListener('beforeunload', this.beforeUnloadCallback);
         this.unblock();
@@ -333,17 +365,26 @@ class AnnotationTopBarContainer extends React.PureComponent<Props> {
 
         const { stopFrame } = jobInstance;
 
-        if (playing && canvasIsReady && !frameFetching && !this.isWaitingForPlayDelay) {
+        if (!this.disposed && playing && canvasIsReady && !frameFetching && !this.isWaitingForPlayDelay) {
             this.isWaitingForPlayDelay = true;
+            const generation = this.playbackGeneration;
+            const source = originalVideoSource(jobInstance.id);
+            const clock = this.playbackClock;
+            const mediaTime = (): number => clock!.media + ((performance.now() - clock!.wall) / 1000) * clock!.rate;
+            // Deadlines stay anchored to the play action, including decoding/rendering time.
+            const delay = source && clock ? Math.max(0,
+                (((source.timestamps[frameNumber + 1] ?? source.duration) - mediaTime()) * 1000) / clock.rate,
+            ) : frameDelay;
             try {
                 await new Promise((resolve) => {
-                    setTimeout(resolve, frameDelay);
+                    setTimeout(resolve, delay);
                 });
 
                 const { playing: currentPlaying, showDeletedFrames } = this.props;
 
-                if (currentPlaying) {
-                    const nextCandidate = frameNumber + 1;
+                if (currentPlaying && generation === this.playbackGeneration) {
+                    const nextCandidate = source && clock ? Math.max(frameNumber + 1,
+                        Math.min(stopFrame, videoFrameAtTime(source.timestamps, mediaTime()))) : frameNumber + 1;
                     if (nextCandidate > stopFrame) {
                         onSwitchPlay(false);
                         return;
@@ -351,6 +392,8 @@ class AnnotationTopBarContainer extends React.PureComponent<Props> {
 
                     const next = await jobInstance.frames
                         .search({ notDeleted: !showDeletedFrames }, nextCandidate, stopFrame);
+                    const { playing: stillPlaying } = this.props;
+                    if (generation !== this.playbackGeneration || !stillPlaying) return;
                     if (next !== null && isAbleToChangeFrame(next)) {
                         onChangeFrame(next, currentPlaying);
                     } else {
@@ -359,6 +402,10 @@ class AnnotationTopBarContainer extends React.PureComponent<Props> {
                 }
             } finally {
                 this.isWaitingForPlayDelay = false;
+                const { playing: stillPlaying } = this.props;
+                if (!this.disposed && generation !== this.playbackGeneration && stillPlaying) {
+                    this.handlePlayIfNecessary();
+                }
             }
         }
     }
@@ -722,6 +769,7 @@ class AnnotationTopBarContainer extends React.PureComponent<Props> {
             setNavigationType,
             switchShowSearchPallet,
             showSearchFrameByName,
+            onFinishJob,
         } = this.props;
 
         return (
@@ -750,6 +798,7 @@ class AnnotationTopBarContainer extends React.PureComponent<Props> {
                 switchShowSearchPallet={switchShowSearchPallet}
                 showSearchFrameByName={showSearchFrameByName}
                 switchNavigationBlocked={switchNavigationBlocked}
+                onFinishJob={onFinishJob}
                 keyMap={keyMap}
                 workspace={workspace}
                 playing={playing}

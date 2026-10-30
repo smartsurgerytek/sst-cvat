@@ -16,3 +16,6 @@
 /changelog.d
 /cvat-cli
 /profiles
+
+# UI artifacts are generated inside Dockerfile.ui; do not upload local bundles.
+/cvat-ui/dist

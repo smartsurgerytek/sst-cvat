@@ -194,7 +194,7 @@
 
     > rect {
         transition: width 0.5s;
-        fill: #1890ff;
+        fill: #52c41a;
     }
 }
 
@@ -622,4 +622,15 @@
     text-overflow: ellipsis;
     direction: rtl;
     unicode-bidi: plaintext;
+}
+
+// Playback waits preserve the last rendered frame instead of flashing a white overlay.
+.cvat-playback-buffering {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    width: 32px;
+    height: 32px;
+    z-index: 2;
+    pointer-events: none;
 }

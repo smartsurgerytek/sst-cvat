@@ -10,6 +10,7 @@ import { useHistory } from 'react-router';
 import Spin from 'antd/lib/spin';
 import { Col, Row } from 'antd/lib/grid';
 import Pagination from 'antd/lib/pagination';
+import Typography from 'antd/lib/typography';
 
 import { TasksQuery, CombinedState, SelectedResourceType } from 'reducers';
 import { updateHistoryFromQuery } from 'components/resource-sorting-filtering';
@@ -20,7 +21,6 @@ import { useResourceQuery } from 'utils/hooks';
 import { selectionActions } from 'actions/selection-actions';
 
 import TopBar from './top-bar';
-import EmptyListComponent from './empty-list';
 
 interface Props {
     fetching: boolean;
@@ -69,6 +69,12 @@ function TasksPageComponent(props: Readonly<Props>): JSX.Element {
 
     const isAnySearch = anySearch<TasksQuery>(query);
 
+    const emptyContent = (
+        <Typography.Paragraph style={{ textAlign: 'center', marginTop: 16 }}>
+            {isAnySearch ? 'No tasks match your filters.' : 'No tasks yet.'}
+        </Typography.Paragraph>
+    );
+
     const content = count ? (
         <>
             <TaskListContainer />
@@ -92,12 +98,10 @@ function TasksPageComponent(props: Readonly<Props>): JSX.Element {
                 </Col>
             </Row>
         </>
-    ) : (
-        <EmptyListComponent notFound={isAnySearch} />
-    );
+    ) : emptyContent;
 
     return (
-        <div className='cvat-tasks-page'>
+        <div className='cvat-tasks-page' style={{ overflowY: 'auto' }}>
             <TopBar
                 onApplySearch={(search: string | null) => {
                     dispatch(

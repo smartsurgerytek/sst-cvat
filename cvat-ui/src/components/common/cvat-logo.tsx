@@ -11,7 +11,7 @@ function CVATLogo(): JSX.Element {
 
     return (
         <div className='cvat-logo-icon'>
-            <img src={logo} alt='CVAT Logo' />
+            <img src={logo} alt='iLabel Logo' />
         </div>
     );
 }

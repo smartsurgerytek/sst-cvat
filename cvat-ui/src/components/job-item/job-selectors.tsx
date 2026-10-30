@@ -9,15 +9,18 @@ import { handleDropdownKeyDown } from 'utils/dropdown-utils';
 
 interface JobStateSelectorProps {
     value: JobState | null;
+    disabled?: boolean;
     onSelect: (newValue: JobState) => void;
 }
 
-export function JobStateSelector({ value, onSelect }: Readonly<JobStateSelectorProps>): JSX.Element {
+export function JobStateSelector({ value, disabled, onSelect }: Readonly<JobStateSelectorProps>): JSX.Element {
     return (
         <Select
+            // Shared selector used by both the card and the context menu.
             className='cvat-job-item-state'
             popupClassName='cvat-job-item-state-dropdown'
             value={value}
+            disabled={disabled}
             onChange={onSelect}
             onKeyDown={handleDropdownKeyDown}
             placeholder='Select a state'
@@ -32,15 +35,18 @@ export function JobStateSelector({ value, onSelect }: Readonly<JobStateSelectorP
 
 interface JobStageSelectorProps {
     value: JobStage | null;
+    disabled?: boolean;
     onSelect: (newValue: JobStage) => void;
 }
 
-export function JobStageSelector({ value, onSelect }: Readonly<JobStageSelectorProps>): JSX.Element {
+export function JobStageSelector({ value, disabled, onSelect }: Readonly<JobStageSelectorProps>): JSX.Element {
     return (
         <Select
+            // Shared selector used by both the card and the context menu.
             className='cvat-job-item-stage'
             popupClassName='cvat-job-item-stage-dropdown'
             value={value}
+            disabled={disabled}
             onChange={onSelect}
             onKeyDown={handleDropdownKeyDown}
             placeholder='Select a stage'

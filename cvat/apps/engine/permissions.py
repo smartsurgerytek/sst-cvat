@@ -412,6 +412,12 @@ class ProjectPermission(
     @classmethod
     def _get_scopes(cls, request: ExtendedRequest, view: ViewSet, obj: Project | None):
         Scopes = cls.Scopes
+        if view.action == "original_video_catalog":
+            return [Scopes.LIST]
+        if view.action in {"original_videos", "original_video", "original_video_media"}:
+            if request.method in {"GET", "HEAD", "OPTIONS"}:
+                return [Scopes.VIEW]
+            return [Scopes.VIEW, Scopes.UPDATE_DESC]
         scope = {
             ("list", "GET"): Scopes.LIST,
             ("create", "POST"): Scopes.CREATE,
@@ -996,6 +1002,16 @@ class JobPermission(OpenPolicyAgentPermission, DownloadExportedExtension):
     @classmethod
     def _get_scopes(cls, request: ExtendedRequest, view: ViewSet, obj: Job | None):
         Scopes = cls.Scopes
+        if view.action in {"original_video_media", "original_video_segment"}:
+            return [Scopes.VIEW_DATA]
+        if view.action == "sam1":
+            return [Scopes.UPDATE_ANNOTATIONS, Scopes.VIEW_DATA]
+        if view.action.startswith("video_inference"):
+            if view.action == "video_inference_export":
+                return [Scopes.EXPORT_ANNOTATIONS, Scopes.VIEW_DATA]
+            if request.method in {"POST", "DELETE", "PATCH"}:
+                return [Scopes.UPDATE_ANNOTATIONS, Scopes.VIEW_ANNOTATIONS, Scopes.VIEW_DATA]
+            return [Scopes.VIEW_ANNOTATIONS, Scopes.VIEW_DATA]
         scope = {
             ("list", "GET"): Scopes.LIST,
             ("create", "POST"): Scopes.CREATE,

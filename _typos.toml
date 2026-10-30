@@ -10,6 +10,9 @@ default.extend-ignore-re = [
     # test passwords
     "\"md5.*?\"",
 
+    # AWS EC2 instance IDs
+    "\\bi-[0-9a-f]+\\b",
+
     # Line ignore with trailing "# spellchecker:disable-line"
     # or trailing "// spellchecker:disable-line"
     "(?Rm)^.*(#|//)\\s*spellchecker:disable-line$",

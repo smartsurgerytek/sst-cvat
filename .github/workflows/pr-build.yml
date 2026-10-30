@@ -1,0 +1,79 @@
+# =============================================================================
+# PR Workflow: Build Images for PR Validation
+# =============================================================================
+#
+# This workflow runs CI checks for pull requests to sst-main.
+# It builds images to validate the code compiles correctly.
+#
+# Triggers:
+#   - Pull request to sst-main
+#
+# Prerequisites (GitHub Secrets):
+#   - GCP_SA_KEY:      Service Account JSON key
+#   - GCP_PROJECT_ID:  GCP Project ID (sandbox-446907)
+#
+# =============================================================================
+
+name: PR Build Check
+
+on:
+  pull_request:
+    branches:
+      - 'sst-main'
+
+# Prevent duplicate runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================
+  # Build Images for CI validation
+  # ============================================
+  build:
+    name: Build Images
+    # Only run if secrets are available (skip for external PRs from forks)
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/build-images.yml
+    with:
+      ref: ${{ github.head_ref }}
+      image_tag: ${{ github.head_ref }}-${{ github.sha }}
+      push_latest: false
+    secrets: inherit
+
+  # ============================================
+  # Summary
+  # ============================================
+  summary:
+    name: PR Check Summary
+    runs-on: ubuntu-latest
+    needs: build
+    if: always()
+
+    steps:
+      - name: Generate short SHA
+        id: vars
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          BRANCH_TAG=$(echo "${{ github.head_ref }}" | sed 's/\//-/g')
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "branch_tag=${BRANCH_TAG}" >> $GITHUB_OUTPUT
+
+      - name: PR Summary
+        run: |
+          echo "## PR Build Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ github.head_ref }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ steps.vars.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | \`${{ steps.vars.outputs.branch_tag }}-${{ steps.vars.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Status | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.build.result }}" = "success" ]; then
+            echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+            echo "CI passed. Ready to merge to \`sst-main\`." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### Build Failed" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the build logs and fix any issues." >> $GITHUB_STEP_SUMMARY
+          fi

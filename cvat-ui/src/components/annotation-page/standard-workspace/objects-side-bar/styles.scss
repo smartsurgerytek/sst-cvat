@@ -223,6 +223,10 @@
     border: 1px solid $object-item-border-color;
 }
 
+.cvat-objects-sidebar-state-item.cvat-objects-sidebar-state-multi-selected-item {
+    border: 1px dashed $object-item-border-color;
+}
+
 .cvat-objects-sidebar-state-item {
     width: 100%;
     background-color: rgba(var(--state-item-background), 1);
@@ -263,6 +267,152 @@
             @extend .cvat-object-sidebar-icon;
         }
     }
+}
+
+.cvat-objects-sidebar-state-item-label-selector {
+    .ant-select-selector {
+        min-height: 24px;
+        height: auto !important;
+        align-items: flex-start;
+    }
+
+    .ant-select-selection-item {
+        white-space: normal;
+        text-overflow: unset;
+        overflow: visible;
+        line-height: 1.2;
+    }
+}
+
+.cvat-objects-sidebar-state-item-label-selector-dropdown {
+    width: 150px !important;
+    max-width: calc(100vw - 32px);
+
+    .ant-select-item {
+        max-width: 100%;
+    }
+
+    .ant-select-item-option-content {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+}
+
+.cvat-objects-sidebar-bulk-label-selector-dropdown {
+    width: max-content !important;
+    max-width: min(420px, calc(100vw - 32px));
+
+    .ant-select-item {
+        max-width: 100%;
+    }
+
+    .ant-select-item-option-content {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+}
+
+.cvat-objects-sidebar-bulk-label-selector-anchor {
+    position: fixed;
+    width: min(220px, calc(100vw - 32px));
+    z-index: 1100;
+}
+
+.cvat-objects-sidebar-bulk-label-selector {
+    width: 100%;
+}
+
+.cvat-objects-sidebar-bulk-label-selector-actions {
+    padding: $grid-unit-size;
+    border-top: 1px solid $border-color-1;
+    background: $background-color-2;
+}
+
+.cvat-objects-sidebar-bulk-remove-button {
+    box-shadow: $box-shadow-base;
+}
+
+.cvat-objects-sidebar-selection-summary-window {
+    position: fixed;
+    left: $grid-unit-size * 8;
+    bottom: $grid-unit-size * 2;
+    width: 17.5rem;
+    max-width: max(0px, calc(100vw - $grid-unit-size * 12));
+    z-index: 900;
+    background: $background-color-2;
+    border: 1px solid $border-color-1;
+    border-radius: $border-radius-base;
+    box-shadow: $box-shadow-base;
+    padding: $grid-unit-size;
+}
+
+.cvat-objects-sidebar-selection-summary-window-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $grid-unit-size;
+    padding-bottom: $grid-unit-size * 0.5;
+    border-bottom: 1px solid $border-color-1;
+}
+
+.cvat-objects-sidebar-selection-summary-window-clear.ant-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: $text-color;
+}
+
+.cvat-objects-sidebar-selection-summary-window-list {
+    display: flex;
+    flex-direction: column;
+    gap: $grid-unit-size * 0.5;
+    max-height: 13rem;
+    margin-top: $grid-unit-size;
+    overflow-y: auto;
+}
+
+.cvat-objects-sidebar-selection-summary-window-item {
+    display: grid;
+    grid-template-columns: 0.625rem auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    column-gap: $grid-unit-size;
+    align-items: center;
+    min-height: $grid-unit-size * 5;
+}
+
+.cvat-objects-sidebar-selection-summary-window-color {
+    grid-row: 1 / span 2;
+    width: 0.625rem;
+    height: 0.625rem;
+    border: 1px solid $border-color-1;
+    border-radius: 50%;
+}
+
+.cvat-objects-sidebar-selection-summary-window-id {
+    line-height: 1rem;
+}
+
+.cvat-objects-sidebar-selection-summary-window-label {
+    min-width: 0;
+    overflow: hidden;
+    line-height: 1rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cvat-objects-sidebar-selection-summary-window-type {
+    grid-column: 2 / span 2;
+    overflow: hidden;
+    font-size: 0.6875rem;
+    line-height: 0.875rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cvat-objects-sidebar-selection-summary-window-more {
+    padding-left: $grid-unit-size * 2.25;
+    font-size: 0.6875rem;
 }
 
 .cvat-objects-sidebar-state-item-collapse,

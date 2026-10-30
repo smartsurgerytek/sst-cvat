@@ -36,7 +36,10 @@ export enum ReviewActionTypes {
 export const reviewActions = {
     createIssue: () => createAction(ReviewActionTypes.CREATE_ISSUE, {}),
     startIssue: (position: number[], source = NewIssueSource.ISSUE_TOOL) => (
-        createAction(ReviewActionTypes.START_ISSUE, { position: cvat.classes.Issue.hull(position), source })
+        createAction(ReviewActionTypes.START_ISSUE, {
+            position: source === NewIssueSource.ISSUE_MASK ? position : cvat.classes.Issue.hull(position),
+            source,
+        })
     ),
     finishIssueSuccess: (frame: number, issue: any) => (
         createAction(ReviewActionTypes.FINISH_ISSUE_SUCCESS, { frame, issue })
@@ -83,6 +86,7 @@ export const finishIssueAsync = (message: string): ThunkAction => async (dispatc
         review: {
             newIssue: {
                 position: newIssuePosition,
+                source: newIssueSource,
             },
         },
     } = state;
@@ -92,6 +96,7 @@ export const finishIssueAsync = (message: string): ThunkAction => async (dispatc
             job: jobInstance.id,
             frame: frameNumber,
             position: newIssuePosition,
+            is_mask_issue: newIssueSource === NewIssueSource.ISSUE_MASK,
         });
 
         const savedIssue = await jobInstance.openIssue(issue, message);
