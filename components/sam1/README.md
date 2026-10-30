@@ -9,6 +9,12 @@ create the annotation. Escape cancels. Save annotations using the normal CVAT
 Save action. Polygon conversion follows CVAT's existing contour approximation;
 use masks to preserve holes and disconnected regions.
 
+You can keep adding or removing points while inference is running. New prompts
+invalidate the old result and replace the queued request with the latest complete
+point set. Once the current request settles, even if it fails, SAM1 automatically
+runs the queued prompts. Requests stay serial because canceling an HTTP request
+does not stop GPU inference. Escape discards queued prompts as well.
+
 The private service uses Meta's SAM1 ViT-B. It caches the most recent image
 embedding and serializes inference to prevent prompts from mixing across users.
 The CVAT endpoint checks job annotation-write and image-read access, frame bounds,

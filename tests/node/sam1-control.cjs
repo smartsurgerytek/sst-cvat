@@ -136,3 +136,66 @@ test('a failed refinement cannot commit the previous mask', async () => {
     component.onInteraction({ detail: { isDone: true, shapes } });
     assert.deepEqual(created, []);
 });
+test('failed superseded inference resumes with the latest complete prompt set', async () => {
+    const { component, previews } = fixture();
+    const pending = [];
+    const beforeErrors = notifications.length;
+    post = (_url, data) => new Promise((resolve, reject) => pending.push({ data, resolve, reject }));
+    const positive = { shapeType: 'points', button: 0, points: [2, 3] };
+    const extra = { shapeType: 'points', button: 0, points: [4, 5] };
+    const negative = { shapeType: 'points', button: 2, points: [6, 7] };
+    component.onInteraction({ detail: { shapesUpdated: true, shapes: [positive] } });
+    component.onInteraction({ detail: { shapesUpdated: true, shapes: [positive, extra] } });
+    component.onInteraction({ detail: { shapesUpdated: true, shapes: [positive, extra, negative] } });
+    // Removing a point while pending must also replace the queued prompt set.
+    component.onInteraction({ detail: { shapesUpdated: true, shapes: [positive, negative] } });
+    assert.equal(pending.length, 1);
+    pending[0].reject(new Error('interrupted request'));
+    await tick();
+    assert.equal(pending.length, 2);
+    assert.deepEqual(pending[1].data.pos_points, [[2, 3]]);
+    assert.deepEqual(pending[1].data.neg_points, [[6, 7]]);
+    assert.equal(component.state.fetching, true);
+    assert.equal(notifications.length, beforeErrors);
+    pending[1].resolve({ data: { mask: [[1, 1], [1, 1]], bounds: [4, 5, 5, 6] } });
+    await tick();
+    assert.equal(previews.length, 1);
+    assert.deepEqual(previews[0].intermediateShape.points, [0, 4, 4, 5, 5, 6]);
+    assert.equal(component.state.fetching, false);
+});
+test('batched React state does not allow overlapping inference requests', async () => {
+    const { component, previews } = fixture();
+    const updates = [], pending = [];
+    component.setState = (state) => updates.push(state);
+    post = (_url, data) => new Promise((resolve) => pending.push({ data, resolve }));
+    const positive = { shapeType: 'points', button: 0, points: [2, 3] };
+    component.onInteraction({ detail: { shapesUpdated: true, shapes: [positive] } });
+    component.onInteraction({ detail: { shapesUpdated: true, shapes: [positive,
+        { shapeType: 'points', button: 0, points: [4, 5] }] } });
+    assert.equal(pending.length, 1);
+    pending[0].resolve({ data: { mask: [[1, 1], [1, 1]], bounds: [2, 3, 3, 4] } });
+    await tick();
+    assert.equal(pending.length, 2);
+    assert.equal(previews.length, 0);
+    pending[1].resolve({ data: { mask: [[1, 1], [1, 1]], bounds: [4, 5, 5, 6] } });
+    await tick();
+    assert.equal(previews.length, 1);
+    assert.deepEqual(updates.at(-1), { fetching: false });
+});
+test('Escape drops queued prompts even if the running request fails', async () => {
+    const { component, previews } = fixture();
+    let reject, requests = 0;
+    post = () => { requests += 1; return new Promise((_resolve, fail) => { reject = fail; }); };
+    const positive = { shapeType: 'points', button: 0, points: [2, 3] };
+    component.onInteraction({ detail: { shapesUpdated: true, shapes: [positive] } });
+    component.onInteraction({ detail: { shapesUpdated: true, shapes: [positive,
+        { shapeType: 'points', button: 0, points: [4, 5] }] } });
+    const beforeErrors = notifications.length;
+    await component.cancelListener();
+    reject(new Error('interrupted request'));
+    await tick();
+    assert.equal(requests, 1);
+    assert.deepEqual(previews, []);
+    assert.equal(notifications.length, beforeErrors);
+    assert.equal(component.state.fetching, false);
+});

@@ -253,6 +253,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     private interaction: {
         id: string | null;
         isAborted: boolean;
+        requestPending: boolean;
         latestResponse: {
             rle: number[];
             points: [number, number][];
@@ -294,6 +295,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         this.interaction = {
             id: null,
             isAborted: false,
+            requestPending: false,
             latestPostponedEvent: null,
             latestResponse: {
                 rle: [],
@@ -350,6 +352,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             this.interaction = {
                 id: null,
                 isAborted: false,
+                requestPending: false,
                 latestPostponedEvent: null,
                 latestResponse: { rle: [], points: [] },
                 latestApproximatedPoints: [],
@@ -430,102 +433,96 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     private runInteractionRequest = async (interactionId: string): Promise<void> => {
         const { jobInstance, canvasInstance } = this.props;
-        const { activeInteractor, fetching, convertMasksToPolygons } = this.state;
-
-        const { id, latestRequest } = this.interaction;
-        if (id !== interactionId || !latestRequest || fetching) {
-            // current interaction request is not relevant (new interaction session has started)
-            // or a user didn't add more points
-            // or one server request is on processing
+        const { activeInteractor, convertMasksToPolygons } = this.state;
+        const { interaction } = this;
+        const { id, latestRequest } = interaction;
+        if (id !== interactionId || interaction.isAborted || !latestRequest || interaction.requestPending) {
             return;
         }
 
         const { interactor, data } = latestRequest;
-        this.interaction.latestRequest = null;
+        const isSAM1 = interactor.id === SAM1_ID;
+        // React state updates can be batched: lock synchronously before starting the request.
+        interaction.requestPending = true;
+        interaction.latestRequest = null;
+        const isCurrent = (): boolean => this.interaction === interaction && !interaction.isAborted;
+        const isObsolete = (): boolean => !isCurrent() || (isSAM1 && !!interaction.latestRequest);
 
         try {
-            this.interaction.hideMessage = message.loading({
+            interaction.hideMessage = message.loading({
                 content: `Waiting for a response from ${activeInteractor?.name}`,
                 duration: 0,
                 className: 'cvat-tracking-notice',
             });
-            try {
-                // run server request
-                this.setState({ fetching: true });
+            this.setState({ fetching: true });
 
-                const response = interactor.id === SAM1_ID ? (await Axios.post<InteractorResults>(
-                    `${core.config.backendAPI}/jobs/${jobInstance.id}/sam1`, data, { timeout: 180000 },
-                )).data : await core.lambda.call(
-                    jobInstance.taskId,
-                    interactor,
-                    { ...data, job: jobInstance.id },
-                ) as InteractorResults;
+            const response = isSAM1 ? (await Axios.post<InteractorResults>(
+                `${core.config.backendAPI}/jobs/${jobInstance.id}/sam1`, data, { timeout: 180000 },
+            )).data : await core.lambda.call(
+                jobInstance.taskId,
+                interactor,
+                { ...data, job: jobInstance.id },
+            ) as InteractorResults;
 
-                // if only mask presented, let's receive points
-                if (response.mask && !response.points) {
-                    const left = response.bounds ? response.bounds[0] : 0;
-                    const top = response.bounds ? response.bounds[1] : 0;
-                    response.points = await this.receivePointsFromMask(response.mask, left, top);
-                }
-
-                // approximation with cv.approxPolyDP
-                const approximated = await this.approximateResponsePoints(response.points as [number, number][]);
-                const rle = core.utils.mask2Rle(response.mask.flat());
-                if (response.bounds) {
-                    rle.push(...response.bounds);
-                } else {
-                    const height = response.mask.length;
-                    const width = response.mask[0].length;
-                    rle.push(0, 0, width - 1, height - 1);
-                }
-
-                if (this.interaction.id !== interactionId || this.interaction.isAborted) {
-                    // new interaction session or the session is aborted
-                    return;
-                }
-
-                if (interactor.id === SAM1_ID && this.interaction.latestRequest) {
-                    setTimeout(() => this.runInteractionRequest(interactionId));
-                    return;
-                }
-
-                this.interaction.latestResponse = {
-                    bounds: response.bounds,
-                    points: response.points as [number, number][],
-                    rle,
-                };
-                this.interaction.latestApproximatedPoints = approximated;
-
-                this.setState({ pointsReceived: !!response.points?.length });
-            } finally {
-                if (this.interaction.id === interactionId && this.interaction.hideMessage) {
-                    this.interaction.hideMessage();
-                    this.interaction.hideMessage = null;
-                }
-
-                if (this.interaction.id === interactionId) this.setState({ fetching: false });
+            if (isObsolete()) return;
+            if (response.mask && !response.points) {
+                const left = response.bounds ? response.bounds[0] : 0;
+                const top = response.bounds ? response.bounds[1] : 0;
+                response.points = await this.receivePointsFromMask(response.mask, left, top);
             }
 
-            if (this.interaction.id !== interactionId || this.interaction.isAborted) return;
-            if (this.interaction.latestApproximatedPoints.length) {
+            if (isObsolete()) return;
+            const approximated = await this.approximateResponsePoints(response.points as [number, number][]);
+            if (isObsolete()) return;
+            const rle = core.utils.mask2Rle(response.mask.flat());
+            if (response.bounds) {
+                rle.push(...response.bounds);
+            } else {
+                const height = response.mask.length;
+                const width = response.mask[0].length;
+                rle.push(0, 0, width - 1, height - 1);
+            }
+
+            interaction.latestResponse = {
+                bounds: response.bounds,
+                points: response.points as [number, number][],
+                rle,
+            };
+            interaction.latestApproximatedPoints = approximated;
+            this.setState({ pointsReceived: !!response.points?.length });
+
+            if (interaction.latestApproximatedPoints.length) {
                 canvasInstance.interact({
                     enabled: true,
                     intermediateShape: {
                         shapeType: convertMasksToPolygons ? ShapeType.POLYGON : ShapeType.MASK,
-                        points: convertMasksToPolygons ? this.interaction.latestApproximatedPoints.flat() :
-                            this.interaction.latestResponse.rle,
+                        points: convertMasksToPolygons ? interaction.latestApproximatedPoints.flat() :
+                            interaction.latestResponse.rle,
                     },
                 });
             }
-
-            setTimeout(() => this.runInteractionRequest(interactionId));
         } catch (error: any) {
-            if (this.interaction.id !== interactionId || this.interaction.isAborted) return;
+            if (isObsolete()) return;
             notification.error({
                 description: <CVATMarkdown>{error.response?.data?.detail || error.message}</CVATMarkdown>,
                 message: 'Interaction error occurred',
                 duration: null,
             });
+        } finally {
+            interaction.hideMessage?.();
+            interaction.hideMessage = null;
+            interaction.requestPending = false;
+            if (isCurrent()) {
+                // Drain even after a failed/obsolete request, using only the newest complete prompt set.
+                // Keep requests serial: canceling HTTP does not stop the GPU service's inference.
+                if (interaction.latestRequest) {
+                    this.runInteractionRequest(interactionId);
+                } else {
+                    this.setState({ fetching: false });
+                }
+            } else if (this.interaction === interaction) {
+                this.setState({ fetching: false });
+            }
         }
     };
 
@@ -548,7 +545,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             // prevent future requests if possible
             this.interaction.isAborted = true;
             this.interaction.latestRequest = null;
-            if (sam1 && (fetching ||
+            if (sam1 && (fetching || this.interaction.requestPending ||
                 !convertShapesForInteractor(shapes, 'points', 0).length)) {
                 message.info('SAM1 result was not added. Wait for the preview before finishing.');
                 return;
@@ -1434,7 +1431,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             {
                 className: 'cvat-tools-control cvat-active-canvas-control',
                 onClick: (): void => {
-                    if (sam1 && (fetching || this.interaction.latestRequest)) {
+                    if (sam1 && (this.interaction.requestPending || fetching || this.interaction.latestRequest)) {
                         message.info('Wait for SAM1 to update the preview before finishing.');
                         return;
                     }
