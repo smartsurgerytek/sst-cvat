@@ -5,6 +5,7 @@
 
 import React, { ReactPortal } from 'react';
 import ReactDOM from 'react-dom';
+import Axios from 'axios';
 import { connect } from 'react-redux';
 import Icon, {
     EnvironmentFilled,
@@ -28,7 +29,7 @@ import { AIToolsIcon } from 'icons';
 import { Canvas, convertShapesForInteractor } from 'cvat-canvas-wrapper';
 import {
     getCore, Label, MLModel, ObjectState, ObjectType, ShapeType, Job,
-    MinimalShape, InteractorResults, TrackerResults,
+    MinimalShape, InteractorResults, TrackerResults, ModelKind,
 } from 'cvat-core-wrapper';
 import openCVWrapper, { MatType } from 'utils/opencv-wrapper/opencv-wrapper';
 import {
@@ -53,6 +54,10 @@ import { switchToolsBlockerState } from 'actions/settings-actions';
 import withVisibilityHandling from './handle-popover-visibility';
 import ToolsTooltips from './interactor-tooltips';
 
+interface OwnProps {
+    sam1?: boolean;
+}
+
 interface StateToProps {
     canvasInstance: Canvas;
     labels: Label[];
@@ -73,7 +78,7 @@ interface StateToProps {
 
 interface DispatchToProps {
     updateAnnotations: (states: ObjectState[]) => Promise<void>;
-    createAnnotations: (states: ObjectState[]) => Promise<void>;
+    createAnnotations: (states: ObjectState[]) => Promise<boolean>;
     fetchAnnotations: () => Promise<void>;
     onInteractionStart: typeof interactWithCanvas;
     onSwitchToolsBlockerState: typeof switchToolsBlockerState;
@@ -83,8 +88,23 @@ interface DispatchToProps {
 const MIN_SUPPORTED_INTERACTOR_VERSION = 2;
 const core = getCore();
 const CustomPopover = withVisibilityHandling(Popover, 'tools-control');
+const SAM1_ID = 'builtin-sam1';
+const sam1Model = new core.classes.MLModel({
+    id: SAM1_ID,
+    name: 'SAM1',
+    kind: ModelKind.INTERACTOR,
+    version: 2,
+    description: 'Segment Anything with positive and negative point prompts',
+    min_pos_points: 1,
+    min_neg_points: 0,
+    startswith_box: false,
+    help_message: 'Left click: foreground. Right click: background. Click SAM1 again: finish. Esc: cancel.',
+});
+function SAM1Icon(): JSX.Element {
+    return <span style={{ fontSize: 10, fontWeight: 700 }}>SAM1</span>;
+}
 
-function mapStateToProps(state: CombinedState): StateToProps {
+function mapStateToProps(state: CombinedState, ownProps: OwnProps): StateToProps {
     const {
         annotation: {
             job: { instance: jobInstance, labels },
@@ -116,10 +136,11 @@ function mapStateToProps(state: CombinedState): StateToProps {
     } = state;
 
     return {
-        interactors,
-        detectors,
-        trackers,
-        isActivated: activeControl === ActiveControl.AI_TOOLS,
+        interactors: ownProps.sam1 ? [sam1Model] : interactors,
+        detectors: ownProps.sam1 ? [] : detectors,
+        trackers: ownProps.sam1 ? [] : trackers,
+        isActivated: activeControl === ActiveControl.AI_TOOLS &&
+            ((state.annotation.drawing.activeInteractor as MLModel | null)?.id === SAM1_ID) === !!ownProps.sam1,
         activeLabelID,
         labels,
         states,
@@ -143,7 +164,7 @@ const mapDispatchToProps = {
     switchNavigationBlocked: switchNavigationBlockedAction,
 };
 
-type Props = StateToProps & DispatchToProps;
+type Props = StateToProps & DispatchToProps & OwnProps;
 interface TrackedShape {
     clientID: number;
     serverlessState: any;
@@ -279,10 +300,12 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     }
 
     public componentDidMount(): void {
-        const { canvasInstance } = this.props;
-        onRemoveAnnotations(() => {
-            this.setState({ trackedShapes: [] });
-        });
+        const { canvasInstance, sam1 } = this.props;
+        if (!sam1) {
+            onRemoveAnnotations(() => {
+                this.setState({ trackedShapes: [] });
+            });
+        }
 
         this.setState({
             portals: this.collectTrackerPortals(),
@@ -294,7 +317,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     public componentDidUpdate(prevProps: Props, prevState: State): void {
         const {
-            isActivated, defaultApproxPolyAccuracy, canvasInstance, states, toolsBlockerState,
+            isActivated, defaultApproxPolyAccuracy, canvasInstance, states, toolsBlockerState, frame,
         } = this.props;
         const { approxPolyAccuracy, mode, activeTracker } = this.state;
 
@@ -302,6 +325,11 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             this.setState({
                 portals: this.collectTrackerPortals(),
             });
+        }
+
+        if (prevProps.frame !== frame || (prevProps.isActivated && !isActivated)) {
+            this.interaction.isAborted = true;
+            this.interaction.latestRequest = null;
         }
 
         if (prevProps.isActivated && !isActivated) {
@@ -358,8 +386,12 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     }
 
     public componentWillUnmount(): void {
-        const { canvasInstance } = this.props;
-        onRemoveAnnotations(null);
+        this.interaction.isAborted = true;
+        this.interaction.latestRequest = null;
+        this.interaction.hideMessage?.();
+        window.removeEventListener('contextmenu', this.contextmenuDisabler);
+        const { canvasInstance, sam1 } = this.props;
+        if (!sam1) onRemoveAnnotations(null);
         canvasInstance.html().removeEventListener('canvas.interacted', this.interactionListener);
         canvasInstance.html().removeEventListener('canvas.canceled', this.cancelListener);
     }
@@ -380,6 +412,8 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     };
 
     private cancelListener = async (): Promise<void> => {
+        this.interaction.isAborted = true;
+        this.interaction.latestRequest = null;
         const { fetching } = this.state;
         if (fetching) {
             // user pressed ESC
@@ -413,7 +447,9 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 // run server request
                 this.setState({ fetching: true });
 
-                const response = await core.lambda.call(
+                const response = interactor.id === SAM1_ID ? (await Axios.post<InteractorResults>(
+                    `${core.config.backendAPI}/jobs/${jobInstance.id}/sam1`, data, { timeout: 180000 },
+                )).data : await core.lambda.call(
                     jobInstance.taskId,
                     interactor,
                     { ...data, job: jobInstance.id },
@@ -442,6 +478,11 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     return;
                 }
 
+                if (interactor.id === SAM1_ID && this.interaction.latestRequest) {
+                    setTimeout(() => this.runInteractionRequest(interactionId));
+                    return;
+                }
+
                 this.interaction.latestResponse = {
                     bounds: response.bounds,
                     points: response.points as [number, number][],
@@ -456,9 +497,10 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     this.interaction.hideMessage = null;
                 }
 
-                this.setState({ fetching: false });
+                if (this.interaction.id === interactionId) this.setState({ fetching: false });
             }
 
+            if (this.interaction.id !== interactionId || this.interaction.isAborted) return;
             if (this.interaction.latestApproximatedPoints.length) {
                 canvasInstance.interact({
                     enabled: true,
@@ -472,8 +514,9 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
             setTimeout(() => this.runInteractionRequest(interactionId));
         } catch (error: any) {
+            if (this.interaction.id !== interactionId || this.interaction.isAborted) return;
             notification.error({
-                description: <CVATMarkdown>{error.message}</CVATMarkdown>,
+                description: <CVATMarkdown>{error.response?.data?.detail || error.message}</CVATMarkdown>,
                 message: 'Interaction error occurred',
                 duration: null,
             });
@@ -481,8 +524,8 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     };
 
     private onInteraction = (e: Event): void => {
-        const { frame, isActivated } = this.props;
-        const { activeInteractor } = this.state;
+        const { frame, isActivated, sam1 } = this.props;
+        const { activeInteractor, fetching } = this.state;
 
         if (!isActivated) {
             return;
@@ -499,10 +542,20 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             // prevent future requests if possible
             this.interaction.isAborted = true;
             this.interaction.latestRequest = null;
+            if (sam1 && (fetching ||
+                !convertShapesForInteractor(shapes, 'points', 0).length)) {
+                message.info('SAM1 result was not added. Wait for the preview before finishing.');
+                return;
+            }
             if (this.interaction.latestApproximatedPoints.length) {
                 this.constructFromPoints();
             }
         } else if (shapesUpdated) {
+            if (sam1) {
+                this.interaction.latestResponse = { rle: [], points: [] };
+                this.interaction.latestApproximatedPoints = [];
+                this.setState({ pointsReceived: false });
+            }
             const interactor = activeInteractor as MLModel;
             this.interaction.latestRequest = {
                 interactor,
@@ -613,6 +666,23 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         this.setState({
             activeTracker: trackers.filter((tracker: MLModel) => tracker.id === value)[0],
         });
+    };
+
+    private startInteraction = (): void => {
+        const { canvasInstance, labels, onInteractionStart } = this.props;
+        const {
+            activeInteractor, activeLabelID, fetching, startInteractingWithBox,
+        } = this.state;
+        if (!activeInteractor || !activeLabelID || !labels.length || fetching) return;
+        this.setState({ mode: 'interaction' });
+        canvasInstance.cancel();
+        const parameters = {
+            ...omit(activeInteractor.params.canvas, 'startWithBoxOptional'),
+            startWithBox: activeInteractor.params.canvas.startWithBoxOptional ?
+                startInteractingWithBox : activeInteractor.params.canvas.startWithBox,
+        };
+        canvasInstance.interact({ shapeType: 'points', enabled: true, ...parameters });
+        onInteractionStart(activeInteractor, activeLabelID, parameters);
     };
 
     private collectTrackerPortals(): React.ReactPortal[] {
@@ -1069,10 +1139,10 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     private renderInteractorBlock(): JSX.Element {
         const {
-            interactors, canvasInstance, labels, onInteractionStart, interactorExtras,
+            interactors, interactorExtras,
         } = this.props;
         const {
-            activeInteractor, activeLabelID, fetching, startInteractingWithBox, convertMasksToPolygons,
+            activeInteractor, fetching, startInteractingWithBox, convertMasksToPolygons,
         } = this.state;
 
         if (!interactors.length) {
@@ -1172,24 +1242,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                             disabled={!activeInteractor ||
                                 fetching ||
                                 activeInteractor.version < MIN_SUPPORTED_INTERACTOR_VERSION}
-                            onClick={() => {
-                                if (activeInteractor && activeLabelID && labels.length) {
-                                    this.setState({ mode: 'interaction' });
-                                    canvasInstance.cancel();
-                                    const interactorParameters = {
-                                        ...omit(activeInteractor.params.canvas, 'startWithBoxOptional'),
-                                        // replace 'optional' with true or false depending on user specified setting
-                                        ...(activeInteractor.params.canvas.startWithBoxOptional ? {
-                                            startWithBox: startInteractingWithBox,
-                                        } : {
-                                            startWithBox: activeInteractor.params.canvas.startWithBox,
-                                        }),
-                                    };
-
-                                    canvasInstance.interact({ shapeType: 'points', enabled: true, ...interactorParameters });
-                                    onInteractionStart(activeInteractor, activeLabelID, interactorParameters);
-                                }
-                            }}
+                            onClick={this.startInteraction}
                         >
                             Interact
                         </Button>
@@ -1302,6 +1355,17 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     }
 
     private renderPopoverContent(): JSX.Element {
+        const { sam1 } = this.props;
+        if (sam1) {
+            return (
+                <div className='cvat-tools-control-popover-content'>
+                    <Text strong>SAM1 · Point prompts</Text>
+                    {this.renderLabelBlock()}
+                    {this.renderInteractorBlock()}
+                    <Text>Left click: foreground · Right click: background · Click SAM1 again: finish</Text>
+                </div>
+            );
+        }
         return (
             <div className='cvat-tools-control-popover-content'>
                 <Row justify='start'>
@@ -1344,7 +1408,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     public render(): JSX.Element | null {
         const {
-            interactors, detectors, trackers, isActivated, canvasInstance, labels, frameIsDeleted,
+            interactors, detectors, trackers, isActivated, canvasInstance, labels, frameIsDeleted, sam1,
         } = this.props;
         const {
             fetching, approxPolyAccuracy, pointsReceived, mode, portals, convertMasksToPolygons,
@@ -1364,11 +1428,16 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             {
                 className: 'cvat-tools-control cvat-active-canvas-control',
                 onClick: (): void => {
+                    if (sam1 && (fetching || this.interaction.latestRequest)) {
+                        message.info('Wait for SAM1 to update the preview before finishing.');
+                        return;
+                    }
                     canvasInstance.interact({ enabled: false });
                 },
             } :
             {
                 className: 'cvat-tools-control',
+                ...(sam1 ? { onClick: this.startInteraction } : {}),
             };
 
         const showAnyContent = labels.length && !frameIsDeleted;
@@ -1401,14 +1470,14 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         return showAnyContent ? (
             <>
                 <CustomPopover {...dynamicPopoverProps} placement='right' content={this.renderPopoverContent()}>
-                    <Icon {...dynamicIconProps} component={AIToolsIcon} />
+                    <Icon {...dynamicIconProps} component={sam1 ? SAM1Icon : AIToolsIcon} />
                 </CustomPopover>
                 {interactionContent}
                 {detectionContent}
                 {portals}
             </>
         ) : (
-            <Icon className=' cvat-tools-control cvat-disabled-canvas-control' component={AIToolsIcon} />
+            <Icon className=' cvat-tools-control cvat-disabled-canvas-control' component={sam1 ? SAM1Icon : AIToolsIcon} />
         );
     }
 }

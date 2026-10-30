@@ -48,6 +48,8 @@ from rq.job import Job as RQJob
 import cvat.apps.dataset_manager as dm
 import cvat.apps.dataset_manager.views  # pylint: disable=unused-import
 from cvat.apps.dataset_manager.serializers import DatasetFormatsSerializer
+from cvat.apps.video_annotation.views import VideoInferenceMixin
+from cvat.apps.video_annotation.original_views import OriginalVideoMixin
 from cvat.apps.engine import backup
 from cvat.apps.engine.background import BackupImporter, DatasetImporter, TaskCreator
 from cvat.apps.engine.cache import (
@@ -316,7 +318,7 @@ class ServerViewSet(viewsets.ViewSet):
             '200': ProjectReadSerializer, # check ProjectWriteSerializer.to_representation
         })
 )
-class ProjectViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
+class ProjectViewSet(OriginalVideoMixin, viewsets.GenericViewSet, mixins.ListModelMixin,
     mixins.RetrieveModelMixin, mixins.CreateModelMixin, mixins.DestroyModelMixin,
     PartialUpdateModelMixin, UploadMixin, DatasetMixin, BackupMixin
 ):
@@ -1654,7 +1656,7 @@ class TaskViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
             '204': OpenApiResponse(description='The job has been deleted'),
         }),
 )
-class JobViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.CreateModelMixin,
+class JobViewSet(VideoInferenceMixin, viewsets.GenericViewSet, mixins.ListModelMixin, mixins.CreateModelMixin,
     mixins.RetrieveModelMixin, PartialUpdateModelMixin, mixins.DestroyModelMixin,
     UploadMixin, DatasetMixin
 ):

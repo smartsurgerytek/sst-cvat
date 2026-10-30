@@ -83,6 +83,7 @@ interface StateToProps {
     frameData: any;
     frameAngle: number;
     canvasIsReady: boolean;
+    playing: boolean;
     frame: number;
     opacity: number;
     colorBy: ColorBy;
@@ -166,6 +167,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
             player: {
                 frame: { data: frameData, number: frame },
                 frameAngles,
+                playing,
             },
             annotations: {
                 states: annotations,
@@ -217,6 +219,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         frameData,
         frameAngle: frameAngles[frame - (jobInstance?.startFrame ?? frame)] ?? 0,
         canvasIsReady,
+        playing,
         frame,
         activatedStateID,
         activatedElementID,
@@ -366,6 +369,22 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
 }
 
 type Props = StateToProps & DispatchToProps;
+
+// Keep the previous frame visible during short decoder/render transitions.
+// Delay the whole overlay, including its dimming background, not only the icon.
+const CanvasLoading = React.memo(({ playing }: { playing: boolean }): JSX.Element | null => {
+    const [visible, setVisible] = React.useState(false);
+    React.useEffect(() => {
+        setVisible(false);
+        const timer = window.setTimeout(() => setVisible(true), playing ? 1000 : 200);
+        return () => window.clearTimeout(timer);
+    }, [playing]);
+    return visible ? (
+        <div className={playing ? 'cvat-playback-buffering' : 'cvat-spinner-container'}>
+            <Spin className='cvat-spinner' />
+        </div>
+    ) : null;
+});
 
 class CanvasWrapperComponent extends React.PureComponent<Props> {
     private debouncedUpdate = debounce(this.updateCanvas.bind(this), 250, { leading: true });
@@ -1139,6 +1158,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             automaticBordering,
             showTagsOnFrame,
             canvasIsReady,
+            playing,
             onSwitchAutomaticBordering,
             onSwitchZLayer,
             onAddZLayer,
@@ -1164,11 +1184,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                 <GlobalHotKeys keyMap={subKeyMap(componentShortcuts, keyMap)} handlers={handlers} />
                 <CanvasTipsComponent ref={this.canvasTipsRef} />
                 {
-                    !canvasIsReady && (
-                        <div className='cvat-spinner-container'>
-                            <Spin className='cvat-spinner' />
-                        </div>
-                    )
+                    !canvasIsReady && <CanvasLoading playing={playing} />
                 }
 
                 {/*

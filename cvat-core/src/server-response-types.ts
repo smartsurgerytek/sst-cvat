@@ -139,6 +139,7 @@ export interface SerializedTask {
 }
 
 export interface SerializedJob {
+    original_video?: import('./original-video').OriginalVideoSource;
     assignee: SerializedUser | null;
     bug_tracker: string;
     data_chunk_size: number | null;

@@ -3,6 +3,7 @@
 //
 // SPDX-License-Identifier: MIT
 
+import { originalVideoSource, prioritizeOriginalVideoFrame } from 'cvat-core/src/original-video';
 import { AnyAction, Store } from 'redux';
 import { ThunkAction, ThunkDispatch } from 'utils/redux';
 import isAbleToChangeFrame from 'utils/is-able-to-change-frame';
@@ -703,6 +704,7 @@ export function changeFrameAsync(
                 return;
             }
 
+            if (!fillBuffer) prioritizeOriginalVideoFrame(job.id, toFrame);
             const data = await job.frames.get(toFrame, fillBuffer, frameStep);
 
             dispatch({
@@ -732,9 +734,13 @@ export function changeFrameAsync(
                     frameSpeed = state.settings.player.frameSpeed as number;
                 }
             }
+            const videoSource = originalVideoSource(job.id);
+            const interval = videoSource ?
+                (Math.abs(videoSource.timestamps[toFrame] - videoSource.timestamps[frame]) * 1000 *
+                    (FrameSpeed.Usual as number)) / (state.settings.player.frameSpeed as number) : 1000 / frameSpeed;
             const delay = Math.max(
                 0,
-                Math.round(1000 / frameSpeed) - currentTime + (state.annotation.player.frame.changeTime as number),
+                Math.round(interval) - currentTime + (state.annotation.player.frame.changeTime as number),
             );
 
             const {
@@ -970,19 +976,17 @@ export function getJobAsync({
                 )) || job.startFrame;
 
             const frameData = await job.frames.get(frameNumber);
-            const jobMeta = await cvat.frames.getMeta('job', job.id);
-            const frameNumbers = await job.frames.frameNumbers();
-            try {
-                // call first getting of frame data before rendering interface
-                // to load and decode first chunk
-                await frameData.data();
-            } catch (error) {
-                // do nothing, user will be notified when data request is done
-            }
-
-            await job.annotations.clear({ reload: true });
-
-            const issues = await job.issues();
+            // Original MP4 frames are decoded by the browser when the canvas renders.
+            // Warming them here would block the page and create an unused bitmap.
+            const warmFrame = originalVideoSource(job.id) ? Promise.resolve() :
+                frameData.data().then(() => undefined, () => undefined);
+            const [jobMeta, frameNumbers, , issues] = await Promise.all([
+                cvat.frames.getMeta('job', job.id),
+                job.frames.frameNumbers(),
+                job.annotations.clear({ reload: true }),
+                job.issues(),
+                warmFrame,
+            ]);
             const colors = [...cvat.enums.colors];
 
             let groundTruthJobFramesMeta = null;

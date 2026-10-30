@@ -1986,8 +1986,10 @@ export class CanvasViewImpl implements CanvasView, Listener {
             if (image) {
                 this.isImageLoading = false;
                 const ctx = this.background.getContext('2d');
-                this.background.setAttribute('width', `${image.renderWidth}px`);
-                this.background.setAttribute('height', `${image.renderHeight}px`);
+                // Resizing clears the drawing surface and resets the context. Most
+                // video frames have identical dimensions, so retain the surface.
+                if (this.background.width !== image.renderWidth) this.background.width = image.renderWidth;
+                if (this.background.height !== image.renderHeight) this.background.height = image.renderHeight;
 
                 if (ctx) {
                     ctx.drawImage(image.imageData, 0, 0, image.renderWidth, image.renderHeight);

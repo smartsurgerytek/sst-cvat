@@ -179,6 +179,7 @@ function ItemTopComponent(props: Props): JSX.Element {
                         trigger={['click']}
                         className='cvat-object-item-menu-button'
                         menu={ItemMenu({
+                            clientID,
                             jobInstance,
                             readonly,
                             locked,
