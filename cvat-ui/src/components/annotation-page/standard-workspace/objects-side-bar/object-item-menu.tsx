@@ -308,7 +308,8 @@ export default function ItemMenu(props: Props): MenuProps {
         });
     }
 
-    if (is2D && !readonly && !locked && objectType === ObjectType.SHAPE && shapeType === ShapeType.MASK) {
+    if (is2D && !readonly && !locked && objectType === ObjectType.SHAPE &&
+        [ShapeType.RECTANGLE, ShapeType.POLYGON, ShapeType.MASK].includes(shapeType)) {
         items.push({
             key: MenuKeys.SAM2_TRACK,
             label: (

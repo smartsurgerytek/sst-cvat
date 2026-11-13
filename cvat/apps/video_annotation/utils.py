@@ -101,3 +101,30 @@ def prompt_mask(prompt, width, height):
         y2 - y1 + 1, x2 - x1 + 1
     )
     return mask
+
+
+def validate_rectangle(points, width, height):
+    if (len(points) != 4 or any(not np.isfinite(v) for v in points)
+            or not (0 <= points[0] < points[2] <= width and 0 <= points[1] < points[3] <= height)):
+        raise ValueError("Rectangle must have four ordered coordinates within the image.")
+
+
+def prediction_geometry(prompt, points):
+    """SAM2 predicts masks; rectangle objects persist their tight pixel-edge bounds."""
+    if prompt.get("type") == "rectangle":
+        if points is None:
+            return "rectangle", None
+        x1, y1, x2, y2 = points[-4:]
+        return "rectangle", [x1, y1, x2 + 1, y2 + 1]
+    return "mask", points
+
+
+def initialize_prompt(predictor, state, prompt, object_id):
+    if prompt["type"] == "rectangle":
+        validate_rectangle(prompt["points"], state["video_width"], state["video_height"])
+        predictor.add_new_points_or_box(state, frame_idx=0, obj_id=object_id, box=prompt["points"])
+    else:
+        predictor.add_new_mask(
+            state, frame_idx=0, obj_id=object_id,
+            mask=prompt_mask(prompt, state["video_width"], state["video_height"]),
+        )

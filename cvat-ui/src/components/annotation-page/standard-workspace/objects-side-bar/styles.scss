@@ -270,17 +270,20 @@
 }
 
 .cvat-objects-sidebar-state-item-label-selector {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+
     .ant-select-selector {
         min-height: 24px;
-        height: auto !important;
-        align-items: flex-start;
+        height: 24px !important;
+        align-items: center;
     }
 
     .ant-select-selection-item {
-        white-space: normal;
-        text-overflow: unset;
-        overflow: visible;
-        line-height: 1.2;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
     }
 }
 
@@ -512,11 +515,27 @@
         @extend .cvat-object-sidebar-icon;
     }
 
-    > div:nth-child(2) {
-        text-overflow: ellipsis;
+    .cvat-label-item-name {
+        min-width: 0;
         overflow: hidden;
-        max-height: 1.5em;
-        font-size: 1em;
+        padding-right: 8px;
+
+        .cvat-text {
+            display: block;
+            width: 100%;
+            margin: 0;
+        }
+    }
+
+    .cvat-label-item-control {
+        flex-shrink: 0;
+        text-align: center;
+    }
+
+    .cvat-label-item-color-column {
+        height: 100%;
+        display: flex;
+        align-items: center;
     }
 
     &:hover {

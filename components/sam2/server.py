@@ -12,7 +12,7 @@ import torch
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from PIL import Image
-from mask_utils import encode_mask, prompt_mask
+from mask_utils import encode_mask, initialize_prompt
 from sam2.sam2_video_predictor import SAM2VideoPredictor
 
 MODEL = os.getenv("SAM2_MODEL", "facebook/sam2.1-hiera-tiny")
@@ -99,12 +99,7 @@ def infer(frames: UploadFile = File(...), prompts: str = Form(...), model: str =
                     video_path=tmp.name, offload_video_to_cpu=True, offload_state_to_cpu=True
                 )
                 for i, prompt in enumerate(seeds):
-                    predictor.add_new_mask(
-                        state,
-                        frame_idx=0,
-                        obj_id=i,
-                        mask=prompt_mask(prompt, state["video_width"], state["video_height"]),
-                    )
+                    initialize_prompt(predictor, state, prompt, i)
                 for index, object_ids, logits in predictor.propagate_in_video(state):
                     masks = {
                         int(oid): encode_mask((logits[i, 0] > 0).cpu().numpy())

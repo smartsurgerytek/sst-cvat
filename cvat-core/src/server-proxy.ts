@@ -8,6 +8,7 @@ import store from 'store';
 import Axios, { AxiosError, AxiosResponse } from 'axios';
 import * as tus from 'tus-js-client';
 import { ChunkQuality } from 'cvat-data';
+import { startVideoDownload } from './video-download-speed';
 
 import './axios-config';
 import { axiosTusHttpStack } from './axios-tus';
@@ -257,6 +258,10 @@ class WorkerWrappedAxios {
 
         worker.onmessage = (e) => {
             if (e.data.id in requests) {
+                if (e.data.progress !== undefined) {
+                    requests[e.data.id].onDownloadProgress?.(e.data.progress);
+                    return;
+                }
                 try {
                     if (e.data.isSuccess) {
                         requests[e.data.id].resolve({ data: e.data.responseData, headers: e.data.headers });
@@ -280,10 +285,11 @@ class WorkerWrappedAxios {
         async function get(url: string, requestConfig): Promise<{ data: unknown; headers: unknown }> {
             return new Promise((resolve, reject) => {
                 const newRequestId = getRequestId();
-                requests[newRequestId] = { resolve, reject };
+                const { onDownloadProgress, ...downloadConfig } = requestConfig;
+                requests[newRequestId] = { resolve, reject, onDownloadProgress };
                 worker.postMessage({
                     url,
-                    config: requestConfig,
+                    config: downloadConfig,
                     id: newRequestId,
                 });
             });
@@ -1602,6 +1608,7 @@ async function getImageContext(jid: number, frame: number): Promise<ArrayBuffer>
 
 async function getData(jid: number, chunk: number, quality: ChunkQuality, retry = 0): Promise<ArrayBuffer> {
     const { backendAPI } = config;
+    const download = startVideoDownload(`job:${jid}`);
 
     try {
         const response = await (workerAxios as any).get(`${backendAPI}/jobs/${jid}/data`, {
@@ -1612,8 +1619,10 @@ async function getData(jid: number, chunk: number, quality: ChunkQuality, retry 
                 index: chunk,
             },
             responseType: 'arraybuffer',
+            onDownloadProgress: download.progress,
         });
 
+        download.progress(response.data.byteLength);
         const contentLength = +(response.headers || {})['content-length'];
         if (Number.isInteger(contentLength) && response.data.byteLength < +contentLength) {
             if (retry < 10) {
@@ -1639,6 +1648,8 @@ async function getData(jid: number, chunk: number, quality: ChunkQuality, retry 
         return response.data;
     } catch (errorData) {
         throw generateError(errorData);
+    } finally {
+        download.finish();
     }
 }
 

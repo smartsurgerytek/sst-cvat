@@ -1,4 +1,15 @@
 {
+    "remote.autoForwardPorts": true,
+    "remote.restoreForwardedPorts": true,
+    "remote.forwardOnOpen": true,
+    "remote.portsAttributes": {
+        "8080": {
+            "label": "CVAT",
+            "protocol": "http",
+            "onAutoForward": "notify",
+            "requireLocalPort": true
+        }
+    },
     "eslint.probe": [
         "javascript",
         "typescript",

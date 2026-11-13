@@ -356,6 +356,15 @@ export default function ControlsSideBarComponent(props: Props): JSX.Element {
             <ObservedToolsControl />
             <ObservedOpenCVControl />
             {
+                maskControlVisible && (
+                    <ObservedDrawMaskControl
+                        canvasInstance={canvasInstance}
+                        isDrawing={activeControl === ActiveControl.DRAW_MASK}
+                        disabled={controlsDisabled}
+                    />
+                )
+            }
+            {
                 rectangleControlVisible && (
                     <ObservedDrawRectangleControl
                         canvasInstance={canvasInstance}
@@ -405,15 +414,6 @@ export default function ControlsSideBarComponent(props: Props): JSX.Element {
                     <ObservedDrawCuboidControl
                         canvasInstance={canvasInstance}
                         isDrawing={activeControl === ActiveControl.DRAW_CUBOID}
-                        disabled={controlsDisabled}
-                    />
-                )
-            }
-            {
-                maskControlVisible && (
-                    <ObservedDrawMaskControl
-                        canvasInstance={canvasInstance}
-                        isDrawing={activeControl === ActiveControl.DRAW_MASK}
                         disabled={controlsDisabled}
                     />
                 )

@@ -1,27 +1,32 @@
 """Compact immutable playback snapshot; never include raw inference scores."""
 
 
+from .utils import prediction_geometry
+
+
 def build_playback_snapshot(run, labels, current_shapes=None):
     frames = {frame: [] for frame in range(run.start_frame, run.stop_frame + 1)}
 
-    def append(frame, object_id, label_id, points):
+    def append(frame, object_id, label_id, points, shape_type="mask"):
         if frame not in frames or points is None:
             return
         label = labels.get(label_id)
-        frames[frame].append({"object_id": object_id, "points": points,
+        frames[frame].append({"object_id": object_id, "points": points, "type": shape_type,
                               "label_color": label.color if label else "#808080"})
 
     if run.status == "accepted":
         shapes = {shape["id"]: shape for shape in current_shapes or []}
         for saved in run.accepted_shapes:
             shape = shapes.get(saved["id"])
-            if shape is not None and shape["type"] == "mask":
-                append(shape["frame"], saved["object_id"], shape["label_id"], shape["points"])
+            if shape is not None and shape["type"] in {"mask", "rectangle"}:
+                append(shape["frame"], saved["object_id"], shape["label_id"], shape["points"], shape["type"])
     else:
         prompts = {prompt["object_id"]: prompt for prompt in run.prompts}
         for entry in run.result["frames"]:
             for obj in entry["objects"]:
-                append(entry["frame"], obj["object_id"], prompts[obj["object_id"]]["label_id"], obj["points"])
+                prompt = prompts[obj["object_id"]]
+                shape_type, points = prediction_geometry(prompt, obj["points"])
+                append(entry["frame"], obj["object_id"], prompt["label_id"], points, shape_type)
     return {"width": run.result["width"], "height": run.result["height"],
             "frames": [{"frame": frame, "objects": objects} for frame, objects in frames.items()]}
 
@@ -39,6 +44,12 @@ def preview_masks(payload):
     cols = np.minimum(np.arange(preview_width) * width // preview_width, width - 1)
     objects = []
     for obj in payload["objects"]:
+        if obj.get("type") == "rectangle":
+            objects.append({**obj, "points": [
+                value * (preview_width / width if index % 2 == 0 else preview_height / height)
+                for index, value in enumerate(obj["points"])
+            ], "logits": None})
+            continue
         mask = decode_mask(obj["points"], width, height)
         points = encode_mask(mask[np.ix_(rows, cols)])
         scores = obj.get("logits")

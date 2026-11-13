@@ -103,6 +103,16 @@ class PermissionTests(SimpleTestCase):
         )
         self.assertIn(JobPermission.Scopes.EXPORT_ANNOTATIONS, scopes)
 
+    def test_overlay_video_requires_export_and_data_permissions(self):
+        for action, method in [("overlay_video_create", "POST"), ("overlay_video_status", "GET"),
+                               ("overlay_video_download", "GET")]:
+            scopes = JobPermission._get_scopes(
+                SimpleNamespace(method=method), SimpleNamespace(action=action), None
+            )
+            self.assertIn(JobPermission.Scopes.EXPORT_ANNOTATIONS, scopes)
+            self.assertIn(JobPermission.Scopes.VIEW_ANNOTATIONS, scopes)
+            self.assertIn(JobPermission.Scopes.VIEW_DATA, scopes)
+
     def test_all_endpoints_check_job_access_before_run_lookup(self):
         view = VideoInferenceMixin()
         view.get_object = Mock(side_effect=PermissionDenied())
@@ -115,6 +125,9 @@ class PermissionTests(SimpleTestCase):
             "video_inference_results",
             "video_inference_masks",
             "video_inference_playback",
+            "overlay_video_create",
+            "overlay_video_status",
+            "overlay_video_download",
         ]:
             with self.assertRaises(PermissionDenied):
                 getattr(view, method)(SimpleNamespace(method="GET"))

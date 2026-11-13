@@ -1002,7 +1002,9 @@ class JobPermission(OpenPolicyAgentPermission, DownloadExportedExtension):
     @classmethod
     def _get_scopes(cls, request: ExtendedRequest, view: ViewSet, obj: Job | None):
         Scopes = cls.Scopes
-        if view.action in {"original_video_media", "original_video_segment"}:
+        if view.action.startswith("overlay_video_"):
+            return [Scopes.EXPORT_ANNOTATIONS, Scopes.VIEW_ANNOTATIONS, Scopes.VIEW_DATA]
+        if view.action in {"original_video_media", "original_video_segment", "video_timing", "scrub_preview", "scrub_preview_sheet"}:
             return [Scopes.VIEW_DATA]
         if view.action == "sam1":
             return [Scopes.UPDATE_ANNOTATIONS, Scopes.VIEW_DATA]

@@ -21,6 +21,7 @@ import {
 import SAM2VideoPlayback from './sam2-video-playback';
 
 interface MaskObject {
+    type?: string;
     object_id: string;
     shape_id: number | null;
     label_id: number;
@@ -112,6 +113,10 @@ export default function SAM2MaskReview({
         const masks: Record<string, number[] | null> = {};
         if (data) {
             data.objects.forEach((obj) => {
+                if (obj.type === 'rectangle') {
+                    masks[obj.object_id] = obj.points;
+                    return;
+                }
                 const settings = parameters[obj.object_id];
                 const hasThreshold = settings?.threshold !== null && settings?.threshold !== undefined;
                 const points = hasThreshold && scores[obj.object_id] ?
@@ -225,6 +230,13 @@ export default function SAM2MaskReview({
             if (hidden.includes(obj.object_id)) continue;
             const points = previews[obj.object_id];
             if (!points) continue;
+            if (obj.type === 'rectangle') {
+                const [left, top, right, bottom] = points;
+                context.strokeStyle = obj.label_color;
+                context.lineWidth = Math.max(2, data.width / 400);
+                context.strokeRect(left, top, right - left, bottom - top);
+                continue;
+            }
             const mask = decodeMask(points);
             const layer = document.createElement('canvas');
             layer.width = mask.width; layer.height = mask.height;
@@ -250,7 +262,7 @@ export default function SAM2MaskReview({
     }, [playing, loading, error, frame, run.stop_frame, data?.frame, continuous]);
 
     const apply = async (): Promise<void> => {
-        if (!selectedMask?.shape_id || !processed) return;
+        if (!selectedMask?.shape_id || !processed || selectedMask.type === 'rectangle') return;
         setSaving(true); setPlaying(false); setError('');
         try {
             if (job.annotations.hasUnsavedChanges()) throw new Error('Save your canvas edits before applying post-processing.');
@@ -373,9 +385,9 @@ export default function SAM2MaskReview({
                 </div>
                 <div className='cvat-sam2-review-controls'>
                     <details className='cvat-sam2-section' open>
-                        <summary role='button' tabIndex={0} onKeyDown={(event) => event.stopPropagation()}>物件圖層</summary>
+                        <summary role='button' tabIndex={0} onKeyDown={(event) => event.stopPropagation()}>Object layers</summary>
                         <div className='cvat-sam2-section-body'>
-                            {!loading && !error && !data?.objects.length && <Alert type='info' message='No SAM2 result masks on this frame. The starting prompt stays in the main annotation canvas.' />}
+                            {!loading && !error && !data?.objects.length && <Alert type='info' message='No SAM2 result objects on this frame. The starting prompt stays in the main annotation canvas.' />}
                             <Space direction='vertical' style={{ width: '100%' }}>
                                 {data?.objects.map((obj) => (
                                     <div
@@ -424,13 +436,20 @@ export default function SAM2MaskReview({
                             </Space>
                         </div>
                     </details>
-                    <details className='cvat-sam2-section cvat-sam2-adjustments' open>
+                    {selectedMask?.type === 'rectangle' && (
+                        <Alert type='info' message='BBox tracking results: after accepting, drag the box borders on the main canvas to move or resize them.' />
+                    )}
+                    <details
+                        className='cvat-sam2-section cvat-sam2-adjustments'
+                        open
+                        style={{ display: selectedMask?.type === 'rectangle' ? 'none' : undefined }}
+                    >
                         <summary role='button' tabIndex={0} onKeyDown={(event) => event.stopPropagation()}>
                             {selectedMask ? `Adjusting ${selectedMask.label_name} · ${selected}` : 'Select a SAM2 object'}
                         </summary>
                         <div className='cvat-sam2-section-body'>
-                            <Typography.Text type='secondary'>調整會即時預覽；暫停後可套用至目前物件與影格。</Typography.Text>
-                            <Typography.Text strong>切角平滑 (Corner-cutting smoothing)</Typography.Text>
+                            <Typography.Text type='secondary'>Adjustments are previewed immediately. Pause to apply them to the current object and frame.</Typography.Text>
+                            <Typography.Text strong>Corner-cutting smoothing</Typography.Text>
                             <Typography.Text>strength · Sampling spacing</Typography.Text>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                                 <Slider
@@ -494,7 +513,7 @@ export default function SAM2MaskReview({
                 More passes round the sampled contour further. 0 keeps straight segments between samples.
                             </Typography.Text>
                             <details className='cvat-sam2-advanced'>
-                                <summary role='button' tabIndex={0} onKeyDown={(event) => event.stopPropagation()}>進階設定 · Threshold / 遮罩清理</summary>
+                                <summary role='button' tabIndex={0} onKeyDown={(event) => event.stopPropagation()}>Advanced settings · Threshold / Mask cleanup</summary>
                                 <div className='cvat-sam2-section-body'>
                                     <Typography.Text>{`SAM2 threshold (logit): ${threshold ?? 0}`}</Typography.Text>
                                     <Slider
@@ -544,7 +563,8 @@ Apply to this object / frame
                             </Space>
                             {run.status !== 'accepted' && (
                                 <Typography.Text type='secondary'>
-                    Accept masks imports the original predictions. Then use Apply to save your post-processing preview.
+                                Accept objects imports the original predictions.
+                                Then use Apply to save your post-processing preview.
                                 </Typography.Text>
                             )}
                         </div>

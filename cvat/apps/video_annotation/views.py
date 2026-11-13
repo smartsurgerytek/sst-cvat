@@ -22,7 +22,7 @@ from cvat.apps.engine.frame_provider import FrameOutputType, JobFrameProvider
 from cvat.apps.engine.serializers import LabeledDataSerializer
 from .models import InferenceRun
 from .serializers import CreateRunSerializer, DeleteMaskSerializer, DeleteResultsSerializer, RunSerializer, UpdateMaskSerializer
-from .utils import coco_rle, decode_mask, fingerprint, shape_signature
+from .utils import coco_rle, decode_mask, fingerprint, shape_signature, validate_rectangle, prediction_geometry
 from .worker import execute, run_directory
 
 
@@ -100,6 +100,50 @@ def media_response(path, request):
 
 
 class VideoInferenceMixin:
+    @action(detail=True, methods=["post"], url_path="overlay-video")
+    def overlay_video_create(self, request, pk=None):
+        from .serializers import OverlayVideoExportSerializer
+        from .video_export import create_export
+        job = self.get_object()
+        serializer = OverlayVideoExportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response(create_export(job, serializer.validated_data), status=202)
+
+    @action(detail=True, methods=["get"], url_path=r"overlay-video/(?P<export_id>[0-9a-f-]{36})")
+    def overlay_video_status(self, request, pk=None, export_id=None):
+        from .video_export import export_status
+        return Response(export_status(self.get_object(), export_id))
+
+    @action(detail=True, methods=["get"], url_path=r"overlay-video/(?P<export_id>[0-9a-f-]{36})/download")
+    def overlay_video_download(self, request, pk=None, export_id=None):
+        from .video_export import export_root, export_status
+        job = self.get_object()
+        if export_status(job, export_id)["state"] != "ready":
+            raise ValidationError("The video export is not ready.")
+        return FileResponse((export_root(job) / export_id / "video.mp4").open("rb"),
+                            as_attachment=True, filename=f"job-{job.pk}-overlay-{export_id}.mp4",
+                            content_type="video/mp4")
+
+    @action(detail=True, methods=["get"], url_path="scrub-preview")
+    def scrub_preview(self, request, pk=None):
+        from .scrub_preview import preview_state
+        state = preview_state(self.get_object())
+        return Response(state, status=202 if state["state"] == "preparing" else 200)
+
+    @action(detail=True, methods=["get"],
+            url_path=r"scrub-preview/(?P<version>[a-f0-9]{16})/(?P<sheet_index>[0-9]+)")
+    def scrub_preview_sheet(self, request, pk=None, version=None, sheet_index=None):
+        from .scrub_preview import preview_sheet
+        path = preview_sheet(self.get_object(), version, int(sheet_index))
+        response = FileResponse(path.open("rb"), content_type="image/jpeg")
+        response["Cache-Control"] = "private, max-age=86400, immutable"
+        return response
+
+    @action(detail=True, methods=["get"], url_path="video-timing")
+    def video_timing(self, request, pk=None):
+        from .timing import job_video_timing
+        return Response(job_video_timing(self.get_object()))
+
     @action(detail=True, methods=["post"], url_path="sam1")
     def sam1(self, request, pk=None):
         from .sam1 import infer
@@ -201,6 +245,8 @@ class VideoInferenceMixin:
                     annotations.patch_job_data(job.pk, {"shapes": [shape], "tracks": [], "tags": []},
                                                annotations.PatchAction.DELETE)
                     return Response({"deleted": shape["id"]})
+                if shape["type"] != "mask":
+                    raise ValidationError("Edit bounding boxes on the annotation canvas.")
                 try:
                     mask = decode_mask(params["points"], run.result["width"], run.result["height"])
                 except ValueError as exc:
@@ -234,14 +280,18 @@ class VideoInferenceMixin:
                     if shape is not None and shape["frame"] == frame:
                         objects.append({"object_id": saved["object_id"], "shape_id": shape["id"],
                                         "label_id": shape["label_id"], "points": shape["points"],
-                                        "version": shape_signature(shape)})
+                                        "type": shape["type"], "version": shape_signature(shape)})
             else:
                 prompts = {prompt["object_id"]: prompt for prompt in run.prompts}
                 for entry in run.result["frames"]:
                     if entry["frame"] == frame:
-                        objects = [{**obj, "label_id": prompts[obj["object_id"]]["label_id"],
-                                    "shape_id": None, "version": None}
-                                   for obj in entry["objects"] if obj["points"] is not None]
+                        for obj in entry["objects"]:
+                            prompt = prompts[obj["object_id"]]
+                            output_type, output_points = prediction_geometry(prompt, obj["points"])
+                            if output_points is not None:
+                                objects.append({**obj, "label_id": prompt["label_id"],
+                                                "type": output_type, "points": output_points,
+                                                "shape_id": None, "version": None})
                         break
             scores_path = run_directory(run) / f"logits-{frame}.json.gz"
             scores = {}
@@ -249,7 +299,7 @@ class VideoInferenceMixin:
                 with gzip.open(scores_path, "rt") as source:
                     scores = json.load(source)
             for obj in objects:
-                obj["logits"] = scores.get(obj["object_id"])
+                obj["logits"] = scores.get(obj["object_id"]) if obj["type"] == "mask" else None
                 label = labels.get(obj["label_id"])
                 obj["label_name"] = label.name if label else str(obj["label_id"])
                 obj["label_color"] = label.color if label else "#808080"
@@ -315,13 +365,20 @@ class VideoInferenceMixin:
                 raise ValidationError("Selected shapes must belong to the starting frame.")
             if prompt["kind"] == "track":
                 raise ValidationError(
-                    "First version: use standalone polygon or mask shapes, not tracks."
+                    "Use standalone rectangle, polygon or mask shapes, not tracks."
                 )
             # Use the persisted geometry/attributes, never an uncommitted client copy.
             prompt["points"] = seed["points"]
             prompt["attributes"] = seed["attributes"]
             points = prompt["points"]
-            if prompt["type"] == "mask":
+            if prompt["type"] == "rectangle":
+                try:
+                    validate_rectangle(points, width, height)
+                except ValueError as exc:
+                    raise ValidationError(str(exc)) from exc
+                if seed.get("rotation", 0):
+                    raise ValidationError("SAM2 box prompts must be axis-aligned (rotation 0).")
+            elif prompt["type"] == "mask":
                 try:
                     decode_mask(points, width, height)
                 except ValueError as exc:
@@ -450,12 +507,13 @@ class VideoInferenceMixin:
                     if obj["points"] is None:
                         continue
                     prompt = prompts[obj["object_id"]]
+                    output_type, output_points = prediction_geometry(prompt, obj["points"])
                     shapes.append(
                         {
-                            "type": "mask",
+                            "type": output_type,
                             "frame": frame["frame"],
                             "label_id": prompt["label_id"],
-                            "points": obj["points"],
+                            "points": output_points,
                             "source": "auto",
                             "occluded": False,
                             "z_order": 0,
@@ -529,6 +587,7 @@ class VideoInferenceMixin:
             "note": "Inference snapshot; subsequent manual edits are exported through CVAT Export job dataset.",
         }
         rows = []
+        prompts = {p["object_id"]: p for p in run.prompts}
         for entry in run.result["frames"]:
             for obj in entry["objects"]:
                 mask = (
@@ -536,11 +595,14 @@ class VideoInferenceMixin:
                     if obj["points"] is None
                     else decode_mask(obj["points"], run.result["width"], run.result["height"])
                 )
+                output_type, output_points = prediction_geometry(prompts[obj["object_id"]], obj["points"])
                 rows.append(
                     {
                         "frame_index": entry["frame"],
                         "object_id": obj["object_id"],
-                        "segmentation": None if mask is None else coco_rle(mask),
+                        "type": output_type,
+                        "bbox_xyxy": output_points if output_type == "rectangle" else None,
+                        "segmentation": coco_rle(mask) if mask is not None and output_type == "mask" else None,
                         "source": "sam2",
                         "visibility": "absent" if mask is None else "visible",
                     }

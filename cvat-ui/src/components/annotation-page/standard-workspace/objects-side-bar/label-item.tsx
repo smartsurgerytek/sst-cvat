@@ -50,33 +50,34 @@ function LabelItemComponent(props: Props): JSX.Element {
 
     return (
         <Row
-            align='stretch'
+            align='middle'
+            wrap={false}
             justify='space-around'
             className={[
                 'cvat-objects-sidebar-label-item',
                 visible ? '' : 'cvat-objects-sidebar-label-item-disabled',
             ].join(' ')}
         >
-            <Col span={2}>
+            <Col flex='20px' className='cvat-label-item-color-column'>
                 <div style={{ background: labelColor }} className='cvat-label-item-color'>
                     {' '}
                 </div>
             </Col>
-            <Col span={15}>
+            <Col flex='auto' className='cvat-label-item-name'>
                 <CVATTooltip title={labelName}>
-                    <Text strong className='cvat-text'>
+                    <Text strong ellipsis className='cvat-text'>
                         {labelName}
                     </Text>
                 </CVATTooltip>
             </Col>
-            <Col span={2} offset={1}>
+            <Col flex='28px' className='cvat-label-item-control'>
                 {statesLocked ? (
                     <LockFilled {...classes.lock.enabled} onClick={unlockStates} />
                 ) : (
                     <UnlockOutlined {...classes.lock.disabled} onClick={lockStates} />
                 )}
             </Col>
-            <Col span={3}>
+            <Col flex='28px' className='cvat-label-item-control'>
                 {statesHidden ? (
                     <EyeInvisibleFilled {...classes.hidden.enabled} onClick={showStates} />
                 ) : (

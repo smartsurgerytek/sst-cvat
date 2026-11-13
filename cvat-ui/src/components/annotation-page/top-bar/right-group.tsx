@@ -3,11 +3,16 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import { Col } from 'antd/lib/grid';
-import Icon, { InfoCircleOutlined } from '@ant-design/icons';
+import Icon, {
+    DownOutlined, InfoCircleOutlined, MoreOutlined, VideoCameraOutlined,
+} from '@ant-design/icons';
 import Select from 'antd/lib/select';
 import Button from 'antd/lib/button';
+import Dropdown from 'antd/lib/dropdown';
+import { useDispatch } from 'react-redux';
+import { switchPlay } from 'actions/annotation-actions';
 import Modal from 'antd/lib/modal';
 import notification from 'antd/lib/notification';
 
@@ -20,6 +25,8 @@ import { Workspace } from 'reducers';
 
 import MDEditor from '@uiw/react-md-editor';
 import SAM2Video from './sam2-video';
+import VideoPhase from './video-phase';
+import VideoOverlayExport from './video-overlay-export';
 
 interface Props {
     showStatistics(): void;
@@ -42,7 +49,17 @@ function RightGroup(props: Props): JSX.Element {
         initialOpenGuide,
     } = props;
 
+    const dispatch = useDispatch();
+    const [activeVideoTool, setActiveVideoTool] = useState<string | null>(null);
+    const [videoMenuOpen, setVideoMenuOpen] = useState(false);
+    const [moreMenuOpen, setMoreMenuOpen] = useState(false);
     const filters = annotationFilters.length;
+
+    useEffect(() => {
+        setActiveVideoTool(null);
+        setVideoMenuOpen(false);
+        setMoreMenuOpen(false);
+    }, [jobInstance.id]);
 
     const openGuide = useCallback(() => {
         const PADDING = Math.min(window.screen.availHeight, window.screen.availWidth) * 0.4;
@@ -106,41 +123,58 @@ function RightGroup(props: Props): JSX.Element {
 
     return (
         <Col className='cvat-annotation-header-right-group'>
-            {jobInstance.dimension === DimensionType.DIMENSION_2D && <SAM2Video job={jobInstance} />}
-            <Button
-                type='link'
-                className='cvat-annotation-header-fullscreen-button cvat-annotation-header-button'
-                onClick={(): void => {
-                    if (window.document.fullscreenEnabled) {
-                        if (window.document.fullscreenElement) {
-                            window.document.exitFullscreen();
-                        } else {
-                            window.document.documentElement.requestFullscreen();
-                        }
-                    }
-                }}
-            >
-                <Icon component={FullscreenIcon} />
-                Fullscreen
-            </Button>
-            { jobInstance.guideId !== null && (
-                <Button
-                    type='link'
-                    className='cvat-annotation-header-guide-button cvat-annotation-header-button'
-                    onClick={openGuide}
-                >
-                    <Icon component={GuideIcon} />
-                    Guide
-                </Button>
+            {jobInstance.dimension === DimensionType.DIMENSION_2D && (
+                <>
+                    <Dropdown
+                        trigger={['click']}
+                        placement='bottomRight'
+                        open={videoMenuOpen}
+                        onOpenChange={setVideoMenuOpen}
+                        menu={{
+                            items: [
+                                { key: 'phase', label: 'Phase · Stage annotation' },
+                                { key: 'sam2', label: 'SAM2 Video · Video tracking' },
+                                { type: 'divider' },
+                                { key: 'export', label: 'Export annotated video' },
+                            ],
+                            onClick: ({ key }) => {
+                                setVideoMenuOpen(false);
+                                dispatch(switchPlay(false));
+                                setActiveVideoTool(key);
+                            },
+                        }}
+                    >
+                        <Button
+                            type='link'
+                            className='cvat-annotation-header-button cvat-annotation-header-video-tools-button'
+                            aria-haspopup='menu'
+                            aria-expanded={videoMenuOpen}
+                        >
+                            <VideoCameraOutlined />
+                            Video tools
+                            <DownOutlined className='cvat-annotation-header-dropdown-arrow' />
+                        </Button>
+                    </Dropdown>
+                    <VideoPhase
+                        key={`phase-${jobInstance.id}`}
+                        job={jobInstance}
+                        visible={activeVideoTool === 'phase'}
+                        onVisibleChange={(visible) => setActiveVideoTool(visible ? 'phase' : null)}
+                    />
+                    <VideoOverlayExport
+                        key={`export-${jobInstance.id}`}
+                        job={jobInstance}
+                        visible={activeVideoTool === 'export'}
+                        onVisibleChange={(visible) => setActiveVideoTool(visible ? 'export' : null)}
+                    />
+                    <SAM2Video
+                        key={`sam2-${jobInstance.id}`}
+                        job={jobInstance}
+                        visible={activeVideoTool === 'sam2'}
+                        onVisibleChange={(visible) => setActiveVideoTool(visible ? 'sam2' : null)}
+                    />
+                </>
             )}
-            <Button
-                type='link'
-                className='cvat-annotation-header-info-button cvat-annotation-header-button'
-                onClick={showStatistics}
-            >
-                <InfoCircleOutlined />
-                Info
-            </Button>
             <Button
                 type='link'
                 className={`cvat-annotation-header-filters-button cvat-annotation-header-button ${filters ?
@@ -151,10 +185,50 @@ function RightGroup(props: Props): JSX.Element {
                 <Icon component={FilterIcon} />
                 Filters
             </Button>
+            <Dropdown
+                trigger={['click']}
+                open={moreMenuOpen}
+                onOpenChange={setMoreMenuOpen}
+                menu={{
+                    items: [
+                        {
+                            key: 'fullscreen',
+                            icon: <Icon component={FullscreenIcon} />,
+                            label: 'Fullscreen',
+                            disabled: !window.document.fullscreenEnabled,
+                        },
+                        ...(jobInstance.guideId !== null ? [{
+                            key: 'guide', icon: <Icon component={GuideIcon} />, label: 'Guide',
+                        }] : []),
+                        { key: 'info', icon: <InfoCircleOutlined />, label: 'Info' },
+                    ],
+                    onClick: ({ key }) => {
+                        setMoreMenuOpen(false);
+                        if (key === 'guide') openGuide();
+                        else if (key === 'info') showStatistics();
+                        else if (key === 'fullscreen') {
+                            if (window.document.fullscreenElement) window.document.exitFullscreen();
+                            else window.document.documentElement.requestFullscreen();
+                        }
+                    },
+                }}
+            >
+                <Button
+                    type='link'
+                    className='cvat-annotation-header-button cvat-annotation-header-dropdown-button'
+                    aria-haspopup='menu'
+                    aria-expanded={moreMenuOpen}
+                >
+                    <MoreOutlined />
+                    More
+                    <DownOutlined className='cvat-annotation-header-dropdown-arrow' />
+                </Button>
+            </Dropdown>
             <div>
                 <Select
                     popupClassName='cvat-workspace-selector-dropdown'
                     className='cvat-workspace-selector'
+                    aria-label='Workspace'
                     onChange={changeWorkspace}
                     value={workspace}
                 >

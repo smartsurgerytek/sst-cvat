@@ -16,9 +16,11 @@ import { SerializedChapterMetaData, SerializedFramesMetaData } from './server-re
 import { ArgumentError } from './exceptions';
 import { FieldUpdateTrigger } from './common';
 import config from './config';
+import ChunkPrefetch from './chunk-prefetch';
 
 // frame storage by job id
 const frameDataCache: Record<string, {
+    compressedPrefetch: ChunkPrefetch | null;
     metaFetchedTimestamp: number;
     chunkSize: number;
     mode: 'annotation' | 'interpolation';
@@ -780,6 +782,7 @@ async function refreshJobCacheIfOutdated(jobID: number): Promise<void> {
             // chunks were re-defined. Existing data not relevant anymore
             // currently we only re-write meta, remove all cached frames from provider and clear cached context images
             // other parameters (e.g. chunkSize) are not supposed to be changed
+            cached.compressedPrefetch?.invalidate();
             cached.provider.cleanup(Number.MAX_SAFE_INTEGER);
             for (const frame of Object.keys(cached.contextCache)) {
                 for (const image of Object.values(cached.contextCache[+frame].data)) {
@@ -924,7 +927,10 @@ export async function getFrame(
             meta.getDataFrameNumber(frameNumber - jobStartFrame)
         );
 
+        const compressedPrefetch = chunkType === 'video' && !originalVideoSource(jobID) ?
+            new ChunkPrefetch((index) => getChunk(index, ChunkQuality.COMPRESSED)) : null;
         frameDataCache[jobID] = {
+            compressedPrefetch,
             metaFetchedTimestamp: Date.now(),
             chunkSize,
             mode,
@@ -947,7 +953,8 @@ export async function getFrame(
             latestFrameDecodeRequest: null,
             latestContextImagesRequest: null,
             contextCache: {},
-            getChunk,
+            getChunk: (index, quality) => (compressedPrefetch && quality === ChunkQuality.COMPRESSED ?
+                compressedPrefetch.get(index) : getChunk(index, quality)),
             getMeta: () => {
                 const cached = frameMetaCache[jobID];
                 if (!(cached instanceof Promise)) {
@@ -981,6 +988,9 @@ export async function getFrame(
     frameDataCache[jobID].provider.setRenderSize(frameMeta.width, frameMeta.height);
     frameDataCache[jobID].decodeForward = isPlaying;
     frameDataCache[jobID].forwardStep = step;
+    frameDataCache[jobID].compressedPrefetch?.ahead(
+        framesMetaData.getFrameChunkIndex(dataFrameNumber), 50, framesMetaData.chunkCount,
+    );
 
     const meta = await frameDataCache[jobID].getMeta();
 
@@ -1062,12 +1072,16 @@ export async function findFrame(
     return lastUndeletedFrame;
 }
 
+export function getDownloadedChunks(jobID: number): number[] {
+    return frameDataCache[jobID]?.compressedPrefetch?.downloaded() ?? [];
+}
+
 export function getCachedChunks(jobID: number): number[] {
     if (!(jobID in frameDataCache)) {
         return [];
     }
 
-    return frameDataCache[jobID].provider.cachedChunks(true);
+    return frameDataCache[jobID].provider.cachedChunks(false);
 }
 
 export async function getJobFrameNumbers(jobID: number): Promise<number[]> {
@@ -1082,6 +1096,7 @@ export async function getJobFrameNumbers(jobID: number): Promise<number[]> {
 export function clear(jobID: number): void {
     clearOriginalVideo(jobID);
     if (jobID in frameDataCache) {
+        frameDataCache[jobID].compressedPrefetch?.clear();
         frameDataCache[jobID].provider.close();
         for (const contextImagesByFrame of Object.values(frameDataCache[jobID].contextCache)) {
             for (const image of Object.values(contextImagesByFrame.data)) {

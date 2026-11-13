@@ -72,6 +72,64 @@
         }
     }
 
+    .ant-btn-link.cvat-annotation-header-dropdown-button {
+        position: relative;
+        width: 64px;
+        flex-shrink: 0;
+        padding-right: 12px;
+
+        > .cvat-annotation-header-dropdown-arrow {
+            position: absolute;
+            right: 2px;
+            top: 18px;
+            margin: 0;
+            font-size: 10px;
+        }
+
+        &[aria-expanded='true'] {
+            background: $background-color-1;
+            color: $border-color-hover;
+        }
+    }
+
+    .ant-btn-link.cvat-annotation-header-video-tools-button {
+        flex-direction: row;
+        flex-shrink: 0;
+        gap: 8px;
+        width: auto;
+        height: 32px;
+        margin: 0 8px;
+        padding: 0 12px;
+        border: 1px solid $border-color-1;
+        border-radius: 6px;
+        background: $background-color-1;
+
+        > span:not([role='img']) {
+            font-size: 12px;
+            line-height: 1;
+        }
+
+        > span[role='img'] {
+            margin: 0;
+            font-size: 16px;
+        }
+
+        > .cvat-annotation-header-dropdown-arrow {
+            font-size: 10px;
+        }
+
+        &:hover,
+        &[aria-expanded='true'] {
+            border-color: $border-color-hover;
+            color: $border-color-hover;
+        }
+
+        &:hover > span[role='img'],
+        &:active > span[role='img'] {
+            transform: none;
+        }
+    }
+
     .cvat-annotation-header-left-group {
         display: flex;
 
@@ -260,6 +318,8 @@
 
 .cvat-annotation-header-right-group {
     display: flex;
+    align-items: center;
+    flex-shrink: 0;
     justify-content: flex-end;
 
     > div {

@@ -8,7 +8,10 @@ import Axios from 'axios';
 import './axios-config';
 
 onmessage = (e) => {
-    Axios.get(e.data.url, e.data.config)
+    Axios.get(e.data.url, {
+        ...e.data.config,
+        onDownloadProgress: ({ loaded }) => postMessage({ id: e.data.id, progress: loaded }),
+    })
         .then((response) => {
             postMessage({
                 responseData: response.data,
