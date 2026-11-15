@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import Axios from 'axios';
+import downloadWithProgress, { downloadStatus } from 'utils/download-with-progress';
 import Alert from 'antd/lib/alert';
 import Button from 'antd/lib/button';
 import Checkbox from 'antd/lib/checkbox';
@@ -14,6 +15,7 @@ import Typography from 'antd/lib/typography';
 import { getCore, Job } from 'cvat-core-wrapper';
 import { saveAnnotationsAsync, switchPlay } from 'actions/annotation-actions';
 import VideoRangeSelector from './video-range-selector';
+import VideoExportPreview from './video-export-preview';
 
 interface ExportRun {
     id: string;
@@ -47,13 +49,15 @@ export default function VideoOverlayExport({ job, visible, onVisibleChange }: Pr
     const [opacity, setOpacity] = useState(35);
     const [showNames, setShowNames] = useState(true);
     const [showLegend, setShowLegend] = useState(true);
-    const [showPhase, setShowPhase] = useState(true);
+    const [browserDownload, setBrowserDownload] = useState(false);
+    const [downloading, setDownloading] = useState(false);
+    const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
     const [run, setRun] = useState<ExportRun | null>(null);
     const base = `${getCore().config.backendAPI}/jobs/${job.id}/overlay-video`;
     const pending = run?.state === 'queued' || run?.state === 'running';
-    const busy = submitting || pending;
+    const busy = submitting || pending || downloading;
     let progressStatus: 'active' | 'success' | 'exception' = 'active';
     if (run?.state === 'failed') progressStatus = 'exception';
     if (run?.state === 'ready') progressStatus = 'success';
@@ -86,6 +90,7 @@ export default function VideoOverlayExport({ job, visible, onVisibleChange }: Pr
 
     const start = async (): Promise<void> => {
         setSubmitting(true);
+        setDownloadProgress(null);
         setError('');
         try {
             await dispatch(saveAnnotationsAsync());
@@ -95,12 +100,32 @@ export default function VideoOverlayExport({ job, visible, onVisibleChange }: Pr
                 opacity: opacity / 100,
                 show_names: showNames,
                 show_legend: showLegend,
-                show_phase: showPhase,
+                show_phase: true,
             }, { timeout: 60000 });
             setRun(data);
         } catch (reason) {
             setError(errorMessage(reason));
         } finally { setSubmitting(false); }
+    };
+
+    const download = async (): Promise<void> => {
+        if (!run || downloading) return;
+        setDownloading(true);
+        setBrowserDownload(false);
+        setDownloadProgress(0);
+        setError('');
+        try {
+            const completed = await downloadWithProgress(
+                `${base}/${run.id}/download`, `job-${job.id}-A-B-${run.id}.mp4`, ({ percent, browserManaged }) => {
+                    setDownloadProgress(percent);
+                    setBrowserDownload(Boolean(browserManaged));
+                },
+            );
+            if (!completed) setDownloadProgress(null);
+        } catch (reason) {
+            setDownloadProgress(null);
+            setError(errorMessage(reason));
+        } finally { setDownloading(false); }
     };
 
     return (
@@ -111,7 +136,7 @@ export default function VideoOverlayExport({ job, visible, onVisibleChange }: Pr
                 </Button>
             )}
             <Modal
-                title='Export annotated video · Overlay / Legend / Phase'
+                title='Export annotated video · A + B'
                 open={open}
                 width={800}
                 footer={null}
@@ -122,8 +147,8 @@ export default function VideoOverlayExport({ job, visible, onVisibleChange }: Pr
             >
                 <Space direction='vertical' style={{ width: '100%' }}>
                     <Typography.Paragraph>
-                        Render applied masks, boxes, and other 2D annotations into an MP4 with optional object
-                        names, IDs, a color legend, and phases.
+                        Export one synchronized side-by-side MP4: A shows the original image on the left;
+                        B shows annotations and phases on the right, with optional object names, IDs, and a legend.
                         Starting an export saves current annotations first. Unaccepted SAM2 results are not included.
                     </Typography.Paragraph>
                     {error && <Alert type='error' showIcon message={error} />}
@@ -145,21 +170,25 @@ export default function VideoOverlayExport({ job, visible, onVisibleChange }: Pr
                         >
                             Color legend
                         </Checkbox>
-                        <Checkbox
-                            checked={showPhase}
-                            disabled={busy}
-                            onChange={(event) => setShowPhase(event.target.checked)}
-                        >
-                            Phases
-                        </Checkbox>
+
                     </Space>
+                    {open && (
+                        <VideoExportPreview
+                            job={job}
+                            range={range}
+                            opacity={opacity}
+                            showNames={showNames}
+                            showLegend={showLegend}
+                        />
+                    )}
                     <Typography.Text type='secondary'>
-                        The legend and phases appear beside the video without covering the image. Source frame
+                        Phase is always included beside B without covering the image. Source frame
                         timing is preserved; deleted frames are skipped.
                         Exports a silent MP4. Supports masks, rectangles, polygons, polylines, points, and ellipses.
                     </Typography.Text>
                     {run && (
                         <>
+                            <Typography.Text>Generation progress</Typography.Text>
                             <Progress percent={run.progress} status={progressStatus} />
                             {pending && (
                                 <Alert
@@ -175,6 +204,20 @@ export default function VideoOverlayExport({ job, visible, onVisibleChange }: Pr
                             )}
                         </>
                     )}
+                    {(downloading || downloadProgress !== null) && (
+                        <>
+                            <Typography.Text>
+                                {downloadStatus(downloadProgress ?? 0, browserDownload)}
+                            </Typography.Text>
+                            {!browserDownload && (
+                                <Progress
+                                    percent={downloadProgress ?? 0}
+                                    status={downloadProgress === 100 ? 'success' : 'active'}
+                                    format={downloadProgress === null ? () => 'Downloading…' : undefined}
+                                />
+                            )}
+                        </>
+                    )}
                     <Space>
                         <Button
                             type='primary'
@@ -185,7 +228,9 @@ export default function VideoOverlayExport({ job, visible, onVisibleChange }: Pr
                             {submitting ? 'Saving annotations and starting export…' : 'Save and export'}
                         </Button>
                         {run?.state === 'ready' && (
-                            <Button href={`${base}/${run.id}/download`} download>Download MP4</Button>
+                            <Button onClick={download} loading={downloading} disabled={downloading}>
+                                Download A + B MP4
+                            </Button>
                         )}
                     </Space>
                 </Space>

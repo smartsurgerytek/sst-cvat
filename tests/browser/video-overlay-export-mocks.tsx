@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
 
-export const getCore = (): unknown => ({ config: { backendAPI: 'http://cvat-export.test/api' } });
+export const getCore = (): unknown => ({ config: { backendAPI: `${window.location.origin}/api` } });
 export const switchPlay = (): unknown => ({ type: 'STOP' });
 export const saveAnnotationsAsync = () => async (): Promise<void> => {
     const state = (window as any).exportTest;

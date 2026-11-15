@@ -12,6 +12,12 @@ const thunk = (store: any) => (next: any) => (action: any): any => (
 const store = createStore(() => ({}), applyMiddleware(thunk));
 createRoot(document.getElementById('root')!).render(
     <Provider store={store}>
-        <VideoOverlayExport job={{ id: 4, startFrame: 10, stopFrame: 30 } as any} />
+        <VideoOverlayExport job={{ id: 4, startFrame: 10, stopFrame: 30, annotations: {
+            get: async () => [
+                { objectType: 'shape', shapeType: 'rectangle', points: [10, 10, 40, 40],
+                    label: { id: 1 }, serverID: 7, rotation: 0, zOrder: 0 },
+                { objectType: 'tag', label: { id: 2 } },
+            ],
+        } } as any} />
     </Provider>,
 );

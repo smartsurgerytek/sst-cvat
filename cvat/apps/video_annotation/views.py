@@ -1,4 +1,5 @@
 import gzip
+from io import BytesIO
 import json
 import math
 import re
@@ -10,7 +11,7 @@ import requests
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F
-from django.http import FileResponse, StreamingHttpResponse
+from django.http import FileResponse, HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
@@ -21,6 +22,7 @@ from cvat.apps.engine import models
 from cvat.apps.engine.frame_provider import FrameOutputType, JobFrameProvider
 from cvat.apps.engine.serializers import LabeledDataSerializer
 from .models import InferenceRun
+from .downloads import video_download_response
 from .serializers import CreateRunSerializer, DeleteMaskSerializer, DeleteResultsSerializer, RunSerializer, UpdateMaskSerializer
 from .utils import coco_rle, decode_mask, fingerprint, shape_signature, validate_rectangle, prediction_geometry
 from .worker import execute, run_directory
@@ -109,6 +111,20 @@ class VideoInferenceMixin:
         serializer.is_valid(raise_exception=True)
         return Response(create_export(job, serializer.validated_data), status=202)
 
+    @action(detail=True, methods=["post"], url_path="overlay-video/preview")
+    def overlay_video_preview(self, request, pk=None):
+        from .serializers import OverlayVideoPreviewSerializer
+        from .video_export import preview_export
+        job = self.get_object()
+        serializer = OverlayVideoPreviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        image = preview_export(job, serializer.validated_data)
+        output = BytesIO()
+        image.save(output, format="JPEG", quality=85)
+        response = HttpResponse(output.getvalue(), content_type="image/jpeg")
+        response["Cache-Control"] = "no-store"
+        return response
+
     @action(detail=True, methods=["get"], url_path=r"overlay-video/(?P<export_id>[0-9a-f-]{36})")
     def overlay_video_status(self, request, pk=None, export_id=None):
         from .video_export import export_status
@@ -120,8 +136,8 @@ class VideoInferenceMixin:
         job = self.get_object()
         if export_status(job, export_id)["state"] != "ready":
             raise ValidationError("The video export is not ready.")
-        return FileResponse((export_root(job) / export_id / "video.mp4").open("rb"),
-                            as_attachment=True, filename=f"job-{job.pk}-overlay-{export_id}.mp4",
+        return video_download_response(export_root(job) / export_id / "video.mp4",
+                            filename=f"job-{job.pk}-overlay-{export_id}.mp4",
                             content_type="video/mp4")
 
     @action(detail=True, methods=["get"], url_path="scrub-preview")
@@ -642,3 +658,64 @@ def inference_failure(rq_job, connection, exc_type, exc_value, traceback):
     InferenceRun.objects.filter(pk=rq_job.args[0], status__in=["queued", "running"]).update(
         status="failed", error="Inference worker failed or timed out. Retry with a shorter range."
     )
+
+
+class TaskVideoExportMixin:
+    @action(detail=True, methods=["post"], url_path="overlay-video")
+    def overlay_video_create(self, request, pk=None):
+        from .serializers import OverlayVideoExportSerializer
+        from .video_export import create_export
+        task = self.get_object()
+        if not task.data or not task.data.size:
+            raise ValidationError("This task has no video frames.")
+        serializer = OverlayVideoExportSerializer(data={**request.data, "start_frame": 0,
+                                                        "stop_frame": task.data.size - 1})
+        serializer.is_valid(raise_exception=True)
+        return Response(create_export(task, serializer.validated_data, task_export=True), status=202)
+
+    @action(detail=True, methods=["get"], url_path=r"overlay-video/(?P<export_id>[0-9a-f-]{36})")
+    def overlay_video_status(self, request, pk=None, export_id=None):
+        from .video_export import export_status
+        return Response(export_status(self.get_object(), export_id, task_export=True))
+
+    @action(detail=True, methods=["get"], url_path=r"overlay-video/(?P<export_id>[0-9a-f-]{36})/download")
+    def overlay_video_download(self, request, pk=None, export_id=None):
+        from .video_export import export_root, export_status
+        task = self.get_object()
+        if export_status(task, export_id, task_export=True)["state"] != "ready":
+            raise ValidationError("The video export is not ready.")
+        return video_download_response(export_root(task) / export_id / "video.mp4",
+                            filename=f"task-{task.pk}-A-B-{export_id}.mp4",
+                            content_type="video/mp4")
+
+
+class ProjectVideoZipMixin:
+    @action(detail=True, methods=['post'], url_path='video-zip')
+    def video_zip_create(self, request, pk=None):
+        from rest_framework import serializers
+        from .video_zip import create_archive
+        class Entry(serializers.Serializer):
+            task_id = serializers.IntegerField(min_value=1)
+            export_id = serializers.UUIDField(format='hex_verbose')
+        serializer = Entry(data=request.data.get('exports'), many=True, allow_empty=False)
+        serializer.is_valid(raise_exception=True)
+        entries = [{'task_id': item['task_id'], 'export_id': str(item['export_id'])}
+                   for item in serializer.validated_data]
+        return Response(create_archive(request, self.get_object(), entries), status=202)
+
+    @action(detail=True, methods=['get'], url_path=r'video-zip/(?P<export_id>[0-9a-f-]{36})')
+    def video_zip_status(self, request, pk=None, export_id=None):
+        from .video_zip import archive_status
+        return Response(archive_status(request, self.get_object(), export_id))
+
+    @action(detail=True, methods=['get'], url_path=r'video-zip/(?P<export_id>[0-9a-f-]{36})/download')
+    def video_zip_download(self, request, pk=None, export_id=None):
+        from .video_zip import archive_job, archive_status, archive_root, authorize_tasks
+        project = self.get_object()
+        job = archive_job(request, project, export_id)
+        authorize_tasks(request, project, job.meta['entries'])
+        if archive_status(request, project, export_id)['state'] != 'ready':
+            raise ValidationError('The ZIP is not ready.')
+        return video_download_response(archive_root(project) / export_id / 'videos.zip',
+                            filename=f'project-{project.pk}-videos.zip',
+                            content_type='application/zip')

@@ -18,6 +18,17 @@ class OverlayVideoExportSerializer(serializers.Serializer):
         return value
 
 
+class OverlayVideoPreviewSerializer(OverlayVideoExportSerializer):
+    from cvat.apps.engine.serializers import LabeledShapeSerializer, LabeledImageSerializer
+
+    class PreviewShapeSerializer(LabeledShapeSerializer):
+        track_id = serializers.IntegerField(required=False, allow_null=True)
+
+    frame = serializers.IntegerField(min_value=0)
+    shapes = PreviewShapeSerializer(many=True, default=list)
+    tags = LabeledImageSerializer(many=True, default=list)
+
+
 class PromptSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=["shape", "track"])
     id = serializers.IntegerField(min_value=1)

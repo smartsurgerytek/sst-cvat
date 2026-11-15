@@ -1,5 +1,6 @@
 """Burn saved CVAT geometry, object badges, legend and phase tags into video frames."""
 import math
+from concurrent.futures import ThreadPoolExecutor
 from fractions import Fraction
 from functools import lru_cache
 from pathlib import Path
@@ -9,6 +10,7 @@ import numpy as np
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 
 from .utils import decode_mask
+from .export_hardware import detect_hardware
 
 
 @lru_cache(maxsize=8)
@@ -89,7 +91,7 @@ def fit_text(draw, text, font, width):
 
 
 def render_frame(image, shapes, phases, labels, options, frame_number, identities=None):
-    image = image.convert("RGBA")
+    image = image.convert("RGBA") if shapes else image
     width, height = image.size
     size = max(14, min(32, round(height / 36)))
     font = export_font(size)
@@ -99,11 +101,29 @@ def render_frame(image, shapes, phases, labels, options, frame_number, identitie
     for shape in sorted(shapes, key=lambda item: item.get("z_order", 0)):
         label = labels.get(shape["label_id"], {"name": str(shape["label_id"])})
         color = color_of(label)
-        layer = Image.new("RGBA", image.size)
-        anchor = geometry(layer, shape, color, options["opacity"], stroke)
-        if anchor is None:
+        if shape.get("outside"):
             continue
-        image = Image.alpha_composite(image, layer)
+        if shape["type"] == "mask" and shape.get("points"):
+            # Decode and blend only the mask bounds, not a full-size RGBA frame per object.
+            points = shape["points"]
+            x1, y1, x2, y2 = points[-4:]
+            if any(not math.isfinite(v) or int(v) != v for v in (x1, y1, x2, y2)):
+                raise ValueError("Invalid mask bounds")
+            x1, y1, x2, y2 = map(int, (x1, y1, x2, y2))
+            if not (0 <= x1 <= x2 < width and 0 <= y1 <= y2 < height):
+                raise ValueError("Mask bounds exceed the image")
+            mask_width, mask_height = x2 - x1 + 1, y2 - y1 + 1
+            local_points = [*points[:-4], 0, 0, mask_width - 1, mask_height - 1]
+            alpha = Image.fromarray(decode_mask(local_points, mask_width, mask_height).astype(np.uint8)
+                                    * round(options["opacity"] * 255))
+            image.paste((*color, 255), (x1, y1, x2 + 1, y2 + 1), alpha)
+            anchor = (x1, y1)
+        else:
+            layer = Image.new("RGBA", image.size)
+            anchor = geometry(layer, shape, color, options["opacity"], stroke)
+            if anchor is None:
+                continue
+            image = Image.alpha_composite(image, layer)
         active.add(shape["label_id"])
         identity = shape.get("track_id") if "track_id" in shape else identities.get(
             str(shape.get("id")), shape.get("id", ""))
@@ -138,7 +158,7 @@ def render_frame(image, shapes, phases, labels, options, frame_number, identitie
             rows.append(("Objects", None))
             rows.extend((labels.get(label_id, {"name": str(label_id)})["name"],
                          color_of(labels.get(label_id, {}))) for label_id in sorted(active))
-        canvas = Image.new("RGBA", (width + panel_width * columns, height), (24, 27, 33, 255))
+        canvas = Image.new("RGB", (width + panel_width * columns, height), (24, 27, 33))
         canvas.paste(image, (0, 0))
         draw = ImageDraw.Draw(canvas)
         for index, (text, color) in enumerate(rows):
@@ -152,9 +172,28 @@ def render_frame(image, shapes, phases, labels, options, frame_number, identitie
             draw.text((left, y), text, fill="white", font=font)
         image = canvas
     # H.264 yuv420p requires even dimensions; pad instead of stretching geometry.
+    if image.width % 2 == 0 and image.height % 2 == 0:
+        return image if image.mode == "RGB" else image.convert("RGB")
     output = Image.new("RGB", (image.width + image.width % 2, image.height + image.height % 2))
-    output.paste(image.convert("RGB"), (0, 0))
+    output.paste(image, (0, 0))
     return output
+
+
+def render_comparison(image, shapes, phases, labels, options, frame_number, identities=None):
+    """Keep A untouched and place the synchronized annotated B beside it."""
+    annotated = render_frame(image, shapes, phases, labels,
+                             {**options, "show_phase": True}, frame_number, identities)
+    header = 40
+    width = image.width + annotated.width
+    height = max(image.height, annotated.height) + header
+    canvas = Image.new("RGB", (width + width % 2, height + height % 2), (24, 27, 33))
+    canvas.paste(image, (0, header))
+    canvas.paste(annotated, (image.width, header))
+    draw = ImageDraw.Draw(canvas)
+    font = export_font(20)
+    draw.text((12, 8), "A | Original", fill="white", font=font)
+    draw.text((image.width + 12, 8), "B | Overlay + Phase", fill="white", font=font)
+    return canvas
 
 
 def frame_durations(frames, timestamps, duration):
@@ -166,18 +205,26 @@ def frame_durations(frames, timestamps, duration):
     return durations
 
 
-def encode_video(path, frames, durations, image_at, progress=lambda value: None):
+def encode_video(path, frames, durations, image_at, progress=lambda value: None, *, rate=None, threads=None):
+    # Prepare one frame ahead while the main thread encodes; keep memory bounded.
+    with ThreadPoolExecutor(max_workers=1) as loader:
+        _encode_video(path, frames, durations, image_at, progress, loader, rate, threads)
+
+
+def _encode_video(path, frames, durations, image_at, progress, loader, rate, threads):
     clock = Fraction(1, 90000)
-    first_image = image_at(frames[0])
-    rate = Fraction(min(120, max(1, len(frames) / sum(durations)))).limit_denominator(1000)
+    first_image = loader.submit(image_at, frames[0]).result()
+    rate = rate or Fraction(min(120, max(1, len(frames) / sum(durations)))).limit_denominator(1000)
     with av.open(str(path), "w", format="mp4", options={"movflags": "+faststart"}) as output:
         codec = "libx264" if "libx264" in av.codecs_available else "libopenh264"
         stream = output.add_stream(codec, rate=rate)
+        if codec == "libx264":
+            stream.options = {"preset": "veryfast"}
         stream.width, stream.height, stream.pix_fmt = first_image.width, first_image.height, "yuv420p"
         stream.bit_rate = max(2000000, stream.width * stream.height * 4)
         stream.codec_context.time_base = clock
         stream.codec_context.max_b_frames = 0
-        stream.codec_context.thread_count = 2
+        stream.codec_context.thread_count = threads or min(8, max(1, int(detect_hardware()["effective_cpus"])))
         packet_durations = {}
         position = 0
 
@@ -186,7 +233,9 @@ def encode_video(path, frames, durations, image_at, progress=lambda value: None)
             output.mux(packet)
 
         for index, (number, duration) in enumerate(zip(frames, durations)):
-            image = first_image if index == 0 else image_at(number)
+            image = first_image if index == 0 else next_image.result()
+            if index + 1 < len(frames):
+                next_image = loader.submit(image_at, frames[index + 1])
             frame = av.VideoFrame.from_image(image)
             frame.pts, frame.time_base = position, clock
             ticks = max(1, round(duration / clock))
@@ -194,6 +243,8 @@ def encode_video(path, frames, durations, image_at, progress=lambda value: None)
             position += ticks
             for packet in stream.encode(frame):
                 mux(packet)
-            progress(int((index + 1) * 100 / len(frames)))
+            progress(min(99, int((index + 1) * 100 / len(frames))))
         for packet in stream.encode():
             mux(packet)
+
+    progress(100)

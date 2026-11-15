@@ -45,7 +45,10 @@ def probe_timing(path, modified_ns, size):
 
 
 def job_video_timing(job):
-    task = job.segment.task
+    return task_video_timing(job.segment.task)
+
+
+def task_video_timing(task):
     native = getattr(task, "original_video", None)
     if native is not None:
         return {"timestamps": native.timestamps, "duration": native.duration}

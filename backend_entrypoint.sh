@@ -108,6 +108,12 @@ cmd_run() {
         queue_list="${@:2}"
         echo "Workers to run: $queue_list"
         export CVAT_QUEUES=$queue_list
+        if [ "$queue_list" = "export" ] && [ "${NUMPROCS:-auto}" = "auto" ]; then
+            NUMPROCS=$(python3 -m cvat.apps.video_annotation.export_hardware --workers)
+            export NUMPROCS
+            echo "Auto-sized export workers: $NUMPROCS"
+            python3 -m cvat.apps.video_annotation.export_hardware
+        fi
 
         postgres_app_name+=":${queue_list// /+}"
 

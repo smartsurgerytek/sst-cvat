@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image
 
 from .utils import encode_mask
-from .video_export_render import encode_video, frame_durations, render_frame
+from .video_export_render import encode_video, frame_durations, render_frame, render_comparison, geometry
 
 
 class OverlayVideoRenderTests(unittest.TestCase):
@@ -25,6 +25,19 @@ class OverlayVideoRenderTests(unittest.TestCase):
         self.assertEqual(result.getpixel((60, 60)), (128, 0, 0))
         self.assertEqual(result.getpixel((10, 10)), (0, 0, 0))
         self.assertEqual(self.image.getpixel((60, 60)), (0, 0, 0))
+
+    def test_optimized_mask_blend_matches_full_frame_for_overlapping_masks(self):
+        bitmap = np.zeros((240, 320), dtype=bool)
+        bitmap[50:80, 50:80] = True
+        shapes = [{"type": "mask", "label_id": label, "points": encode_mask(bitmap)} for label in (1, 2)]
+        for opacity in (0, .35, .5, 1):
+            expected = self.image.convert("RGBA")
+            for shape, color in zip(shapes, ((255, 0, 0), (0, 255, 0))):
+                layer = Image.new("RGBA", self.image.size)
+                geometry(layer, shape, color, opacity, 2)
+                expected = Image.alpha_composite(expected, layer)
+            actual = render_frame(self.image, shapes, [], self.labels, {**self.options, "opacity": opacity}, 0)
+            self.assertEqual(actual.tobytes(), expected.convert("RGB").tobytes())
 
     def test_rotated_rectangle_and_polygon_keep_label_colors(self):
         shape = {"type": "rectangle", "label_id": 1, "points": [100, 80, 200, 120], "rotation": 90}
@@ -52,6 +65,15 @@ class OverlayVideoRenderTests(unittest.TestCase):
         second = render_frame(self.image, [{**shape, "id": 14}], [], self.labels, options, 0, {"14": 99})
         self.assertEqual(first.tobytes(), second.tobytes())
         self.assertNotEqual(first.tobytes(), render_frame(self.image, [shape], [], self.labels, self.options, 0).tobytes())
+
+    def test_comparison_preserves_original_and_includes_phase(self):
+        shape = {"type": "rectangle", "label_id": 1, "points": [50, 80, 100, 160]}
+        result = render_comparison(self.image, [shape], [{"label_id": 2}], self.labels, self.options, 0)
+        self.assertEqual(result.crop((0, 40, 320, 280)).tobytes(), self.image.tobytes())
+        self.assertEqual(result.getpixel((390, 160)), (128, 0, 0))
+        no_phase = render_comparison(self.image, [shape], [], self.labels, self.options, 0)
+        self.assertEqual(result.size, no_phase.size)
+        self.assertNotEqual(result.tobytes(), no_phase.tobytes())
 
     def test_odd_dimensions_are_padded(self):
         result = render_frame(Image.new("RGB", (101, 99)), [], [], self.labels, self.options, 0)
