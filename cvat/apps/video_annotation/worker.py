@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 
 from cvat.apps.engine.frame_provider import FrameOutputType, JobFrameProvider
 from .models import InferenceRun
-from .utils import decode_mask, iter_ndjson_lines
+from .utils import decode_mask, iter_ndjson_lines, prediction_geometry
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +145,8 @@ def render_preview(run, provider, result, output):
                 "RGB"
             )
             pixels = np.asarray(image).copy()
+            boxes = []
+            prompts = {p["object_id"]: p for p in run.prompts}
             for index, obj in enumerate(entry["objects"]):
                 if obj["points"] is None:
                     continue
@@ -152,9 +154,15 @@ def render_preview(run, provider, result, output):
                 color = np.array(
                     [(index * 73 + 45) % 256, (index * 137 + 190) % 256, (index * 53 + 85) % 256]
                 )
-                pixels[mask] = (pixels[mask] * 0.55 + color * 0.45).astype(np.uint8)
+                shape_type, points = prediction_geometry(prompts[obj["object_id"]], obj["points"])
+                if shape_type == "rectangle":
+                    boxes.append((points, tuple(int(v) for v in color)))
+                else:
+                    pixels[mask] = (pixels[mask] * 0.55 + color * 0.45).astype(np.uint8)
             image = Image.fromarray(pixels)
             draw = ImageDraw.Draw(image)
+            for points, color in boxes:
+                draw.rectangle(points, outline=color, width=max(2, width // 400))
             draw.rectangle((0, 0, min(width, 400), 20), fill="black")
             draw.text(
                 (4, 3), f"CVAT frame {entry['frame']} | review playback: 10 frames/s", fill="white"

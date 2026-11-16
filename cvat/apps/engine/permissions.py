@@ -412,6 +412,8 @@ class ProjectPermission(
     @classmethod
     def _get_scopes(cls, request: ExtendedRequest, view: ViewSet, obj: Project | None):
         Scopes = cls.Scopes
+        if view.action.startswith("video_zip_"):
+            return [Scopes.VIEW]
         if view.action == "original_video_catalog":
             return [Scopes.LIST]
         if view.action in {"original_videos", "original_video", "original_video_media"}:
@@ -715,6 +717,8 @@ class TaskPermission(
     @classmethod
     def _get_scopes(cls, request: ExtendedRequest, view: ViewSet, obj: Task | None) -> list[Scopes]:
         Scopes = cls.Scopes
+        if view.action.startswith("overlay_video_"):
+            return [Scopes.EXPORT_ANNOTATIONS, Scopes.VIEW_ANNOTATIONS, Scopes.VIEW_DATA]
         scope = {
             ("list", "GET"): Scopes.LIST,
             ("create", "POST"): Scopes.CREATE,
@@ -1002,7 +1006,9 @@ class JobPermission(OpenPolicyAgentPermission, DownloadExportedExtension):
     @classmethod
     def _get_scopes(cls, request: ExtendedRequest, view: ViewSet, obj: Job | None):
         Scopes = cls.Scopes
-        if view.action in {"original_video_media", "original_video_segment"}:
+        if view.action.startswith("overlay_video_"):
+            return [Scopes.EXPORT_ANNOTATIONS, Scopes.VIEW_ANNOTATIONS, Scopes.VIEW_DATA]
+        if view.action in {"original_video_media", "original_video_segment", "video_timing", "scrub_preview", "scrub_preview_sheet"}:
             return [Scopes.VIEW_DATA]
         if view.action == "sam1":
             return [Scopes.UPDATE_ANNOTATIONS, Scopes.VIEW_DATA]

@@ -48,7 +48,7 @@ from rq.job import Job as RQJob
 import cvat.apps.dataset_manager as dm
 import cvat.apps.dataset_manager.views  # pylint: disable=unused-import
 from cvat.apps.dataset_manager.serializers import DatasetFormatsSerializer
-from cvat.apps.video_annotation.views import VideoInferenceMixin
+from cvat.apps.video_annotation.views import VideoInferenceMixin, TaskVideoExportMixin, ProjectVideoZipMixin
 from cvat.apps.video_annotation.original_views import OriginalVideoMixin
 from cvat.apps.engine import backup
 from cvat.apps.engine.background import BackupImporter, DatasetImporter, TaskCreator
@@ -318,7 +318,7 @@ class ServerViewSet(viewsets.ViewSet):
             '200': ProjectReadSerializer, # check ProjectWriteSerializer.to_representation
         })
 )
-class ProjectViewSet(OriginalVideoMixin, viewsets.GenericViewSet, mixins.ListModelMixin,
+class ProjectViewSet(ProjectVideoZipMixin, OriginalVideoMixin, viewsets.GenericViewSet, mixins.ListModelMixin,
     mixins.RetrieveModelMixin, mixins.CreateModelMixin, mixins.DestroyModelMixin,
     PartialUpdateModelMixin, UploadMixin, DatasetMixin, BackupMixin
 ):
@@ -839,7 +839,7 @@ class _JobDataGetter(_DataGetter):
         })
 )
 
-class TaskViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
+class TaskViewSet(TaskVideoExportMixin, viewsets.GenericViewSet, mixins.ListModelMixin,
     mixins.RetrieveModelMixin, mixins.CreateModelMixin, mixins.DestroyModelMixin,
     PartialUpdateModelMixin, UploadMixin, DatasetMixin, BackupMixin
 ):

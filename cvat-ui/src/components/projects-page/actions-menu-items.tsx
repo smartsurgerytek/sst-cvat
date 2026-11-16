@@ -16,6 +16,7 @@ interface MenuItemsData {
     onExportDataset: () => void;
     onImportDataset: () => void;
     onBackupProject: () => void;
+    onExportVideos: () => void;
     onDeleteProject: () => void;
     selectedIds: number[];
 }
@@ -31,6 +32,7 @@ export default function ProjectActionsItems(
         onExportDataset,
         onImportDataset,
         onBackupProject,
+        onExportVideos,
         onDeleteProject,
         selectedIds = [],
     } = menuItemsData;
@@ -62,6 +64,13 @@ export default function ProjectActionsItems(
         label: withCount('Backup Project', 'backup-project'),
         disabled: isDisabled('backup-project'),
     }, 20]);
+
+    menuItems.push([{
+        key: 'export-videos',
+        onClick: onExportVideos,
+        label: 'Export videos',
+        disabled: isBulkMode,
+    }, 26]);
 
     menuItems.push([{
         key: 'edit_assignee',

@@ -3,7 +3,7 @@
 The annotation toolbar has a **SAM2 Video** button for 2D jobs. Existing CVAT
 Project / Task upload, playback, frame navigation, drawing, and dataset export
 remain the entry points. This addition provides persistent GPU inference runs,
-independent mask layers, explicit acceptance, and inference snapshot exports.
+independent mask/bounding-box layers, explicit acceptance, and inference snapshot exports.
 
 ## Start
 
@@ -40,16 +40,23 @@ Use `CVAT_HOST=localhost` when creating the containers for that hostname.
 1. Create a Project with compatible labels and upload a video using either
    **Standard frame annotation** or **Original MP4 annotation**. Both open native
    Task/Job workspaces with SAM2.
-2. Open the annotation Job, navigate to the starting frame, and draw one or more
-   polygons or masks in **Shape** mode. Track-mode prompts are not yet supported.
-3. Open **SAM2 Video**, select the objects, set the end frame, and click
-   **Save and run SAM2**. The start frame is the current CVAT frame.
+2. Open **SAM2 Video**. Drag either endpoint of the range slider to choose the
+   start and end, or drag the selected interval to move both. Both endpoints show
+   frame previews and source timestamps when available.
+3. Choose **BBox** and a rectangle/Any label (for example `bleeding`), then click
+   **到起點繪製物件** to draw on the starting frame. Reopen SAM2, select the object,
+   and click **Save and run SAM2**. Polygon/mask shapes remain segmentation objects.
+   Changing the start reloads that frame's objects; Track-mode seeds and rotated
+   rectangles are not supported.
 4. Close/reopen the panel to resume viewing the latest 20 runs. Execution runs in
    the annotation queue and continues independently of the browser.
-5. Inspect **Live mask layers** over original source frames, then choose
-   **Accept masks**. Masks become editable CVAT shapes; seeds remain unchanged.
-   Mask shape menus also offer **SAM2: Track subsequent frames**.
-6. Use **Manage SAM2 masks** to inspect or delete results grouped by run/label.
+5. Inspect the object layers over original source frames, then choose
+   **Accept objects**. Box prompts use SAM2's native box API; each predicted mask's
+   tight bounds become a rectangle. Segmentation objects remain masks. Seeds stay
+   unchanged. Rectangle, polygon and mask menus offer **SAM2: Track subsequent frames**.
+   Edit accepted rectangles directly on the main canvas; mask smoothing applies
+   only to segmentation objects.
+6. Use **Manage SAM2 objects** to inspect or delete results grouped by run/label.
    The live inspector supports per-object visibility, opacity, current-frame
    mask deletion, and edge smoothing. Radius changes preview immediately;
    **Apply smoothing** saves only the selected mask on the current frame.
@@ -68,9 +75,22 @@ stale results. Save edits and run again. Cancellation is cooperative: it stops
 when the next frame / inference output is processed, not immediately during a
 GPU kernel or initial model download.
 
+## Phase intervals
+
+Open **Phase**, select a Tag label (for example `Blood-Obscured View`), and drag
+both timeline endpoints while checking the previews. Add/remove applies to the
+inclusive interval within this job. Single-frame phases are supported. Deleted
+frames are skipped; adding the same phase twice does not duplicate tags. Existing
+intervals can be selected from the list. Changes use native CVAT undo and Save;
+export them in a format supporting tags, such as CVAT for video. Different phase
+labels may overlap. To replace a phase, remove its old interval and add the new one.
+
+These UI and box-inference changes require rebuilding the UI, backend/annotation
+worker, and SAM2 service; rebuilding only the UI will not enable box prompts.
+
 ## First-version limits
 
-- Forward tracking, 1–10 standalone mask/polygon prompts, 2–300 frames per run.
+- Forward tracking, 1–10 standalone rectangle/mask/polygon prompts, 2–300 frames per run.
 - One active run per Job, one inference at a time per GPU service. A busy GPU
   returns an error; retry after the other run completes.
 - Maximum 4K frame area and 512 MiB frame archive. Use short ranges for long or
@@ -92,7 +112,7 @@ GPU kernel or initial model download.
   distinguish occlusion from leaving the scene or provide automatic re-ID.
 - Inference artifacts are stored under `data/video_inference/<job>/<run>/`.
   The ZIP describes a run, not the entire project's final annotation state.
-- Automatic point/box prompts, backward tracking, a combined project-upload
+- Automatic point prompts, backward tracking, a combined project-upload
   wizard, original-timing preview, and a full-project versioned export are not
   included in this first version.
 
@@ -162,7 +182,7 @@ Threshold edits start from original inference scores, so they replace manual
 corrections on the selected mask if explicitly applied. Smoothing alone starts
 from the currently saved mask. Empty results cannot be applied.
 
-Accept masks first, then **Apply to this object / frame** to save a preview to the
+Accept objects first, then **Apply to this object / frame** to save a preview to the
 native annotation. Acceptance itself imports the original binary predictions;
 it does not apply preview settings. Applying never changes other objects or
 frames, and retains the existing revision-conflict checks. Preview parameters

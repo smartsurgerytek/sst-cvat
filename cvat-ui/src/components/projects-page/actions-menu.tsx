@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useDispatch, useSelector, shallowEqual } from 'react-redux';
 import { useHistory } from 'react-router';
 import Dropdown from 'antd/lib/dropdown';
@@ -22,6 +22,7 @@ import { confirmTransferModal } from 'utils/modals';
 
 import { makeBulkOperationAsync } from 'actions/bulk-actions';
 import ProjectActionsItems from './actions-menu-items';
+import ExportVideosModal from './export-videos-modal';
 
 interface Props {
     projectInstance: Project;
@@ -35,6 +36,7 @@ function ProjectActionsComponent(props: Readonly<Props>): JSX.Element {
         projectInstance, triggerElement, dropdownTrigger, onUpdateProject,
     } = props;
 
+    const [exportVideosOpen, setExportVideosOpen] = useState(false);
     const history = useHistory();
     const dispatch = useDispatch();
     const pluginActions = usePlugins((state: CombinedState) => state.plugins.components.projectActions.items, props);
@@ -212,26 +214,34 @@ function ProjectActionsComponent(props: Readonly<Props>): JSX.Element {
             onExportDataset,
             onImportDataset,
             onBackupProject,
+            onExportVideos: () => setExportVideosOpen(true),
             onDeleteProject,
             selectedIds,
         }, props);
     }
 
     return (
-        <Dropdown
-            destroyPopupOnHide
-            trigger={dropdownTrigger || ['click']}
-            open={dropdownOpen}
-            onOpenChange={onOpenChange}
-            menu={{
-                selectable: false,
-                className: 'cvat-project-actions-menu',
-                items: menuItems,
-                onClick: onMenuClick,
-            }}
-        >
-            {triggerElement}
-        </Dropdown>
+        <>
+            <Dropdown
+                destroyPopupOnHide
+                trigger={dropdownTrigger || ['click']}
+                open={dropdownOpen}
+                onOpenChange={onOpenChange}
+                menu={{
+                    selectable: false,
+                    className: 'cvat-project-actions-menu',
+                    items: menuItems,
+                    onClick: onMenuClick,
+                }}
+            >
+                {triggerElement}
+            </Dropdown>
+            <ExportVideosModal
+                project={projectInstance}
+                open={exportVideosOpen}
+                onClose={() => setExportVideosOpen(false)}
+            />
+        </>
     );
 }
 

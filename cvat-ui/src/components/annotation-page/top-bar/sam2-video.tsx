@@ -1,7 +1,7 @@
 // Copyright (C) CVAT.ai Corporation
 // SPDX-License-Identifier: MIT
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import Axios from 'axios';
 import Alert from 'antd/lib/alert';
@@ -15,12 +15,15 @@ import Space from 'antd/lib/space';
 import Typography from 'antd/lib/typography';
 
 import {
-    getCore, Job, ObjectType, ShapeType,
+    getCore, Job, ObjectType, ObjectState, ShapeType,
 } from 'cvat-core-wrapper';
-import { CombinedState } from 'reducers';
+import { CombinedState, Workspace } from 'reducers';
+import { Canvas, RectDrawingMethod } from 'cvat-canvas-wrapper';
 import { SAM2_TRACK_SHAPE, SAM2TrackShapeDetail } from 'utils/sam2-events';
-import { fetchAnnotationsAsync, saveAnnotationsAsync, switchPlay } from 'actions/annotation-actions';
-import SAM2EndFrame from './sam2-end-frame';
+import {
+    changeFrameAsync, fetchAnnotationsAsync, rememberObject, saveAnnotationsAsync, switchPlay,
+} from 'actions/annotation-actions';
+import VideoRangeSelector from './video-range-selector';
 import SAM2MaskReview from './sam2-mask-review';
 import SAM2ResultsManager from './sam2-results-manager';
 import './sam2-review.scss';
@@ -42,12 +45,34 @@ function runStage(run: Run): string {
     return 'Finalizing masks';
 }
 
-export default function SAM2Video({ job }: { job: Job }): JSX.Element {
+interface Props {
+    job: Job;
+    visible?: boolean;
+    onVisibleChange?: (visible: boolean) => void;
+}
+
+export default function SAM2Video({ job, visible, onVisibleChange }: Props): JSX.Element {
     const dispatch = useDispatch();
     const frame = useSelector((state: CombinedState) => state.annotation.player.frame.number);
     const states = useSelector((state: CombinedState) => state.annotation.annotations.states);
-    const [open, setOpen] = useState(false);
-    const [stop, setStop] = useState(job.stopFrame);
+    const [internalOpen, setInternalOpen] = useState(false);
+    const open = visible ?? internalOpen;
+    const setOpen = onVisibleChange ?? setInternalOpen;
+    const canvas = useSelector((state: CombinedState) => state.annotation.canvas);
+    const workspace = useSelector((state: CombinedState) => state.annotation.workspace);
+    const labels = useSelector((state: CombinedState) => state.annotation.job.labels);
+    const wasOpen = useRef(false);
+    const openingSelection = useRef<number[]>([]);
+    const [createOpen, setCreateOpen] = useState(true);
+    const [first, setFirst] = useState(frame);
+    const [seedStates, setSeedStates] = useState<ObjectState[]>([]);
+    const [loadingSeeds, setLoadingSeeds] = useState(false);
+    const [drawType, setDrawType] = useState(ShapeType.RECTANGLE);
+    const [drawLabel, setDrawLabel] = useState<number>();
+    const [pendingDraw, setPendingDraw] = useState<{ frame: number; label: number; type: ShapeType } | null>(null);
+    const drawLabels = labels.filter((label) => ['any', drawType].includes(label.type));
+    const selectedDrawLabel = drawLabel ?? drawLabels[0]?.id;
+    const [stop, setStop] = useState(Math.min(job.stopFrame, frame + 1));
     const [selected, setSelected] = useState<number[]>([]);
     const [runs, setRuns] = useState<Run[]>([]);
     const [runID, setRunID] = useState<string | null>(null);
@@ -58,10 +83,44 @@ export default function SAM2Video({ job }: { job: Job }): JSX.Element {
     const [error, setError] = useState('');
     const [resultsRevision, setResultsRevision] = useState(0);
     const base = `${getCore().config.backendAPI}/jobs/${job.id}/video-inference`;
-    const run = runs.find((item) => item.id === runID) || runs[0];
+    const run = runs.find((item) => item.id === runID);
     const active = runs.some((item) => ['queued', 'running'].includes(item.status));
-    const candidates = states.filter((state) => state.objectType === ObjectType.SHAPE &&
-        [ShapeType.POLYGON, ShapeType.MASK].includes(state.shapeType) && !state.outside);
+    const candidates = seedStates.filter((state) => state.objectType === ObjectType.SHAPE &&
+        [ShapeType.RECTANGLE, ShapeType.POLYGON, ShapeType.MASK].includes(state.shapeType) && !state.outside);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        let disposed = false;
+        setLoadingSeeds(true);
+        setSeedStates([]);
+        job.annotations.get(first, false, []).then((objects) => {
+            if (!disposed) {
+                setSeedStates(objects);
+                setSelected((previous) => previous.filter((id) => objects.some((object) => object.clientID === id)));
+            }
+        }).catch((reason) => { if (!disposed) setError(String(reason)); })
+            .finally(() => { if (!disposed) setLoadingSeeds(false); });
+        return () => { disposed = true; };
+    }, [open, first, states, job.id]);
+
+    useEffect(() => {
+        if (!pendingDraw || !canvas.ready || frame !== pendingDraw.frame || !canvas.instance) return;
+        const instance = canvas.instance as Canvas;
+        instance.cancel();
+        dispatch(rememberObject({
+            activeObjectType: ObjectType.SHAPE,
+            activeShapeType: pendingDraw.type,
+            activeLabelID: pendingDraw.label,
+            activeRectDrawingMethod: RectDrawingMethod.CLASSIC,
+        }));
+        instance.draw({
+            enabled: true,
+            shapeType: pendingDraw.type,
+            rectDrawingMethod: RectDrawingMethod.CLASSIC,
+            crosshair: pendingDraw.type === ShapeType.RECTANGLE,
+        });
+        setPendingDraw(null);
+    }, [pendingDraw, canvas.ready, canvas.instance, frame]);
 
     const reportError = (reason: unknown): void => {
         const detail = Axios.isAxiosError(reason) ? reason.response?.data : null;
@@ -106,22 +165,33 @@ export default function SAM2Video({ job }: { job: Job }): JSX.Element {
     }, [open, base]);
 
     useEffect(() => {
-        setSelected([]);
-        setStop(Math.min(job.stopFrame, frame + 99));
-    }, [frame, job.id]);
+        if (open && !wasOpen.current) {
+            const current = Math.max(job.startFrame, Math.min(job.stopFrame, frame));
+            setFirst(current);
+            setStop(Math.min(job.stopFrame, current + 1));
+            setSelected(openingSelection.current);
+            openingSelection.current = [];
+            setRunID(null);
+            setCreateOpen(true);
+            setError('');
+        }
+        wasOpen.current = open;
+    }, [open, frame, job.startFrame, job.stopFrame]);
 
     useEffect(() => {
         const openForShape = (event: Event): void => {
             const { detail } = event as CustomEvent<SAM2TrackShapeDetail>;
             if (detail.jobID !== job.id) return;
             dispatch(switchPlay(false));
+            setFirst(frame);
+            openingSelection.current = [detail.clientID];
             setSelected([detail.clientID]);
             setError('');
             setOpen(true);
         };
         window.addEventListener(SAM2_TRACK_SHAPE, openForShape);
         return () => window.removeEventListener(SAM2_TRACK_SHAPE, openForShape);
-    }, [job.id]);
+    }, [job.id, frame]);
 
     const start = async (): Promise<void> => {
         setBusy(true);
@@ -130,7 +200,7 @@ export default function SAM2Video({ job }: { job: Job }): JSX.Element {
         try {
             await dispatch(saveAnnotationsAsync());
             setStartStage('Reading saved objects');
-            const saved = await job.annotations.get(frame, false, []);
+            const saved = await job.annotations.get(first, false, []);
             const prompts = saved.filter((state) => selected.includes(state.clientID as number)).map((state) => ({
                 kind: 'shape',
                 id: state.serverID,
@@ -142,10 +212,11 @@ export default function SAM2Video({ job }: { job: Job }): JSX.Element {
                 throw new Error('Select the saved objects again before starting inference.');
             }
             setStartStage('Creating inference run');
-            const response = await Axios.post<Run>(base, { start_frame: frame, stop_frame: stop, prompts }, {
+            const response = await Axios.post<Run>(base, { start_frame: first, stop_frame: stop, prompts }, {
                 timeout: 60000,
             });
             setRunID(response.data.id);
+            setCreateOpen(false);
             setRuns((previous) => [response.data, ...previous]);
         } catch (reason) {
             reportError(reason);
@@ -175,7 +246,7 @@ export default function SAM2Video({ job }: { job: Job }): JSX.Element {
             setRuns((previous) => previous.map((item) => (
                 item.id === run.id ? { ...item, status: 'accepted' } : item
             )));
-            notification.success({ message: 'SAM2 results accepted', description: 'Masks are now editable on the canvas.' });
+            notification.success({ message: 'SAM2 results accepted', description: 'Bounding boxes and masks are now editable on the canvas.' });
         } catch (reason) {
             reportError(reason);
         } finally {
@@ -198,7 +269,9 @@ export default function SAM2Video({ job }: { job: Job }): JSX.Element {
 
     return (
         <>
-            <Button type='link' onClick={() => { dispatch(switchPlay(false)); setOpen(true); }}>SAM2 Video</Button>
+            {visible === undefined && (
+                <Button type='link' onClick={() => { dispatch(switchPlay(false)); setOpen(true); }}>SAM2 Video</Button>
+            )}
             <Modal
                 title='SAM2 video annotation'
                 open={open}
@@ -206,7 +279,7 @@ export default function SAM2Video({ job }: { job: Job }): JSX.Element {
                 maskClosable={false}
                 keyboard={false}
                 footer={null}
-                width={1280}
+                width={run ? 1280 : 820}
                 className='cvat-sam2-modal'
                 style={{ top: 24 }}
                 styles={{ body: { maxHeight: 'calc(100dvh - 130px)', overflowY: 'auto' } }}
@@ -224,30 +297,98 @@ export default function SAM2Video({ job }: { job: Job }): JSX.Element {
                             showIcon
                         />
                     )}
-                    <details className='cvat-sam2-section' open={!run}>
-                        <summary role='button' tabIndex={0} onKeyDown={(event) => event.stopPropagation()}>建立推論 · Save and run SAM2</summary>
+                    <details
+                        className='cvat-sam2-section'
+                        open={createOpen}
+                        onToggle={(event) => setCreateOpen(event.currentTarget.open)}
+                    >
+                        <summary role='button' tabIndex={0} onKeyDown={(event) => event.stopPropagation()}>Create inference · Save and run SAM2</summary>
                         <div className='cvat-sam2-section-body'>
                             <Typography.Paragraph>
-                        Draw polygon or mask shapes on a starting frame, select them below, then save and track.
-                        Inference continues when this panel is closed.
-                        Review independent mask layers before accepting the masks.
+                                Select a frame range, then choose objects on the start frame. BBox produces
+                                rectangles; segmentation produces masks.
                             </Typography.Paragraph>
-                            {!candidates.length && (
-                                <Alert type='info' message='Draw a polygon or mask in Shape mode on this frame first.' />
+                            {open && (
+                                <VideoRangeSelector
+                                    job={job}
+                                    onEndFrameCommit={(number) => { dispatch(changeFrameAsync(number)); }}
+                                    value={[first, stop]}
+                                    startObjects={candidates.filter((state) => (
+                                        selected.includes(state.clientID as number)
+                                    ))}
+                                    maxFrames={300}
+                                    minGap={1}
+                                    disabled={busy}
+                                    onChange={([from, to]) => {
+                                        if (from !== first) setSelected([]);
+                                        setFirst(from); setStop(to);
+                                    }}
+                                />
+                            )}
+                            {first === job.stopFrame && (
+                                <Alert
+                                    type='info'
+                                    showIcon
+                                    message='This is the last frame, so both previews show it. Move the start to an earlier frame to create an inference run.'
+                                />
+                            )}
+                            <Space wrap style={{ margin: '16px 0' }}>
+                                <Select
+                                    aria-label='SAM2 object type'
+                                    value={drawType}
+                                    disabled={busy}
+                                    style={{ width: 180 }}
+                                    onChange={(value) => { setDrawType(value); setDrawLabel(undefined); }}
+                                    options={[
+                                        { value: ShapeType.RECTANGLE, label: 'BBox · Rectangle' },
+                                        { value: ShapeType.POLYGON, label: 'Segmentation · Polygon' },
+                                    ]}
+                                />
+                                <Select
+                                    aria-label='SAM2 object label'
+                                    placeholder='Select an object label'
+                                    value={selectedDrawLabel}
+                                    disabled={busy}
+                                    style={{ minWidth: 170 }}
+                                    onChange={setDrawLabel}
+                                    options={drawLabels.map((label) => ({ value: label.id, label: label.name }))}
+                                />
+                                <Button
+                                    disabled={busy || selectedDrawLabel === undefined ||
+                                        workspace !== Workspace.STANDARD}
+                                    onClick={() => {
+                                        setPendingDraw({ frame: first, label: selectedDrawLabel!, type: drawType });
+                                        setOpen(false);
+                                        dispatch(changeFrameAsync(first));
+                                    }}
+                                >
+                                    Draw objects on start frame
+                                </Button>
+                            </Space>
+                            <Typography.Paragraph type='secondary'>
+                                Draw on the main canvas, then reopen SAM2 to select objects and start tracking.
+                                Existing masks can also be selected.
+                            </Typography.Paragraph>
+                            {workspace !== Workspace.STANDARD && (
+                                <Alert type='info' message='Switch to the Standard workspace to draw objects.' />
+                            )}
+                            {!drawLabels.length && (
+                                <Alert type='info' message='Add a label with the matching shape type or Any type to the project.' />
+                            )}
+                            {!loadingSeeds && !candidates.length && (
+                                <Alert type='info' message='No objects on this start frame. Draw an object or choose a different start frame.' />
                             )}
                             <Checkbox.Group
+                                disabled={busy || loadingSeeds}
                                 value={selected}
                                 onChange={(values) => setSelected(values as number[])}
                                 options={candidates.map((state) => ({
                                     value: state.clientID as number,
-                                    label: `${state.label.name} #${state.serverID || state.clientID}`,
+                                    label: `${state.label.name} · ${state.shapeType === ShapeType.RECTANGLE ? 'BBox' : 'Segmentation'} #${state.serverID || state.clientID}`,
                                 }))}
                             />
-                            {open && (
-                                <SAM2EndFrame job={job} start={frame} stop={stop} disabled={busy} onChange={setStop} />
-                            )}
                             <Space wrap>
-                                <Button type='primary' loading={busy} disabled={active || !selected.length || stop <= frame} onClick={start}>
+                                <Button type='primary' loading={busy} disabled={active || loadingSeeds || !selected.length || stop <= first} onClick={start}>
                                     {startStage || 'Save and run SAM2'}
                                 </Button>
                             </Space>
@@ -259,7 +400,7 @@ export default function SAM2Video({ job }: { job: Job }): JSX.Element {
                             aria-label='SAM2 inference history'
                             style={{ width: '100%' }}
                             value={run?.id}
-                            onChange={(id) => setRunID(id)}
+                            onChange={(id) => { setRunID(id); setCreateOpen(false); }}
                             options={runs.map((item) => ({
                                 value: item.id,
                                 label: `Frames ${item.start_frame}–${item.stop_frame} · ${item.status}` +
@@ -289,7 +430,7 @@ export default function SAM2Video({ job }: { job: Job }): JSX.Element {
                                     />
                                     <Space wrap>
                                         <Button type='primary' disabled={run.status === 'accepted'} loading={busy} onClick={accept}>
-                                            {run.status === 'accepted' ? 'Accepted' : 'Accept masks'}
+                                            {run.status === 'accepted' ? 'Accepted' : 'Accept objects'}
                                         </Button>
                                         <Button href={`${base}/${run.id}/export`}>Download inference ZIP</Button>
                                     </Space>
@@ -302,8 +443,8 @@ export default function SAM2Video({ job }: { job: Job }): JSX.Element {
                             )}
                         </>
                     )}
-                    <details className='cvat-sam2-section'>
-                        <summary role='button' tabIndex={0} onKeyDown={(event) => event.stopPropagation()}>結果管理 · Manage SAM2 masks</summary>
+                    <details key={String(open)} className='cvat-sam2-section'>
+                        <summary role='button' tabIndex={0} onKeyDown={(event) => event.stopPropagation()}>Results · Manage SAM2 objects</summary>
                         <div className='cvat-sam2-section-body'>
                             {open && (
                                 <SAM2ResultsManager

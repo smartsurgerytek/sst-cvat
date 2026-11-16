@@ -1,5 +1,6 @@
-// SPDX-License-Identifier: MIT
 import Axios from 'axios';
+import { startVideoDownload } from './video-download-speed';
+// SPDX-License-Identifier: MIT
 import type { OriginalVideoSource } from './original-video';
 
 export const SEGMENT_SECONDS = 5;
@@ -108,12 +109,15 @@ function sharedDownload(
     let job = downloads.get(key);
     if (!job) {
         const controller = new AbortController();
+        const download = startVideoDownload(`video:${source.id}`);
         const promise = Axios.get<Blob>(`${source.url}/segments/${index}`, {
             params: profile === 'original-v1' ? { profile: 'original' } : undefined,
             responseType: 'blob',
             signal: controller.signal,
             timeout: 120000,
+            onDownloadProgress: ({ loaded }) => download.progress(loaded),
         }).then((response) => {
+            download.progress(response.data.size);
             const segment: VideoSegment = {
                 key,
                 blob: response.data,
@@ -129,7 +133,7 @@ function sharedDownload(
             // Playback can use the bytes immediately; persistence runs independently.
             remember(segment).catch(() => {});
             return segment;
-        });
+        }).finally(download.finish);
         job = { controller, promise, users: new Set() };
         downloads.set(key, job);
         const created = job;

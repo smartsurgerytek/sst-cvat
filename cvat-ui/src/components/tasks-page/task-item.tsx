@@ -140,7 +140,7 @@ class TaskItemComponent extends React.PureComponent<TaskItemProps & RouteCompone
             <Col span={10} className='cvat-task-item-description'>
                 <Text ellipsis={{ tooltip: taskInstance.name }}>
                     {taskInstance.mode === TaskMode.INTERPOLATION && (
-                        <Tag color='blue' className='cvat-task-item-video-tag'>影片</Tag>
+                        <Tag color='blue' className='cvat-task-item-video-tag'>Video</Tag>
                     )}
                     <Text strong type='secondary' className='cvat-item-task-id'>{`#${id}: `}</Text>
                     <Text strong className='cvat-item-task-name'>

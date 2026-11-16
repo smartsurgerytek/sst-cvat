@@ -1,13 +1,40 @@
+import math
+
 from rest_framework import serializers
 from .models import InferenceRun
+
+
+class OverlayVideoExportSerializer(serializers.Serializer):
+    start_frame = serializers.IntegerField(min_value=0)
+    stop_frame = serializers.IntegerField(min_value=0)
+    opacity = serializers.FloatField(min_value=0, max_value=1, default=0.35)
+    show_names = serializers.BooleanField(default=True)
+    show_legend = serializers.BooleanField(default=True)
+    show_phase = serializers.BooleanField(default=True)
+
+    def validate_opacity(self, value):
+        if not math.isfinite(value):
+            raise serializers.ValidationError("Opacity must be a finite number.")
+        return value
+
+
+class OverlayVideoPreviewSerializer(OverlayVideoExportSerializer):
+    from cvat.apps.engine.serializers import LabeledShapeSerializer, LabeledImageSerializer
+
+    class PreviewShapeSerializer(LabeledShapeSerializer):
+        track_id = serializers.IntegerField(required=False, allow_null=True)
+
+    frame = serializers.IntegerField(min_value=0)
+    shapes = PreviewShapeSerializer(many=True, default=list)
+    tags = LabeledImageSerializer(many=True, default=list)
 
 
 class PromptSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=["shape", "track"])
     id = serializers.IntegerField(min_value=1)
     label_id = serializers.IntegerField(min_value=1)
-    type = serializers.ChoiceField(choices=["polygon", "mask"])
-    points = serializers.ListField(child=serializers.FloatField(), min_length=5, max_length=4000000)
+    type = serializers.ChoiceField(choices=["rectangle", "polygon", "mask"])
+    points = serializers.ListField(child=serializers.FloatField(), min_length=4, max_length=4000000)
     attributes = serializers.ListField(child=serializers.DictField(), default=list)
 
 

@@ -14,7 +14,13 @@ import {
     decodeLogits, smoothMask, thresholdMask, curveSmoothMask,
 } from 'utils/sam2-mask-processing';
 
-interface Mask { object_id: string; points: number[] | null; label_color: string; logits?: string }
+interface Mask {
+    type?: string;
+    object_id: string;
+    points: number[] | null;
+    label_color: string;
+    logits?: string | null;
+}
 interface Snapshot { width: number; height: number; frames: { frame: number; objects: Mask[] }[] }
 interface Scores { width: number; height: number; source_height: number; objects: Mask[] }
 interface Props {
@@ -138,6 +144,7 @@ export default function SAM2VideoPlayback(props: Props): JSX.Element {
         let result = exactPreview || processed.current.get(key);
         if (!result) {
             const objects = (scoreData?.objects || masks.current.get(frame) || []).map((object) => {
+                if (object.type === 'rectangle') return object;
                 const settings = parameters[object.object_id];
                 let { points } = object;
                 if (settings?.threshold !== null && settings?.threshold !== undefined && object.logits) {
@@ -164,6 +171,13 @@ export default function SAM2VideoPlayback(props: Props): JSX.Element {
         context.globalAlpha = opacity;
         for (const object of result.objects) {
             if (hidden.includes(object.object_id) || !object.points) continue;
+            if (object.type === 'rectangle') {
+                const [left, top, right, bottom] = object.points;
+                context.strokeStyle = object.label_color;
+                context.lineWidth = Math.max(2, result.width / 400);
+                context.strokeRect(left, top, right - left, bottom - top);
+                continue;
+            }
             const [x, y, right] = object.points.slice(-4);
             const maskWidth = right - x + 1;
             let offset = 0;
@@ -300,7 +314,7 @@ export default function SAM2VideoPlayback(props: Props): JSX.Element {
                 />
             </div>
             <Typography.Text type='secondary'>
-                播放時同步預覽遮罩，暫停後可套用調整。
+                Preview masks during playback. Pause to apply adjustments.
             </Typography.Text>
         </div>
     );

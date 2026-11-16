@@ -39,7 +39,7 @@ class PlaybackSnapshotTests(unittest.TestCase):
         snapshot = build_playback_snapshot(self.run, self.labels, shapes)
         self.assertEqual(snapshot["frames"][0]["objects"], [])
         self.assertEqual(snapshot["frames"][1]["objects"], [
-            {"object_id": "a", "label_color": "#123456", "points": corrected},
+            {"object_id": "a", "label_color": "#123456", "points": corrected, "type": "mask"},
         ])
 
     def test_missing_label_has_fallback_color(self):

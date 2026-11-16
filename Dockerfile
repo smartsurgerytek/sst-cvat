@@ -118,6 +118,7 @@ RUN apt-get update && \
         ca-certificates \
         curl \
         git \
+        fonts-noto-cjk \
         libgeos-c1v5 \
         libgl1 \
         libgomp1 \
