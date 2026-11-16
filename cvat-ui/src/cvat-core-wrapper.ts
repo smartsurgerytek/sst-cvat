@@ -15,7 +15,7 @@ import {
 } from 'cvat-core/src/labels';
 import {
     SerializedAttribute, SerializedLabel, SerializedAPISchema,
-    OrganizationMembersFilter, AnalyticsEventsFilter, SerializedApiToken,
+    OrganizationMembersFilter, AnalyticsEvent, AnalyticsEventsFilter, AnalyticsEventsQuery, SerializedApiToken,
     ApiTokensFilter,
 } from 'cvat-core/src/server-response-types';
 import { ApiTokenModifiableFields } from 'cvat-core/src/server-request-types';
@@ -137,8 +137,11 @@ export type {
     RequestOperation,
     UpdateStatusData,
     OrganizationMembersFilter,
+    // Re-export these here so UI code does not import cvat-core internals directly.
+    AnalyticsEvent,
     QualitySettingsSaveFields,
     AnalyticsEventsFilter,
+    AnalyticsEventsQuery,
     MinimalShape,
     InteractorResults,
     TrackerResults,

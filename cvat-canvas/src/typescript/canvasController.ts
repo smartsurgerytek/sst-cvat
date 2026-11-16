@@ -25,7 +25,7 @@ import {
 
 export interface CanvasController {
     readonly objects: any[];
-    readonly issueRegions: Record<number, { hidden: boolean; points: number[] }>;
+    readonly issueRegions: Record<number, { hidden: boolean; points: number[] | number[][] }>;
     readonly zLayer: number | null;
     readonly focusData: FocusData;
     readonly activeElement: ActiveElement;
@@ -118,7 +118,7 @@ export class CanvasControllerImpl implements CanvasController {
         return this.model.zLayer;
     }
 
-    public get issueRegions(): Record<number, { hidden: boolean; points: number[] }> {
+    public get issueRegions(): Record<number, { hidden: boolean; points: number[] | number[][] }> {
         return this.model.issueRegions;
     }
 

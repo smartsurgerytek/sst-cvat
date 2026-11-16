@@ -37,6 +37,7 @@
     "@types/resize-observer-browser": "^0.1.6",
     "@uiw/react-md-editor": "^3.22.0",
     "antd": "5.17.1",
+    "axios": "^1.12.0",
     "chart.js": "^4.4.8",
     "chartjs-plugin-datalabels": "^2.2.0",
     "cvat-canvas": "link:./../cvat-canvas",

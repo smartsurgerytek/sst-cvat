@@ -20,6 +20,7 @@ interface Props {
     value: User | null;
     username?: string;
     className?: string;
+    disabled?: boolean;
     onSelect: (user: User | null) => void;
 }
 
@@ -78,7 +79,7 @@ const initialUsersStorage: {
 
 export default function UserSelector(props: Readonly<Props>): JSX.Element {
     const {
-        value, className, username, onSelect,
+        value, className, username, disabled, onSelect,
     } = props;
     const [searchPhrase, setSearchPhrase] = useState(username || '');
     const [initialUsers, setInitialUsers] = useState<User[]>([]);
@@ -159,6 +160,8 @@ export default function UserSelector(props: Readonly<Props>): JSX.Element {
     return (
         <Autocomplete
             ref={autocompleteRef}
+            // Lock the control while the parent is saving to avoid duplicate updates.
+            disabled={disabled}
             value={searchPhrase}
             placeholder='Select a user'
             onSearch={setSearchPhrase}
@@ -178,7 +181,7 @@ export default function UserSelector(props: Readonly<Props>): JSX.Element {
                 })),
             ]}
         >
-            <Input onPressEnter={() => autocompleteRef.current?.blur()} />
+            <Input disabled={disabled} onPressEnter={() => autocompleteRef.current?.blur()} />
         </Autocomplete>
     );
 }

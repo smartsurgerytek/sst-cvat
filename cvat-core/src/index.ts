@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import {
-    AnalyticsEventsFilter, QualityConflictsFilter, QualityReportsFilter,
+    AnalyticsEvent, AnalyticsEventsFilter, AnalyticsEventsQuery, QualityConflictsFilter, QualityReportsFilter,
     QualitySettingsFilter, ConsensusSettingsFilter, ApiTokensFilter,
 } from './server-response-types';
 import PluginRegistry from './plugins';
@@ -100,11 +100,13 @@ export default interface CVATCore {
     jobs: {
         get: (filter: {
             page?: number;
+            pageSize?: number;
             filter?: string;
             sort?: string;
             search?: string;
             jobID?: number;
             taskID?: number;
+            projectID?: number;
             type?: string;
         }, aggregate?: boolean) => Promise<PaginatedResource<Job>>;
     };
@@ -168,6 +170,9 @@ export default interface CVATCore {
         };
         events: {
             export: (filter: AnalyticsEventsFilter) => Promise<string>;
+            list: (
+                filter: AnalyticsEventsQuery,
+            ) => Promise<PaginatedResource<AnalyticsEvent> & { hasMore: boolean; nextCursor?: string | null }>;
         };
     };
     frames: {

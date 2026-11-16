@@ -241,7 +241,7 @@ export interface CanvasModel {
     readonly imageBitmap: boolean;
     readonly imageIsDeleted: boolean;
     readonly image: Image | null;
-    readonly issueRegions: Record<number, { hidden: boolean; points: number[] }>;
+    readonly issueRegions: Record<number, { hidden: boolean; points: number[] | number[][] }>;
     readonly objects: any[];
     readonly zLayer: number | null;
     readonly gridSize: Size;
@@ -266,7 +266,7 @@ export interface CanvasModel {
     move(topOffset: number, leftOffset: number): void;
 
     setup(frameData: any, objectStates: any[], zLayer: number): void;
-    setupIssueRegions(issueRegions: Record<number, { hidden: boolean; points: number[] }>): void;
+    setupIssueRegions(issueRegions: Record<number, { hidden: boolean; points: number[] | number[][] }>): void;
     activate(clientID: number | null, attributeID: number | null): void;
     highlight(clientIDs: number[], severity: HighlightSeverity): void;
     rotate(rotationAngle: number): void;
@@ -362,7 +362,7 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
         focusData: FocusData;
         gridSize: Size;
         objects: any[];
-        issueRegions: Record<number, { hidden: boolean; points: number[] }>;
+        issueRegions: Record<number, { hidden: boolean; points: number[] | number[][] }>;
         scale: number;
         top: number;
         left: number;
@@ -638,7 +638,7 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
             });
     }
 
-    public setupIssueRegions(issueRegions: Record<number, { hidden: boolean; points: number[] }>): void {
+    public setupIssueRegions(issueRegions: Record<number, { hidden: boolean; points: number[] | number[][] }>): void {
         this.data.issueRegions = issueRegions;
         this.notify(UpdateReasons.ISSUE_REGIONS_UPDATED);
     }
@@ -1088,7 +1088,7 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
         return this.data.image;
     }
 
-    public get issueRegions(): Record<number, { hidden: boolean; points: number[] }> {
+    public get issueRegions(): Record<number, { hidden: boolean; points: number[] | number[][] }> {
         return { ...this.data.issueRegions };
     }
 

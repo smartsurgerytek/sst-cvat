@@ -118,9 +118,10 @@ function TaskPageComponent(): JSX.Element {
         })
     );
 
-    const onJobUpdate = (job: Job, data: Parameters<Job['save']>[0]): void => {
-        dispatch(updateJobAsync(job, data));
-    };
+    const onJobUpdate = (job: Job, data: Parameters<Job['save']>[0]): Promise<void> => (
+        // Autosave waits on this promise to show saving and error state correctly.
+        dispatch(updateJobAsync(job, data))
+    );
 
     return (
         <div className='cvat-task-page'>

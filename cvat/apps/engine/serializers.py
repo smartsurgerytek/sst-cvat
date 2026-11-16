@@ -312,6 +312,18 @@ class OrgTransferableMixin():
         raise NotImplementedError()
 
 class BasicUserSerializer(serializers.ModelSerializer):
+    def validate(self, attrs):
+        if hasattr(self, 'initial_data'):
+            unknown_keys = set(self.initial_data.keys()) - set(self.fields.keys())
+            if unknown_keys:
+                if set(['is_staff', 'is_superuser', 'groups']) & unknown_keys:
+                    message = 'You do not have permissions to access some of' + \
+                        ' these fields: {}'.format(unknown_keys)
+                else:
+                    message = 'Got unknown fields: {}'.format(unknown_keys)
+                raise serializers.ValidationError(message)
+        return attrs
+
     class Meta:
         model = User
         fields = ('url', 'id', 'username', 'first_name', 'last_name')
@@ -758,6 +770,15 @@ class JobReadListSerializer(serializers.ListSerializer):
         return super().to_representation(data)
 
 class JobReadSerializer(serializers.ModelSerializer):
+    original_video = serializers.SerializerMethodField()
+
+    def get_original_video(self, obj):
+        video = getattr(obj.segment.task, "original_video", None)
+        if video is None:
+            return None
+        from cvat.apps.video_annotation.native_workspace import source_info
+        return source_info(video, obj.id)
+
     task_id = serializers.ReadOnlyField(source="get_task_id")
     project_id = serializers.ReadOnlyField(source="get_project_id", allow_null=True)
     guide_id = serializers.ReadOnlyField(source="get_guide_id", allow_null=True)
@@ -788,7 +809,7 @@ class JobReadSerializer(serializers.ModelSerializer):
             'data_chunk_size', 'data_compressed_chunk_type', 'data_original_chunk_type',
             'created_date', 'updated_date', 'issues', 'labels', 'type', 'organization',
             'target_storage', 'source_storage', 'assignee_updated_date', 'parent_job_id',
-            'consensus_replicas'
+            'consensus_replicas', 'original_video'
         )
         read_only_fields = fields
         list_serializer_class = JobReadListSerializer
@@ -3413,7 +3434,7 @@ class IssueReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Issue
         fields = ('id', 'frame', 'position', 'job', 'owner', 'assignee',
-            'created_date', 'updated_date', 'resolved', 'comments')
+            'created_date', 'updated_date', 'resolved', 'comments', 'is_mask_issue')
         read_only_fields = fields
         extra_kwargs = {
             'created_date': { 'allow_null': True },
@@ -3440,7 +3461,7 @@ class IssueWriteSerializer(WriteOnceMixin, serializers.ModelSerializer):
 
     class Meta:
         model = models.Issue
-        fields = ('frame', 'position', 'job', 'assignee', 'message', 'resolved')
+        fields = ('frame', 'position', 'job', 'assignee', 'message', 'resolved', 'is_mask_issue')
         write_once_fields = ('frame', 'job', 'message')
 
 class ManifestSerializer(serializers.ModelSerializer):

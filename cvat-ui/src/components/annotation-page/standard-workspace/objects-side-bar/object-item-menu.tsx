@@ -14,6 +14,7 @@ import Icon, {
 import {
     BackgroundIcon, ForegroundIcon, ResetPerspectiveIcon, ColorizeIcon, SliceIcon,
 } from 'icons';
+import { trackShapeWithSAM2 } from 'utils/sam2-events';
 import CVATTooltip from 'components/common/cvat-tooltip';
 import { ColorBy } from 'reducers';
 import {
@@ -21,6 +22,7 @@ import {
 } from 'cvat-core-wrapper';
 
 interface Props {
+    clientID: number;
     readonly: boolean;
     locked: boolean;
     serverID: number | null;
@@ -263,6 +265,7 @@ export default function ItemMenu(props: Props): MenuProps {
         CREATE_URL = 'create_url',
         COPY = 'copy',
         PROPAGATE = 'propagate',
+        SAM2_TRACK = 'sam2_track',
         SWITCH_ORIENTATION = 'switch_orientation',
         RESET_PERSPECTIVE = 'reset_perspective',
         TO_BACKGROUND = 'to_background',
@@ -302,6 +305,22 @@ export default function ItemMenu(props: Props): MenuProps {
         items.push({
             key: MenuKeys.SLICE_ITEM,
             label: <SliceItem key={MenuKeys.SLICE_ITEM} toolProps={props} />,
+        });
+    }
+
+    if (is2D && !readonly && !locked && objectType === ObjectType.SHAPE && shapeType === ShapeType.MASK) {
+        items.push({
+            key: MenuKeys.SAM2_TRACK,
+            label: (
+                <Button
+                    type='link'
+                    icon={<RetweetOutlined />}
+                    className='cvat-object-item-menu-sam2-track'
+                    onClick={() => trackShapeWithSAM2(jobInstance.id, props.clientID)}
+                >
+                    SAM2: Track subsequent frames
+                </Button>
+            ),
         });
     }
 

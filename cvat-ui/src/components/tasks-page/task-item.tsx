@@ -13,7 +13,9 @@ import Button from 'antd/lib/button';
 import { MoreOutlined } from '@ant-design/icons';
 import Progress from 'antd/lib/progress';
 import Badge from 'antd/lib/badge';
+import Tag from 'antd/lib/tag';
 import { Task, RQStatus, Request } from 'cvat-core-wrapper';
+import { TaskMode } from 'cvat-core/src/enums';
 import Preview from 'components/common/preview';
 import { ActiveInference, PluginComponent } from 'reducers';
 import StatusMessage from 'components/requests-page/request-status';
@@ -137,6 +139,9 @@ class TaskItemComponent extends React.PureComponent<TaskItemProps & RouteCompone
         return (
             <Col span={10} className='cvat-task-item-description'>
                 <Text ellipsis={{ tooltip: taskInstance.name }}>
+                    {taskInstance.mode === TaskMode.INTERPOLATION && (
+                        <Tag color='blue' className='cvat-task-item-video-tag'>影片</Tag>
+                    )}
                     <Text strong type='secondary' className='cvat-item-task-id'>{`#${id}: `}</Text>
                     <Text strong className='cvat-item-task-name'>
                         {taskInstance.name}

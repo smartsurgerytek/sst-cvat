@@ -1,0 +1,100 @@
+// SPDX-License-Identifier: MIT
+.cvat-sam2-modal {
+    max-width: calc(100vw - 32px);
+
+    .cvat-sam2-review-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 380px;
+        gap: 20px;
+        align-items: start;
+    }
+
+    .cvat-sam2-review-player {
+        position: sticky;
+        top: 0;
+        min-width: 0;
+        padding: 12px;
+        background: #fafafa;
+        border: 1px solid #e8e8e8;
+        border-radius: 8px;
+    }
+
+    .cvat-sam2-review-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-width: 0;
+        max-height: calc(100dvh - 250px);
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+        padding-right: 4px;
+    }
+
+    .cvat-sam2-section {
+        border: 1px solid #e8e8e8;
+        border-radius: 8px;
+        min-width: 0;
+
+        > summary {
+            padding: 12px;
+            background: #fafafa;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            overflow-wrap: anywhere;
+        }
+    }
+
+    summary:focus-visible {
+        outline: 2px solid #1890ff;
+        outline-offset: -2px;
+    }
+
+    .cvat-sam2-section-body {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+        min-width: 0;
+    }
+
+    .cvat-sam2-advanced {
+        border-top: 1px solid #e8e8e8;
+        padding-top: 10px;
+
+        > summary {
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        > .cvat-sam2-section-body {
+            padding: 12px 0 0;
+        }
+    }
+
+    .cvat-sam2-results-manager {
+        overflow-x: auto;
+    }
+}
+
+@media (width <= 960px) {
+    .cvat-sam2-modal {
+        .cvat-sam2-review-layout {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .cvat-sam2-review-player {
+            position: static;
+
+            video {
+                max-height: min(24dvh, 420px) !important;
+            }
+        }
+
+        .cvat-sam2-review-controls {
+            max-height: 35dvh;
+            overflow-y: auto;
+            padding-right: 0;
+        }
+    }
+}

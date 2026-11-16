@@ -19,6 +19,7 @@ import {
 import { Workspace } from 'reducers';
 
 import MDEditor from '@uiw/react-md-editor';
+import SAM2Video from './sam2-video';
 
 interface Props {
     showStatistics(): void;
@@ -105,6 +106,7 @@ function RightGroup(props: Props): JSX.Element {
 
     return (
         <Col className='cvat-annotation-header-right-group'>
+            {jobInstance.dimension === DimensionType.DIMENSION_2D && <SAM2Video job={jobInstance} />}
             <Button
                 type='link'
                 className='cvat-annotation-header-fullscreen-button cvat-annotation-header-button'

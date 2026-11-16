@@ -1,0 +1,50 @@
+# CVAT persistent data on the ext4 filesystem backed by D.
+volumes:
+  cvat_cache_db:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cvat-container-storage/cvat/cvat_cache_db
+  cvat_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cvat-container-storage/cvat/cvat_data
+  cvat_db:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cvat-container-storage/cvat/cvat_db
+  cvat_events_db:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cvat-container-storage/cvat/cvat_events_db
+  cvat_inmem_db:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cvat-container-storage/cvat/cvat_inmem_db
+  cvat_keys:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cvat-container-storage/cvat/cvat_keys
+  cvat_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cvat-container-storage/cvat/cvat_logs
+  sam2_models:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cvat-container-storage/cvat/sam2_models

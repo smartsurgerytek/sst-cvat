@@ -4,8 +4,9 @@
 // SPDX-License-Identifier: MIT
 
 import _ from 'lodash';
-
 import { ChunkQuality } from 'cvat-data';
+import { registerOriginalVideo } from './original-video';
+
 import {
     ChunkType, DimensionType, HistoryActions, JobStage,
     JobState, JobType, StorageLocation, TaskMode, TaskStatus,
@@ -566,6 +567,9 @@ export class Job extends Session {
             consensus_replicas: undefined,
         };
 
+        if (initialData.id && initialData.original_video) {
+            registerOriginalVideo(initialData.id, initialData.original_video);
+        }
         this.#data.id = initialData.id ?? this.#data.id;
         this.#data.type = initialData.type ?? this.#data.type;
         this.#data.start_frame = initialData.start_frame ?? this.#data.start_frame;

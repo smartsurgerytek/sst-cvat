@@ -34,6 +34,7 @@ import config from 'config';
 import { Organization } from 'cvat-core-wrapper';
 import CVATTooltip from 'components/common/cvat-tooltip';
 import CVATLogo from 'components/common/cvat-logo';
+import EnvironmentBadge from 'components/common/environment-badge';
 import { switchSettingsModalVisible as switchSettingsModalVisibleAction } from 'actions/settings-actions';
 import { logoutAsync } from 'actions/auth-actions';
 import { shortcutsActions, registerComponentShortcuts } from 'actions/shortcuts-actions';
@@ -353,12 +354,16 @@ function HeaderComponent(props: Props): JSX.Element {
             }, {
                 key: '$personal',
                 label: 'Personal workspace',
-                className: !currentOrganization ? 'cvat-header-menu-active-organization-item' : 'cvat-header-menu-organization-item',
+                className: !currentOrganization ?
+                    'cvat-header-menu-active-organization-item' :
+                    'cvat-header-menu-organization-item',
                 onClick: resetOrganization,
             }, ...organizationsList.map((organization: Organization) => ({
                 key: organization.slug,
                 onClick: () => setNewOrganization(organization),
-                className: currentOrganization?.slug === organization.slug ? 'cvat-header-menu-active-organization-item' : 'cvat-header-menu-organization-item',
+                className: currentOrganization?.slug === organization.slug ?
+                    'cvat-header-menu-active-organization-item' :
+                    'cvat-header-menu-organization-item',
                 label: organization.slug,
             }))] : []),
         ],
@@ -404,6 +409,7 @@ function HeaderComponent(props: Props): JSX.Element {
             <GlobalHotKeys keyMap={subKeyMap(componentShortcuts, keyMap)} handlers={handlers} />
             <div className='cvat-left-header'>
                 <CVATLogo />
+                <EnvironmentBadge />
                 <Button
                     className={getButtonClassName('projects')}
                     type='link'
@@ -439,6 +445,19 @@ function HeaderComponent(props: Props): JSX.Element {
                     }}
                 >
                     Jobs
+                </Button>
+                <Button
+                    className={getButtonClassName('history')}
+                    type='link'
+                    value='history'
+                    href='/history'
+                    // History is a top-level page like Projects, Tasks, and Jobs.
+                    onClick={(event: React.MouseEvent): void => {
+                        event.preventDefault();
+                        history.push('/history');
+                    }}
+                >
+                    History
                 </Button>
                 <Button
                     className={getButtonClassName('cloudstorages')}

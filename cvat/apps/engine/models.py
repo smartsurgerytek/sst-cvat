@@ -1249,6 +1249,7 @@ class Issue(TimestampedModel, AssignableModel):
     owner = models.ForeignKey(User, null=True, blank=True, related_name='+',
         on_delete=models.SET_NULL)
     resolved = models.BooleanField(default=False)
+    is_mask_issue = models.BooleanField(default=False)
 
     def get_project_id(self):
         return self.job.get_project_id()

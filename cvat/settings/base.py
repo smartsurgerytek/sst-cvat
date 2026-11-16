@@ -110,6 +110,7 @@ INSTALLED_APPS = [
     "cvat.apps.engine",
     "cvat.apps.dataset_repo",
     "cvat.apps.lambda_manager",
+    "cvat.apps.video_annotation",
     "cvat.apps.webhooks",
     "cvat.apps.health",
     "cvat.apps.events",
@@ -785,4 +786,15 @@ if ONE_RUNNING_JOB_IN_QUEUE_PER_USER:
 USER_LAST_ACTIVITY_UPDATE_MIN_INTERVAL = timedelta(days=1)
 
 # Health check settings
-HEALTH_CHECK = {"DISK_USAGE_MAX": int(os.getenv("CVAT_HEALTH_DISK_USAGE_MAX", 90))}
+# Capacity warnings remain visible in health responses without blocking the UI.
+# Actual database, cache, and OPA errors still make the endpoint return HTTP 500.
+HEALTH_CHECK = {
+    "DISK_USAGE_MAX": int(os.getenv("CVAT_HEALTH_DISK_USAGE_MAX", 90)),
+    "WARNINGS_AS_ERRORS": to_bool(os.getenv("CVAT_HEALTH_WARNINGS_AS_ERRORS", "false")),
+}
+
+# Optional GPU inference service; never exposed directly to browser clients.
+SAM1_URL = os.getenv("SAM1_URL", "http://sam1:8000")
+SAM2_URL = os.getenv("SAM2_URL", "http://sam2:8000")
+SAM2_MODEL = os.getenv("SAM2_MODEL", "facebook/sam2.1-hiera-tiny")
+SAM2_MAX_FRAMES = int(os.getenv("SAM2_MAX_FRAMES", "300"))

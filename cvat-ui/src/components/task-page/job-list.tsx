@@ -33,7 +33,8 @@ const FilteringComponent = ResourceFilterHOC(
 
 interface Props {
     task: Task;
-    onJobUpdate(job: Job, data: Parameters<Job['save']>[0]): void;
+    // Job items wait on this promise so autosave can show saving and retry state.
+    onJobUpdate(job: Job, data: Parameters<Job['save']>[0]): Promise<void>;
 }
 
 function filterJobs(jobs: Job[], query: JobsQuery): Job[] {
@@ -201,7 +202,12 @@ function JobListComponent(props: Readonly<Props>): JSX.Element {
                         }}
                     />
                     <div className='cvat-job-add-wrapper'>
-                        <Button onClick={onCreateJob} type='primary' className='cvat-create-job' icon={<PlusOutlined />} />
+                        <Button
+                            onClick={onCreateJob}
+                            type='primary'
+                            className='cvat-create-job'
+                            icon={<PlusOutlined />}
+                        />
                     </div>
                 </Row>
             </div>

@@ -7,6 +7,9 @@ import _, { range, sortedIndexOf } from 'lodash';
 import {
     FrameDecoder, BlockType, DimensionType, ChunkQuality, decodeContextImages, RequestOutdatedError,
 } from 'cvat-data';
+import {
+    originalVideoSource, originalVideoFrame, clearOriginalVideo, OriginalVideoFrameSupersededError,
+} from './original-video';
 import PluginRegistry from './plugins';
 import serverProxy from './server-proxy';
 import { SerializedChapterMetaData, SerializedFramesMetaData } from './server-response-types';
@@ -456,6 +459,14 @@ class PrefetchAnalyzer {
 
 Object.defineProperty(FrameData.prototype.data, 'implementation', {
     async value(this: FrameData, onServerRequest) {
+        if (originalVideoSource(this.jobID)) {
+            return originalVideoFrame(this.jobID, this.number, frameDataCache[this.jobID]?.decodeForward)
+                .catch((error) => {
+                    // Match the existing canvas convention for obsolete frame requests.
+                    if (error instanceof OriginalVideoFrameSupersededError) return Promise.reject(this.number);
+                    throw error;
+                });
+        }
         const {
             provider, prefetchAnalyzer, chunkSize, jobStartFrame,
             decodeForward, forwardStep, decodedBlocksCacheSize, segmentFrameNumbers,
@@ -1069,6 +1080,7 @@ export async function getJobFrameNumbers(jobID: number): Promise<number[]> {
 }
 
 export function clear(jobID: number): void {
+    clearOriginalVideo(jobID);
     if (jobID in frameDataCache) {
         frameDataCache[jobID].provider.close();
         for (const contextImagesByFrame of Object.values(frameDataCache[jobID].contextCache)) {

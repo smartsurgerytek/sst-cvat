@@ -35,6 +35,117 @@ self-hosted installations with premium features: SSO, LDAP, Roboflow and
 HuggingFace integrations, and advanced analytics (coming soon). We also
 do trainings and a dedicated support with 24 hour SLA.
 
+## SAM2 video annotation
+
+See [browser annotation, GPU setup, and export format](components/sam2/README.md)
+for the new **SAM2 Video** workflow.
+
+## Original MP4 annotation
+
+On **Create task**, select a project, one local H.264 MP4, and **Original MP4
+annotation**. **Upload & Open Original Video** creates a native CVAT Task/Job
+backed by that MP4 and opens the standard annotation workspace. Existing
+`/projects/<id>/videos/<uuid>` links open the associated native job.
+
+Video tasks use the same cards and task lists as other CVAT tasks, below project
+details. The workspace uses CVAT's original tools, label types, attributes,
+undo/redo, grouping, merging, splitting, mask brushes/erasers, dataset import/
+export, and SAM2 integration. Tool availability follows compatible project labels
+and the current shape/track selection, exactly as in other jobs. The navigation
+slider and position input show seconds using MP4 presentation timestamps,
+including variable frame-rate videos; annotations retain exact sample indices.
+
+The original MP4 remains intact. Upload indexes packet timestamps without
+extracting frames. The browser decodes the original MP4 for the annotation
+canvas. Server-side inference/export decodes only requested samples into memory.
+The task raw-data directory contains a hard link to the same MP4, not an extra
+copy or a directory of extracted images. Earlier rectangle/polygon time-interval
+annotations are preserved as native tracks when their workspace is initialized.
+Native edits are saved through `/api/jobs/<job-id>/annotations`.
+
+The SAM2 Compose service defaults to `SAM2_DEVICE=auto`: it uses CUDA when at
+least 3 GiB is available, otherwise CPU. Set `SAM2_DEVICE=cuda` or `cpu` to pin
+the device; `SAM2_CPU_THREADS` defaults to 8. CPU inference is slower. In the
+workspace, draw mask/polygon shapes, open **SAM2 Video**, select the objects and
+range, run inference, review, then **Accept masks**. This does not interrupt other
+GPU workloads.
+
+SAM2 review uses separate source-image and mask layers. Manage results by run
+and label, hide individual masks, adjust opacity, or delete generated masks.
+Edge smoothing previews immediately and is saved only with **Apply smoothing**
+for the selected mask/current frame. New runs do not generate composited preview
+MP4s. Starting prompts and unrelated annotations are preserved during deletion.
+
+The standard upload workflow remains available as **Standard frame annotation**.
+Existing standard tasks are unchanged.
+
+## Build and run this checkout
+
+This machine stores CVAT data and build cache on D. Use the wrapper for builds
+and updates so Compose selects the `sst-cvat-d` builder:
+
+```bash
+sudo ./utils/cvat-compose-d.sh build cvat_ui cvat_server
+sudo ./utils/cvat-compose-d.sh up -d --no-build
+```
+
+`/mnt/D/docker-storage/docker-data.ext4` is a sparse 512 GiB ext4 image, mounted
+at `/mnt/cvat-container-storage`. This preserves Linux filesystem semantics on
+the NTFS D drive. `docker-compose.storage-d.yml` binds CVAT's database, uploads,
+annotations, logs, keys, caches and SAM2 model cache to that mount. The dedicated
+BuildKit cache is on the same mount and is limited to approximately 80 GB by GC.
+The shared Docker engine and its final image store remain in their original
+locations; unrelated projects are not moved. `/etc/fstab` and a Docker systemd
+dependency ensure the storage is mounted before containers start after a reboot.
+Do not remove or truncate the ext4 image: it contains the live CVAT data.
+
+For other deployments without this machine's D storage setup:
+
+Run from the repository root:
+
+```bash
+docker compose up -d
+```
+
+The main Compose file builds the CVAT UI and backend from this checkout on each
+`up`, reusing Docker's build cache. All CVAT workers use the same backend image
+and build configuration. PostgreSQL, Redis, and other infrastructure services use
+prebuilt images. To rebuild without cached layers, run `docker compose build
+--no-cache` before starting the services.
+
+When reusing a database volume from a newer CVAT checkout, Compose enables
+`CVAT_REPAIR_LEGACY_TASK_SCHEMA=yes` on the server. After Django migrations,
+startup makes a leftover `engine_task.media_type` column nullable only if this
+checkout does not define that field. This preserves existing values and prevents
+task creation from failing with a NOT NULL violation. It is safe to repeat and
+does nothing on a fresh database. This is a targeted compatibility repair, not a
+general database downgrade; set the variable to `no` to disable it.
+
+Keep using the same Compose project name and override files as the original
+deployment to reuse its volumes. For this local development deployment:
+
+```bash
+docker compose -p sst_cvat -f docker-compose.yml -f docker-compose.dev.yml \
+  -f components/serverless/docker-compose.serverless.yml up -d
+```
+
+The server runs database and Redis migrations during initialization; workers
+wait for migrations before starting. Rebuilding does not downgrade a database
+that has already been migrated by a newer CVAT version. Keep the code version and
+database migration history aligned when switching versions.
+
+For Remote SSH, forward remote port 8080 and open `http://localhost:8080` (or the
+local port assigned by your SSH client). `CVAT_HOST` defaults to `localhost`.
+
+When updating an existing installation, use its original Compose project name
+and additional Compose files so that its volumes and integrations are preserved.
+For example, the existing `sst_cvat` installation with serverless support uses:
+
+```bash
+docker compose -p sst_cvat -f docker-compose.yml -f docker-compose.dev.yml \
+  -f components/serverless/docker-compose.serverless.yml up -d
+```
+
 ## Quick start ⚡
 
 - [Installation guide](https://docs.cvat.ai/docs/administration/basics/installation/)

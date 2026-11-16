@@ -12,9 +12,15 @@ import Collapse from 'antd/lib/collapse';
 import notification from 'antd/lib/notification';
 import Text from 'antd/lib/typography/Text';
 import Alert from 'antd/lib/alert';
+import Radio from 'antd/lib/radio';
+import Checkbox from 'antd/lib/checkbox';
+import InputNumber from 'antd/lib/input-number';
+import Axios from 'axios';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { ValidateErrorEntity } from 'rc-field-form/lib/interface';
-import { getCore, Storage, StorageLocation } from 'cvat-core-wrapper';
+import {
+    getCore, Storage, StorageLocation,
+} from 'cvat-core-wrapper';
 import LabelsEditor from 'components/labels-editor/labels-editor';
 import FileManagerComponent, { Files } from 'components/file-manager/file-manager';
 import { RemoteFile } from 'components/file-manager/remote-browser';
@@ -57,6 +63,9 @@ interface Props {
 }
 
 type State = CreateTaskData & {
+    annotationWorkflow: 'standard' | 'original';
+    splitOriginalVideo: boolean;
+    originalJobDuration: number;
     multiTasks: (CreateTaskData & {
         status: 'pending' | 'progress' | 'failed' | 'completed' | 'cancelled';
     })[];
@@ -66,6 +75,9 @@ type State = CreateTaskData & {
 };
 
 const defaultState: State = {
+    annotationWorkflow: 'standard',
+    splitOriginalVideo: true,
+    originalJobDuration: 60,
     projectId: null,
     basic: {
         name: '',
@@ -217,6 +229,45 @@ class CreateTaskContent extends React.PureComponent<Props & RouteComponentProps,
         const totalLen = Object.keys(files).reduce((acc, key: string) => acc + files[(key as TabName)].length, 0);
 
         return !!totalLen;
+    };
+
+    private hasSingleMP4 = (): boolean => {
+        const { activeFileManagerTab, files } = this.state;
+        return activeFileManagerTab === 'local' && files.local.length === 1 &&
+            files.local[0].name.toLowerCase().endsWith('.mp4');
+    };
+
+    private createOriginalVideo = async (): Promise<void> => {
+        const {
+            projectId, files, splitOriginalVideo, originalJobDuration,
+        } = this.state;
+        const { history } = this.props;
+        if (!projectId || !this.hasSingleMP4()) return;
+        try {
+            await this.basicConfigurationComponent.current?.submit();
+            this.startLoading();
+            const form = new FormData();
+            const { basic } = this.state;
+            form.append('name', basic.name);
+            form.append('file', files.local[0]);
+            if (splitOriginalVideo) form.append('segment_duration', String(originalJobDuration));
+            const response = await Axios.post(`${core.config.backendAPI}/projects/${projectId}/original-videos`, form, {
+                timeout: 0,
+                onUploadProgress: (event) => {
+                    this.changeStatusInProgressTask(event.total ?
+                        `Uploading original MP4: ${Math.floor((event.loaded / event.total) * 100)}%` : 'Uploading original MP4');
+                },
+            });
+            history.push(`/projects/${projectId}/videos/${response.data.id}`);
+        } catch (error) {
+            notification.error({
+                message: 'Could not create original video annotation',
+                description: Axios.isAxiosError(error) ?
+                    JSON.stringify(error.response?.data || error.message) : String(error),
+            });
+        } finally {
+            this.stopLoading();
+        }
     };
 
     private startLoading = (): void => {
@@ -526,6 +577,11 @@ class CreateTaskContent extends React.PureComponent<Props & RouteComponentProps,
 
     private handleSubmitAndOpen = (): void => {
         const { history } = this.props;
+        const { annotationWorkflow } = this.state;
+        if (annotationWorkflow === 'original') {
+            this.createOriginalVideo();
+            return;
+        }
 
         this.validateBlocks()
             .then(this.createOneTask)
@@ -893,6 +949,68 @@ class CreateTaskContent extends React.PureComponent<Props & RouteComponentProps,
         );
     }
 
+    private renderAnnotationWorkflow(): JSX.Element | null {
+        const { many } = this.props;
+        if (many) return null;
+        const {
+            annotationWorkflow, loading, splitOriginalVideo, originalJobDuration,
+        } = this.state;
+
+        return (
+            <Col span={24} className='cvat-create-task-annotation-workflow' style={{ marginBottom: 24 }}>
+                <Text className='cvat-title'>Annotation workflow</Text>
+                <Radio.Group
+                    aria-label='Annotation workflow'
+                    value={annotationWorkflow}
+                    disabled={loading}
+                    onChange={(event) => this.setState({ annotationWorkflow: event.target.value })}
+                    style={{ display: 'block', margin: '12px 0' }}
+                >
+                    <Radio value='standard'>Standard frame annotation</Radio>
+                    <Radio value='original'>Original MP4 annotation</Radio>
+                </Radio.Group>
+                {annotationWorkflow === 'original' && (
+                    <div style={{ marginBottom: 12 }}>
+                        <Checkbox
+                            checked={splitOriginalVideo}
+                            disabled={loading}
+                            onChange={(event) => this.setState({ splitOriginalVideo: event.target.checked })}
+                        >
+                            Split video into jobs
+                        </Checkbox>
+                        <InputNumber
+                            aria-label='Seconds per job'
+                            min={1}
+                            max={86400}
+                            precision={0}
+                            value={originalJobDuration}
+                            disabled={loading || !splitOriginalVideo}
+                            onChange={(value) => { if (value !== null) this.setState({ originalJobDuration: value }); }}
+                            addonAfter='seconds per job'
+                        />
+                        <div>
+                            <Text type='secondary'>
+                                Each job covers one time range. The original video is stored once.
+                                The final job may be shorter. Open the task to choose a job.
+                            </Text>
+                        </div>
+                    </div>
+                )}
+                <Alert
+                    type='info'
+                    showIcon
+                    message={annotationWorkflow === 'original' ?
+                        'Play and annotate the original MP4' : 'Choose how to annotate your video'}
+                    description={annotationWorkflow === 'original' ?
+                        'Select a project and one local H.264 MP4. Create a task and open the full CVAT annotation workspace ' +
+                        'with a time-based timeline, masks and SAM2 tracking. Play the original video without extracting all frames.' :
+                        'Standard mode prepares frames and opens the CVAT task page. Choose Original MP4 annotation ' +
+                        'to play and annotate the original video directly.'}
+                />
+            </Col>
+        );
+    }
+
     private renderAdvancedBlock(): JSX.Element {
         const { activeFileManagerTab, projectId } = this.state;
 
@@ -970,7 +1088,9 @@ class CreateTaskContent extends React.PureComponent<Props & RouteComponentProps,
     }
 
     private renderFooterSingleTask(): JSX.Element {
-        const { uploadFileErrorMessage, loading, statusInProgressTask: status } = this.state;
+        const {
+            uploadFileErrorMessage, loading, statusInProgressTask: status, annotationWorkflow, projectId,
+        } = this.state;
 
         if (status === 'FAILED' || loading) {
             return (<Alert message={status} />);
@@ -982,21 +1102,23 @@ class CreateTaskContent extends React.PureComponent<Props & RouteComponentProps,
                         className='cvat-submit-open-task-button'
                         type='primary'
                         onClick={this.handleSubmitAndOpen}
-                        disabled={!!uploadFileErrorMessage}
+                        disabled={!!uploadFileErrorMessage || (annotationWorkflow === 'original' && (!this.hasSingleMP4() || !projectId))}
                     >
-                        Submit & Open
+                        {annotationWorkflow === 'original' ? 'Upload & Open Original Video' : 'Submit & Open'}
                     </Button>
                 </Col>
-                <Col>
-                    <Button
-                        className='cvat-submit-continue-task-button'
-                        type='primary'
-                        onClick={this.handleSubmitAndContinue}
-                        disabled={!!uploadFileErrorMessage}
-                    >
+                {annotationWorkflow === 'standard' && (
+                    <Col>
+                        <Button
+                            className='cvat-submit-continue-task-button'
+                            type='primary'
+                            onClick={this.handleSubmitAndContinue}
+                            disabled={!!uploadFileErrorMessage}
+                        >
                         Submit & Continue
-                    </Button>
-                </Col>
+                        </Button>
+                    </Col>
+                )}
             </Row>
         );
     }
@@ -1046,20 +1168,22 @@ class CreateTaskContent extends React.PureComponent<Props & RouteComponentProps,
 
     public render(): JSX.Element {
         const { many } = this.props;
+        const { annotationWorkflow } = this.state;
 
         return (
             <Row justify='start' align='middle' className='cvat-create-task-content'>
+                {this.renderAnnotationWorkflow()}
                 <Col span={24}>
                     <Text className='cvat-title'>Basic configuration</Text>
                 </Col>
 
                 {this.renderBasicBlock()}
                 {this.renderProjectBlock()}
-                {this.renderSubsetBlock()}
-                {this.renderLabelsBlock()}
+                {annotationWorkflow === 'standard' && this.renderSubsetBlock()}
+                {annotationWorkflow === 'standard' && this.renderLabelsBlock()}
                 {this.renderFilesBlock()}
-                {this.renderAdvancedBlock()}
-                {this.renderQualityBlock()}
+                {annotationWorkflow === 'standard' && this.renderAdvancedBlock()}
+                {annotationWorkflow === 'standard' && this.renderQualityBlock()}
 
                 <Col span={24} className='cvat-create-task-content-footer'>
                     {many ? this.renderFooterMultiTasks() : this.renderFooterSingleTask() }

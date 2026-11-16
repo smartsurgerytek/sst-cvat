@@ -5,6 +5,7 @@
 
 import React, { ReactPortal } from 'react';
 import ReactDOM from 'react-dom';
+import Axios from 'axios';
 import { connect } from 'react-redux';
 import Icon, {
     EnvironmentFilled,
@@ -28,7 +29,7 @@ import { AIToolsIcon } from 'icons';
 import { Canvas, convertShapesForInteractor } from 'cvat-canvas-wrapper';
 import {
     getCore, Label, MLModel, ObjectState, ObjectType, ShapeType, Job,
-    MinimalShape, InteractorResults, TrackerResults,
+    MinimalShape, InteractorResults, TrackerResults, ModelKind,
 } from 'cvat-core-wrapper';
 import openCVWrapper, { MatType } from 'utils/opencv-wrapper/opencv-wrapper';
 import {
@@ -53,6 +54,10 @@ import { switchToolsBlockerState } from 'actions/settings-actions';
 import withVisibilityHandling from './handle-popover-visibility';
 import ToolsTooltips from './interactor-tooltips';
 
+interface OwnProps {
+    sam1?: boolean;
+}
+
 interface StateToProps {
     canvasInstance: Canvas;
     labels: Label[];
@@ -73,7 +78,7 @@ interface StateToProps {
 
 interface DispatchToProps {
     updateAnnotations: (states: ObjectState[]) => Promise<void>;
-    createAnnotations: (states: ObjectState[]) => Promise<void>;
+    createAnnotations: (states: ObjectState[]) => Promise<boolean>;
     fetchAnnotations: () => Promise<void>;
     onInteractionStart: typeof interactWithCanvas;
     onSwitchToolsBlockerState: typeof switchToolsBlockerState;
@@ -83,8 +88,29 @@ interface DispatchToProps {
 const MIN_SUPPORTED_INTERACTOR_VERSION = 2;
 const core = getCore();
 const CustomPopover = withVisibilityHandling(Popover, 'tools-control');
+const SAM1_ID = 'builtin-sam1';
+const sam1Model = new core.classes.MLModel({
+    id: SAM1_ID,
+    name: 'SAM1',
+    kind: ModelKind.INTERACTOR,
+    version: 2,
+    description: 'Segment Anything with positive and negative point prompts',
+    min_pos_points: 1,
+    min_neg_points: 0,
+    startswith_box: false,
+    help_message: 'Left click: foreground. Right click: background. Click SAM1 again: finish. Esc: cancel.',
+});
+function SAM1Icon(): JSX.Element {
+    return (
+        <svg viewBox='0 0 40 40' width='1em' height='1em' fill='currentColor' aria-hidden='true'>
+            <text x='20' y='20' textAnchor='middle' dominantBaseline='central' fontSize='12' fontWeight='700'>
+                SAM1
+            </text>
+        </svg>
+    );
+}
 
-function mapStateToProps(state: CombinedState): StateToProps {
+function mapStateToProps(state: CombinedState, ownProps: OwnProps): StateToProps {
     const {
         annotation: {
             job: { instance: jobInstance, labels },
@@ -116,10 +142,11 @@ function mapStateToProps(state: CombinedState): StateToProps {
     } = state;
 
     return {
-        interactors,
-        detectors,
-        trackers,
-        isActivated: activeControl === ActiveControl.AI_TOOLS,
+        interactors: ownProps.sam1 ? [sam1Model] : interactors,
+        detectors: ownProps.sam1 ? [] : detectors,
+        trackers: ownProps.sam1 ? [] : trackers,
+        isActivated: activeControl === ActiveControl.AI_TOOLS &&
+            ((state.annotation.drawing.activeInteractor as MLModel | null)?.id === SAM1_ID) === !!ownProps.sam1,
         activeLabelID,
         labels,
         states,
@@ -143,7 +170,7 @@ const mapDispatchToProps = {
     switchNavigationBlocked: switchNavigationBlockedAction,
 };
 
-type Props = StateToProps & DispatchToProps;
+type Props = StateToProps & DispatchToProps & OwnProps;
 interface TrackedShape {
     clientID: number;
     serverlessState: any;
@@ -226,6 +253,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     private interaction: {
         id: string | null;
         isAborted: boolean;
+        requestPending: boolean;
         latestResponse: {
             rle: number[];
             points: [number, number][];
@@ -267,6 +295,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         this.interaction = {
             id: null,
             isAborted: false,
+            requestPending: false,
             latestPostponedEvent: null,
             latestResponse: {
                 rle: [],
@@ -279,10 +308,12 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     }
 
     public componentDidMount(): void {
-        const { canvasInstance } = this.props;
-        onRemoveAnnotations(() => {
-            this.setState({ trackedShapes: [] });
-        });
+        const { canvasInstance, sam1 } = this.props;
+        if (!sam1) {
+            onRemoveAnnotations(() => {
+                this.setState({ trackedShapes: [] });
+            });
+        }
 
         this.setState({
             portals: this.collectTrackerPortals(),
@@ -294,7 +325,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     public componentDidUpdate(prevProps: Props, prevState: State): void {
         const {
-            isActivated, defaultApproxPolyAccuracy, canvasInstance, states, toolsBlockerState,
+            isActivated, defaultApproxPolyAccuracy, canvasInstance, states, toolsBlockerState, frame,
         } = this.props;
         const { approxPolyAccuracy, mode, activeTracker } = this.state;
 
@@ -302,6 +333,11 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             this.setState({
                 portals: this.collectTrackerPortals(),
             });
+        }
+
+        if (prevProps.frame !== frame || (prevProps.isActivated && !isActivated)) {
+            this.interaction.isAborted = true;
+            this.interaction.latestRequest = null;
         }
 
         if (prevProps.isActivated && !isActivated) {
@@ -316,6 +352,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             this.interaction = {
                 id: null,
                 isAborted: false,
+                requestPending: false,
                 latestPostponedEvent: null,
                 latestResponse: { rle: [], points: [] },
                 latestApproximatedPoints: [],
@@ -358,8 +395,12 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     }
 
     public componentWillUnmount(): void {
-        const { canvasInstance } = this.props;
-        onRemoveAnnotations(null);
+        this.interaction.isAborted = true;
+        this.interaction.latestRequest = null;
+        this.interaction.hideMessage?.();
+        window.removeEventListener('contextmenu', this.contextmenuDisabler);
+        const { canvasInstance, sam1 } = this.props;
+        if (!sam1) onRemoveAnnotations(null);
         canvasInstance.html().removeEventListener('canvas.interacted', this.interactionListener);
         canvasInstance.html().removeEventListener('canvas.canceled', this.cancelListener);
     }
@@ -380,6 +421,8 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     };
 
     private cancelListener = async (): Promise<void> => {
+        this.interaction.isAborted = true;
+        this.interaction.latestRequest = null;
         const { fetching } = this.state;
         if (fetching) {
             // user pressed ESC
@@ -390,99 +433,102 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     private runInteractionRequest = async (interactionId: string): Promise<void> => {
         const { jobInstance, canvasInstance } = this.props;
-        const { activeInteractor, fetching, convertMasksToPolygons } = this.state;
-
-        const { id, latestRequest } = this.interaction;
-        if (id !== interactionId || !latestRequest || fetching) {
-            // current interaction request is not relevant (new interaction session has started)
-            // or a user didn't add more points
-            // or one server request is on processing
+        const { activeInteractor, convertMasksToPolygons } = this.state;
+        const { interaction } = this;
+        const { id, latestRequest } = interaction;
+        if (id !== interactionId || interaction.isAborted || !latestRequest || interaction.requestPending) {
             return;
         }
 
         const { interactor, data } = latestRequest;
-        this.interaction.latestRequest = null;
+        const isSAM1 = interactor.id === SAM1_ID;
+        // React state updates can be batched: lock synchronously before starting the request.
+        interaction.requestPending = true;
+        interaction.latestRequest = null;
+        const isCurrent = (): boolean => this.interaction === interaction && !interaction.isAborted;
+        const isObsolete = (): boolean => !isCurrent() || (isSAM1 && !!interaction.latestRequest);
 
         try {
-            this.interaction.hideMessage = message.loading({
+            interaction.hideMessage = message.loading({
                 content: `Waiting for a response from ${activeInteractor?.name}`,
                 duration: 0,
                 className: 'cvat-tracking-notice',
             });
-            try {
-                // run server request
-                this.setState({ fetching: true });
+            this.setState({ fetching: true });
 
-                const response = await core.lambda.call(
-                    jobInstance.taskId,
-                    interactor,
-                    { ...data, job: jobInstance.id },
-                ) as InteractorResults;
+            const response = isSAM1 ? (await Axios.post<InteractorResults>(
+                `${core.config.backendAPI}/jobs/${jobInstance.id}/sam1`, data, { timeout: 180000 },
+            )).data : await core.lambda.call(
+                jobInstance.taskId,
+                interactor,
+                { ...data, job: jobInstance.id },
+            ) as InteractorResults;
 
-                // if only mask presented, let's receive points
-                if (response.mask && !response.points) {
-                    const left = response.bounds ? response.bounds[0] : 0;
-                    const top = response.bounds ? response.bounds[1] : 0;
-                    response.points = await this.receivePointsFromMask(response.mask, left, top);
-                }
-
-                // approximation with cv.approxPolyDP
-                const approximated = await this.approximateResponsePoints(response.points as [number, number][]);
-                const rle = core.utils.mask2Rle(response.mask.flat());
-                if (response.bounds) {
-                    rle.push(...response.bounds);
-                } else {
-                    const height = response.mask.length;
-                    const width = response.mask[0].length;
-                    rle.push(0, 0, width - 1, height - 1);
-                }
-
-                if (this.interaction.id !== interactionId || this.interaction.isAborted) {
-                    // new interaction session or the session is aborted
-                    return;
-                }
-
-                this.interaction.latestResponse = {
-                    bounds: response.bounds,
-                    points: response.points as [number, number][],
-                    rle,
-                };
-                this.interaction.latestApproximatedPoints = approximated;
-
-                this.setState({ pointsReceived: !!response.points?.length });
-            } finally {
-                if (this.interaction.id === interactionId && this.interaction.hideMessage) {
-                    this.interaction.hideMessage();
-                    this.interaction.hideMessage = null;
-                }
-
-                this.setState({ fetching: false });
+            if (isObsolete()) return;
+            if (response.mask && !response.points) {
+                const left = response.bounds ? response.bounds[0] : 0;
+                const top = response.bounds ? response.bounds[1] : 0;
+                response.points = await this.receivePointsFromMask(response.mask, left, top);
             }
 
-            if (this.interaction.latestApproximatedPoints.length) {
+            if (isObsolete()) return;
+            const approximated = await this.approximateResponsePoints(response.points as [number, number][]);
+            if (isObsolete()) return;
+            const rle = core.utils.mask2Rle(response.mask.flat());
+            if (response.bounds) {
+                rle.push(...response.bounds);
+            } else {
+                const height = response.mask.length;
+                const width = response.mask[0].length;
+                rle.push(0, 0, width - 1, height - 1);
+            }
+
+            interaction.latestResponse = {
+                bounds: response.bounds,
+                points: response.points as [number, number][],
+                rle,
+            };
+            interaction.latestApproximatedPoints = approximated;
+            this.setState({ pointsReceived: !!response.points?.length });
+
+            if (interaction.latestApproximatedPoints.length) {
                 canvasInstance.interact({
                     enabled: true,
                     intermediateShape: {
                         shapeType: convertMasksToPolygons ? ShapeType.POLYGON : ShapeType.MASK,
-                        points: convertMasksToPolygons ? this.interaction.latestApproximatedPoints.flat() :
-                            this.interaction.latestResponse.rle,
+                        points: convertMasksToPolygons ? interaction.latestApproximatedPoints.flat() :
+                            interaction.latestResponse.rle,
                     },
                 });
             }
-
-            setTimeout(() => this.runInteractionRequest(interactionId));
         } catch (error: any) {
+            if (isObsolete()) return;
             notification.error({
-                description: <CVATMarkdown>{error.message}</CVATMarkdown>,
+                description: <CVATMarkdown>{error.response?.data?.detail || error.message}</CVATMarkdown>,
                 message: 'Interaction error occurred',
                 duration: null,
             });
+        } finally {
+            interaction.hideMessage?.();
+            interaction.hideMessage = null;
+            interaction.requestPending = false;
+            if (isCurrent()) {
+                // Drain even after a failed/obsolete request, using only the newest complete prompt set.
+                // Keep requests serial: canceling HTTP does not stop the GPU service's inference.
+                if (interaction.latestRequest) {
+                    this.runInteractionRequest(interactionId);
+                } else {
+                    this.setState({ fetching: false });
+                }
+            } else if (this.interaction === interaction) {
+                this.setState({ fetching: false });
+            }
         }
     };
 
     private onInteraction = (e: Event): void => {
-        const { frame, isActivated } = this.props;
-        const { activeInteractor } = this.state;
+        const { frame, isActivated, sam1 } = this.props;
+        const { activeInteractor, fetching } = this.state;
 
         if (!isActivated) {
             return;
@@ -499,10 +545,20 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             // prevent future requests if possible
             this.interaction.isAborted = true;
             this.interaction.latestRequest = null;
+            if (sam1 && (fetching || this.interaction.requestPending ||
+                !convertShapesForInteractor(shapes, 'points', 0).length)) {
+                message.info('SAM1 result was not added. Wait for the preview before finishing.');
+                return;
+            }
             if (this.interaction.latestApproximatedPoints.length) {
                 this.constructFromPoints();
             }
         } else if (shapesUpdated) {
+            if (sam1) {
+                this.interaction.latestResponse = { rle: [], points: [] };
+                this.interaction.latestApproximatedPoints = [];
+                this.setState({ pointsReceived: false });
+            }
             const interactor = activeInteractor as MLModel;
             this.interaction.latestRequest = {
                 interactor,
@@ -613,6 +669,23 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         this.setState({
             activeTracker: trackers.filter((tracker: MLModel) => tracker.id === value)[0],
         });
+    };
+
+    private startInteraction = (): void => {
+        const { canvasInstance, labels, onInteractionStart } = this.props;
+        const {
+            activeInteractor, activeLabelID, fetching, startInteractingWithBox,
+        } = this.state;
+        if (!activeInteractor || !activeLabelID || !labels.length || fetching) return;
+        this.setState({ mode: 'interaction' });
+        canvasInstance.cancel();
+        const parameters = {
+            ...omit(activeInteractor.params.canvas, 'startWithBoxOptional'),
+            startWithBox: activeInteractor.params.canvas.startWithBoxOptional ?
+                startInteractingWithBox : activeInteractor.params.canvas.startWithBox,
+        };
+        canvasInstance.interact({ shapeType: 'points', enabled: true, ...parameters });
+        onInteractionStart(activeInteractor, activeLabelID, parameters);
     };
 
     private collectTrackerPortals(): React.ReactPortal[] {
@@ -1069,10 +1142,10 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     private renderInteractorBlock(): JSX.Element {
         const {
-            interactors, canvasInstance, labels, onInteractionStart, interactorExtras,
+            interactors, interactorExtras,
         } = this.props;
         const {
-            activeInteractor, activeLabelID, fetching, startInteractingWithBox, convertMasksToPolygons,
+            activeInteractor, fetching, startInteractingWithBox, convertMasksToPolygons,
         } = this.state;
 
         if (!interactors.length) {
@@ -1172,24 +1245,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                             disabled={!activeInteractor ||
                                 fetching ||
                                 activeInteractor.version < MIN_SUPPORTED_INTERACTOR_VERSION}
-                            onClick={() => {
-                                if (activeInteractor && activeLabelID && labels.length) {
-                                    this.setState({ mode: 'interaction' });
-                                    canvasInstance.cancel();
-                                    const interactorParameters = {
-                                        ...omit(activeInteractor.params.canvas, 'startWithBoxOptional'),
-                                        // replace 'optional' with true or false depending on user specified setting
-                                        ...(activeInteractor.params.canvas.startWithBoxOptional ? {
-                                            startWithBox: startInteractingWithBox,
-                                        } : {
-                                            startWithBox: activeInteractor.params.canvas.startWithBox,
-                                        }),
-                                    };
-
-                                    canvasInstance.interact({ shapeType: 'points', enabled: true, ...interactorParameters });
-                                    onInteractionStart(activeInteractor, activeLabelID, interactorParameters);
-                                }
-                            }}
+                            onClick={this.startInteraction}
                         >
                             Interact
                         </Button>
@@ -1302,6 +1358,17 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     }
 
     private renderPopoverContent(): JSX.Element {
+        const { sam1 } = this.props;
+        if (sam1) {
+            return (
+                <div className='cvat-tools-control-popover-content'>
+                    <Text strong>SAM1 · Point prompts</Text>
+                    {this.renderLabelBlock()}
+                    {this.renderInteractorBlock()}
+                    <Text>Left click: foreground · Right click: background · Click SAM1 again: finish</Text>
+                </div>
+            );
+        }
         return (
             <div className='cvat-tools-control-popover-content'>
                 <Row justify='start'>
@@ -1344,7 +1411,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     public render(): JSX.Element | null {
         const {
-            interactors, detectors, trackers, isActivated, canvasInstance, labels, frameIsDeleted,
+            interactors, detectors, trackers, isActivated, canvasInstance, labels, frameIsDeleted, sam1,
         } = this.props;
         const {
             fetching, approxPolyAccuracy, pointsReceived, mode, portals, convertMasksToPolygons,
@@ -1364,11 +1431,16 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             {
                 className: 'cvat-tools-control cvat-active-canvas-control',
                 onClick: (): void => {
+                    if (sam1 && (this.interaction.requestPending || fetching || this.interaction.latestRequest)) {
+                        message.info('Wait for SAM1 to update the preview before finishing.');
+                        return;
+                    }
                     canvasInstance.interact({ enabled: false });
                 },
             } :
             {
                 className: 'cvat-tools-control',
+                ...(sam1 ? { onClick: this.startInteraction } : {}),
             };
 
         const showAnyContent = labels.length && !frameIsDeleted;
@@ -1401,14 +1473,14 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         return showAnyContent ? (
             <>
                 <CustomPopover {...dynamicPopoverProps} placement='right' content={this.renderPopoverContent()}>
-                    <Icon {...dynamicIconProps} component={AIToolsIcon} />
+                    <Icon {...dynamicIconProps} component={sam1 ? SAM1Icon : AIToolsIcon} />
                 </CustomPopover>
                 {interactionContent}
                 {detectionContent}
                 {portals}
             </>
         ) : (
-            <Icon className=' cvat-tools-control cvat-disabled-canvas-control' component={AIToolsIcon} />
+            <Icon className=' cvat-tools-control cvat-disabled-canvas-control' component={sam1 ? SAM1Icon : AIToolsIcon} />
         );
     }
 }

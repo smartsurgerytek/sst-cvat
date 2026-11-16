@@ -479,7 +479,20 @@ class SegmentFrameProvider(IFrameProvider):
             ),
         }
 
-        if (
+        original_video = getattr(db_segment.task, "original_video", None)
+        if original_video is not None:
+            from cvat.apps.video_annotation.native_workspace import original_chunk
+
+            def make_loader(quality: models.FrameQuality) -> _ChunkLoader:
+                return _BufferChunkLoader(
+                    reader_class=ZipReader,
+                    reader_params=None,
+                    get_chunk_callback=lambda chunk_idx: original_chunk(
+                        original_video, db_segment, chunk_idx, quality
+                    ),
+                )
+
+        elif (
             db_data.storage_method
             == models.StorageMethodChoice.CACHE
             # TODO: separate handling, extract cache creation logic from media cache

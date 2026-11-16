@@ -27,6 +27,10 @@ cmd_init() {
     wait_for_db
     ~/manage.py migrate
 
+    if [[ "${CVAT_REPAIR_LEGACY_TASK_SCHEMA:-no}" == "yes" ]]; then
+        ~/manage.py repair_legacy_task_schema
+    fi
+
     wait_for_redis_inmem
     ~/manage.py migrateredis
     ~/manage.py syncperiodicjobs
